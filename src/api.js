@@ -23,6 +23,7 @@ async function request(method, path, body) {
 export const api = {
   listLeads: () => request("GET", "/api/leads"),
   listCounsellors: () => request("GET", "/api/counsellors"),
+  createCounsellor: (data) => request("POST", "/api/counsellors", data),
   createLead: (data) => request("POST", "/api/leads", data),
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
   resetLeads: () => request("POST", "/api/leads/reset"),

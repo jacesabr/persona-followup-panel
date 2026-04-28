@@ -36,6 +36,9 @@ const writeLimiter = rateLimit({
 app.use("/api/leads", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/counsellors", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 
 app.use("/api/leads", leadsRouter);
 app.use("/api/counsellors", counsellorsRouter);

@@ -7,6 +7,7 @@ import {
   Plus,
   RotateCcw,
   Loader2,
+  UserPlus,
 } from "lucide-react";
 import { api } from "./api.js";
 import { COUNTRIES, flagEmoji } from "./countries.js";
@@ -54,6 +55,7 @@ export default function LeadFollowup() {
   const [counsellors, setCounsellors] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [showNewLead, setShowNewLead] = useState(false);
+  const [showNewCounsellor, setShowNewCounsellor] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -178,6 +180,21 @@ export default function LeadFollowup() {
     }
   };
 
+  const addCounsellor = async (data) => {
+    setBusy(true);
+    try {
+      const created = await api.createCounsellor(data);
+      setCounsellors((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
+      );
+      setShowNewCounsellor(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -212,6 +229,13 @@ export default function LeadFollowup() {
             title="Wipe leads on the server and restore seed data"
           >
             <RotateCcw className="h-3 w-3" /> reset
+          </button>
+          <button
+            onClick={() => setShowNewCounsellor(true)}
+            disabled={busy}
+            className="inline-flex items-center gap-2 border border-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#cc785c] transition hover:bg-[#cc785c]/10 disabled:opacity-50"
+          >
+            <UserPlus className="h-3.5 w-3.5" /> New counsellor
           </button>
           <button
             onClick={async () => {
@@ -250,6 +274,13 @@ export default function LeadFollowup() {
         <Stat n={stats.upcoming48} label="≤ 48hr" />
         <Stat n={stats.imminent12} label="≤ 12hr (reminder)" tone={stats.imminent12 > 0 ? "red" : ""} />
       </div>
+
+      {showNewCounsellor && (
+        <NewCounsellorForm
+          onCancel={() => setShowNewCounsellor(false)}
+          onSave={addCounsellor}
+        />
+      )}
 
       {showNewLead && (
         <NewLeadForm
@@ -869,6 +900,87 @@ function FormField({ label, hint, children }) {
         <p className="mt-1 text-[12px] italic text-stone-600">{hint}</p>
       )}
     </label>
+  );
+}
+
+function NewCounsellorForm({ onCancel, onSave }) {
+  const [name, setName] = useState("");
+  const [countryIso, setCountryIso] = useState("IN");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+
+  const country =
+    COUNTRIES.find((c) => c.iso === countryIso) ||
+    COUNTRIES.find((c) => c.iso === "IN");
+  const hasContact = !!phone || !!email;
+  const canSave = name.trim().length > 0 && hasContact;
+
+  const submit = () =>
+    onSave({
+      name,
+      whatsapp: phone ? `${country.dial}${phone}` : null,
+      email: email || null,
+    });
+
+  return (
+    <div className="mt-6 border border-stone-300 bg-white">
+      <div className="flex items-baseline justify-between border-b border-stone-300 px-6 py-4">
+        <div>
+          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+            Team · register
+          </p>
+          <p className="font-serif text-2xl">Add a counsellor</p>
+        </div>
+        <button
+          onClick={onCancel}
+          className="text-xs uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
+        >
+          ✕ Cancel
+        </button>
+      </div>
+
+      <div className="grid gap-5 px-6 py-5 md:max-w-xl">
+        <FormField label="Name *">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Full name"
+            className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
+          />
+        </FormField>
+        <FormField label="WhatsApp number" hint="Used for assignment + 12-hr reminder messages">
+          <div className="flex items-center gap-2">
+            <CountryCodeSelect value={countryIso} onChange={setCountryIso} />
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+              placeholder="9876543210"
+              className="min-w-0 flex-1 border-b border-stone-300 bg-transparent py-2 font-mono text-base outline-none focus:border-stone-600"
+            />
+          </div>
+        </FormField>
+        <FormField label="Email" hint="At least one of WhatsApp or email is required">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="counsellor@example.com"
+            className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
+          />
+        </FormField>
+      </div>
+
+      <div className="flex items-center justify-end border-t border-stone-200 bg-stone-50/60 px-6 py-4">
+        <button
+          onClick={submit}
+          disabled={!canSave}
+          title={canSave ? "" : "Enter a name and at least one of WhatsApp or email"}
+          className="border border-[#cc785c] bg-[#cc785c] px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          Save counsellor →
+        </button>
+      </div>
+    </div>
   );
 }
 
