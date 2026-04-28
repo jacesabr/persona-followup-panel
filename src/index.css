@@ -13,3 +13,10 @@ body,
 #root {
   height: 100%;
 }
+
+/* Browser defaults render placeholders too faint against the cream bg. */
+input::placeholder,
+textarea::placeholder {
+  color: rgb(87 83 78); /* stone-600 */
+  opacity: 1;
+}
