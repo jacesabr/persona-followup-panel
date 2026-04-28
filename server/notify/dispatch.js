@@ -1,5 +1,5 @@
 import pool from "../db.js";
-import { sendWhatsApp, pollWhatsAppFinalStatus, explainTwilioError } from "./twilio.js";
+import { sendWhatsApp } from "./twilio.js";
 import { sendEmail } from "./email.js";
 import {
   assignmentMessageForLead,
@@ -8,59 +8,77 @@ import {
   reminderMessageForCounsellor,
 } from "../messages.js";
 
+function statusCallbackUrl() {
+  const base = process.env.PUBLIC_BASE_URL;
+  if (!base) return undefined;
+  return `${base.replace(/\/$/, "")}/api/twilio/status`;
+}
+
 async function logActivity(leadId, entry) {
   await pool.query(
-    "INSERT INTO lead_activity (lead_id, type, channel, recipient, kind, text) VALUES ($1, $2, $3, $4, $5, $6)",
-    [leadId, entry.type, entry.channel || null, entry.recipient || null, entry.kind || null, entry.text]
+    `INSERT INTO lead_activity (lead_id, type, channel, recipient, kind, provider_sid, error_code, text)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      leadId,
+      entry.type,
+      entry.channel || null,
+      entry.recipient || null,
+      entry.kind || null,
+      entry.provider_sid || null,
+      entry.error_code || null,
+      entry.text,
+    ]
   );
 }
 
-async function trySend(leadId, channel, recipient, fn, kind) {
+async function trySendWhatsApp(leadId, recipient, contact, body, kind) {
   const label = kind === "reminder" ? "12hr reminder" : "Welcome";
   try {
-    const result = await fn();
-
-    // For WhatsApp, Twilio's create() returns "queued" — actual delivery
-    // happens asynchronously. Poll until terminal so the activity log
-    // reflects what really happened.
-    if (channel === "whatsapp" && result.sid) {
-      const final = await pollWhatsAppFinalStatus(result.sid);
-      if (final && (final.status === "delivered" || final.status === "sent")) {
-        await logActivity(leadId, {
-          type: "notification_sent",
-          channel, recipient, kind,
-          text: `${label} ${channel} delivered to ${recipient} (${result.to}).`,
-        });
-        return { ok: true, result };
-      }
-      const reason = final
-        ? `${final.status}${final.errorCode ? ` · ${final.errorCode}` : ""}${
-            explainTwilioError(final.errorCode) ? ` — ${explainTwilioError(final.errorCode)}` : ""
-          }`
-        : "no terminal status within 25s";
-      await logActivity(leadId, {
-        type: "notification_error",
-        channel, recipient, kind,
-        text: `${label} ${channel} to ${recipient} (${result.to}) failed: ${reason}`,
-      });
-      console.error(`[notify] WA to ${recipient} for ${leadId}: ${reason}`);
-      return { ok: false, error: reason };
-    }
-
-    // Email — SendGrid throws synchronously on failure, so success here is real.
+    const result = await sendWhatsApp(contact, body, { statusCallback: statusCallbackUrl() });
+    // Insert as PENDING — the Twilio webhook will update us to delivered / failed.
     await logActivity(leadId, {
-      type: "notification_sent",
-      channel, recipient, kind,
-      text: `${label} ${channel} sent to ${recipient} (${result.to || "ok"}).`,
+      type: "notification_pending",
+      channel: "whatsapp",
+      recipient,
+      kind,
+      provider_sid: result.sid,
+      text: `${label} whatsapp queued for ${recipient} (${result.to}). Awaiting Twilio delivery callback.`,
     });
     return { ok: true, result };
   } catch (e) {
     await logActivity(leadId, {
       type: "notification_error",
-      channel, recipient, kind,
-      text: `${label} ${channel} to ${recipient} failed: ${e.message}`,
+      channel: "whatsapp",
+      recipient,
+      kind,
+      text: `${label} whatsapp to ${recipient} failed at send: ${e.message}`,
     });
-    console.error(`[notify] ${label} ${channel} to ${recipient} for ${leadId}:`, e.message);
+    console.error(`[notify] WA send to ${recipient} for ${leadId}: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function trySendEmail(leadId, recipient, addr, subject, body, kind) {
+  const label = kind === "reminder" ? "12hr reminder" : "Welcome";
+  try {
+    const result = await sendEmail(addr, subject, body);
+    await logActivity(leadId, {
+      type: "notification_sent",
+      channel: "email",
+      recipient,
+      kind,
+      text: `${label} email sent to ${recipient} (${result.to}).`,
+    });
+    return { ok: true, result };
+  } catch (e) {
+    await logActivity(leadId, {
+      type: "notification_error",
+      channel: "email",
+      recipient,
+      kind,
+      text: `${label} email to ${recipient} failed: ${e.message}`,
+    });
+    console.error(`[notify] email to ${recipient} for ${leadId}: ${e.message}`);
     return { ok: false, error: e.message };
   }
 }
@@ -72,10 +90,10 @@ export async function fireAssignmentNotifications(lead, counsellor) {
   const subjCounsellor = `New lead assigned — ${lead.name} (${lead.purpose})`;
 
   await Promise.all([
-    lead.contact && trySend(lead.id, "whatsapp", "lead", () => sendWhatsApp(lead.contact, leadMsg), "assignment"),
-    lead.email && trySend(lead.id, "email", "lead", () => sendEmail(lead.email, subjLead, leadMsg), "assignment"),
-    counsellor.whatsapp && trySend(lead.id, "whatsapp", "counsellor", () => sendWhatsApp(counsellor.whatsapp, counsellorMsg), "assignment"),
-    counsellor.email && trySend(lead.id, "email", "counsellor", () => sendEmail(counsellor.email, subjCounsellor, counsellorMsg), "assignment"),
+    lead.contact && trySendWhatsApp(lead.id, "lead", lead.contact, leadMsg, "assignment"),
+    lead.email && trySendEmail(lead.id, "lead", lead.email, subjLead, leadMsg, "assignment"),
+    counsellor.whatsapp && trySendWhatsApp(lead.id, "counsellor", counsellor.whatsapp, counsellorMsg, "assignment"),
+    counsellor.email && trySendEmail(lead.id, "counsellor", counsellor.email, subjCounsellor, counsellorMsg, "assignment"),
   ]);
 }
 
@@ -86,9 +104,9 @@ export async function fireReminderNotifications(lead, counsellor) {
   const subjCounsellor = `Reminder — ${lead.name} session in 12 hours`;
 
   await Promise.all([
-    lead.contact && trySend(lead.id, "whatsapp", "lead", () => sendWhatsApp(lead.contact, leadMsg), "reminder"),
-    lead.email && trySend(lead.id, "email", "lead", () => sendEmail(lead.email, subjLead, leadMsg), "reminder"),
-    counsellor.whatsapp && trySend(lead.id, "whatsapp", "counsellor", () => sendWhatsApp(counsellor.whatsapp, counsellorMsg), "reminder"),
-    counsellor.email && trySend(lead.id, "email", "counsellor", () => sendEmail(counsellor.email, subjCounsellor, counsellorMsg), "reminder"),
+    lead.contact && trySendWhatsApp(lead.id, "lead", lead.contact, leadMsg, "reminder"),
+    lead.email && trySendEmail(lead.id, "lead", lead.email, subjLead, leadMsg, "reminder"),
+    counsellor.whatsapp && trySendWhatsApp(lead.id, "counsellor", counsellor.whatsapp, counsellorMsg, "reminder"),
+    counsellor.email && trySendEmail(lead.id, "counsellor", counsellor.email, subjCounsellor, counsellorMsg, "reminder"),
   ]);
 }

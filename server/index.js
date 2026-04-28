@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
+import twilioStatusRouter from "./routes/twilio_status.js";
 import { migrate } from "./migrate.js";
 import { seedIfEmpty } from "./seed.js";
 import { startCron } from "./cron.js";
@@ -21,6 +22,7 @@ app.get("/api/health", (req, res) =>
 
 app.use("/api/leads", leadsRouter);
 app.use("/api/counsellors", counsellorsRouter);
+app.use("/api/twilio", twilioStatusRouter);
 
 // Static frontend (Vite build output)
 const distPath = path.join(__dirname, "..", "dist");

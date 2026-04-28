@@ -30,24 +30,11 @@ export function explainTwilioError(code) {
   return TWILIO_ERR_HINTS[code] || `Twilio error code ${code}`;
 }
 
-export async function sendWhatsApp(toRaw, body) {
+export async function sendWhatsApp(toRaw, body, { statusCallback } = {}) {
   const overridden = TEST_TO();
   const to = `whatsapp:+${overridden || toRaw}`;
-  const msg = await getClient().messages.create({ from: FROM(), to, body });
+  const params = { from: FROM(), to, body };
+  if (statusCallback) params.statusCallback = statusCallback;
+  const msg = await getClient().messages.create(params);
   return { sid: msg.sid, to, status: msg.status };
-}
-
-const TERMINAL = new Set(["delivered", "sent", "failed", "undelivered", "canceled"]);
-
-export async function pollWhatsAppFinalStatus(sid, { maxMs = 25000, intervalMs = 2500 } = {}) {
-  const client = getClient();
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < maxMs) {
-    await new Promise((r) => setTimeout(r, intervalMs));
-    const m = await client.messages(sid).fetch();
-    last = { status: m.status, errorCode: m.errorCode, errorMessage: m.errorMessage };
-    if (TERMINAL.has(m.status)) return last;
-  }
-  return last; // timed out — return last seen
 }

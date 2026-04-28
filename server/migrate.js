@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS lead_activity (
 CREATE INDEX IF NOT EXISTS idx_leads_service_date ON leads(service_date);
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
 CREATE INDEX IF NOT EXISTS idx_lead_activity_lead_id ON lead_activity(lead_id);
+
+-- Twilio status callback support: provider_sid links our row to Twilio's
+-- Message SID so the webhook can update the same row over its lifecycle.
+ALTER TABLE lead_activity ADD COLUMN IF NOT EXISTS provider_sid TEXT;
+ALTER TABLE lead_activity ADD COLUMN IF NOT EXISTS error_code TEXT;
+CREATE INDEX IF NOT EXISTS idx_lead_activity_provider_sid ON lead_activity(provider_sid);
 `;
 
 export async function migrate() {

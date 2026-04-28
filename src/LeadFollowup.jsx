@@ -388,20 +388,14 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
 function LeadDetail({ lead, counsellor, onUpdate }) {
   const hrs = hoursUntil(lead.service_date);
 
-  // Find the most recent activity entry matching channel + recipient + kind
-  const findSent = (channel, recipient, kind) =>
+  // For each (channel, recipient, kind) tuple there's at most one row
+  // (Twilio webhook updates the same row over its lifecycle).
+  const findStatus = (channel, recipient, kind) =>
     (lead.activity || []).find(
       (a) =>
-        a.type === "notification_sent" &&
-        a.channel === channel &&
-        a.recipient === recipient &&
-        a.kind === kind
-    );
-
-  const findError = (channel, recipient, kind) =>
-    (lead.activity || []).find(
-      (a) =>
-        a.type === "notification_error" &&
+        (a.type === "notification_sent" ||
+          a.type === "notification_error" ||
+          a.type === "notification_pending") &&
         a.channel === channel &&
         a.recipient === recipient &&
         a.kind === kind
@@ -479,26 +473,22 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
                 <NotifStatus
                   label="Lead · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
-                  sent={findSent("whatsapp", "lead", "assignment")}
-                  error={findError("whatsapp", "lead", "assignment")}
+                  entry={findStatus("whatsapp", "lead", "assignment")}
                 />
                 <NotifStatus
                   label="Lead · Email"
                   icon={<Mail className="h-3 w-3" />}
-                  sent={findSent("email", "lead", "assignment")}
-                  error={findError("email", "lead", "assignment")}
+                  entry={findStatus("email", "lead", "assignment")}
                 />
                 <NotifStatus
                   label="Counsellor · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
-                  sent={findSent("whatsapp", "counsellor", "assignment")}
-                  error={findError("whatsapp", "counsellor", "assignment")}
+                  entry={findStatus("whatsapp", "counsellor", "assignment")}
                 />
                 <NotifStatus
                   label="Counsellor · Email"
                   icon={<Mail className="h-3 w-3" />}
-                  sent={findSent("email", "counsellor", "assignment")}
-                  error={findError("email", "counsellor", "assignment")}
+                  entry={findStatus("email", "counsellor", "assignment")}
                 />
               </div>
             )}
@@ -524,26 +514,22 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
                 <NotifStatus
                   label="Lead · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
-                  sent={findSent("whatsapp", "lead", "reminder")}
-                  error={findError("whatsapp", "lead", "reminder")}
+                  entry={findStatus("whatsapp", "lead", "reminder")}
                 />
                 <NotifStatus
                   label="Lead · Email"
                   icon={<Mail className="h-3 w-3" />}
-                  sent={findSent("email", "lead", "reminder")}
-                  error={findError("email", "lead", "reminder")}
+                  entry={findStatus("email", "lead", "reminder")}
                 />
                 <NotifStatus
                   label="Counsellor · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
-                  sent={findSent("whatsapp", "counsellor", "reminder")}
-                  error={findError("whatsapp", "counsellor", "reminder")}
+                  entry={findStatus("whatsapp", "counsellor", "reminder")}
                 />
                 <NotifStatus
                   label="Counsellor · Email"
                   icon={<Mail className="h-3 w-3" />}
-                  sent={findSent("email", "counsellor", "reminder")}
-                  error={findError("email", "counsellor", "reminder")}
+                  entry={findStatus("email", "counsellor", "reminder")}
                 />
               </div>
             )}
@@ -593,6 +579,8 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
                           ? "bg-emerald-500"
                           : a.type === "notification_error"
                           ? "bg-red-500"
+                          : a.type === "notification_pending"
+                          ? "bg-amber-400"
                           : a.type === "assignment"
                           ? "bg-amber-500"
                           : a.type === "status"
@@ -616,15 +604,20 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
   );
 }
 
-function NotifStatus({ label, icon, sent, error }) {
+function NotifStatus({ label, icon, entry }) {
   let cls = "border-stone-200 bg-white text-stone-500";
-  let suffix = "pending…";
-  if (sent) {
-    cls = "border-emerald-200 bg-emerald-50/40 text-emerald-700";
-    suffix = `✓ sent ${fmtDateTime(sent.ts)}`;
-  } else if (error) {
-    cls = "border-red-200 bg-red-50/50 text-red-700";
-    suffix = `✕ failed`;
+  let suffix = "not yet";
+  if (entry) {
+    if (entry.type === "notification_sent") {
+      cls = "border-emerald-200 bg-emerald-50/40 text-emerald-700";
+      suffix = `✓ ${fmtDateTime(entry.ts)}`;
+    } else if (entry.type === "notification_error") {
+      cls = "border-red-200 bg-red-50/50 text-red-700";
+      suffix = `✕ failed`;
+    } else if (entry.type === "notification_pending") {
+      cls = "border-amber-200 bg-amber-50/50 text-amber-700";
+      suffix = "sending…";
+    }
   }
   return (
     <div className={`flex items-center justify-between gap-2 border px-2.5 py-1.5 text-[13px] ${cls}`}>
@@ -632,7 +625,7 @@ function NotifStatus({ label, icon, sent, error }) {
         {icon}
         {label}
       </span>
-      <span className="text-[13px] uppercase tracking-[0.15em]" title={error?.text || sent?.text}>
+      <span className="text-[13px] uppercase tracking-[0.15em]" title={entry?.text}>
         {suffix}
       </span>
     </div>
