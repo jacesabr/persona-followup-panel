@@ -35,6 +35,16 @@ const LEADS = [
   },
 ];
 
+// Idempotent — runs every startup. Ensures the "Jace (test)" counsellor
+// exists so the Fill-test-data button on the form has a valid target.
+export async function ensureTestCounsellor() {
+  await pool.query(
+    `INSERT INTO counsellors (id, name, whatsapp, email) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, whatsapp = EXCLUDED.whatsapp, email = EXCLUDED.email`,
+    ["ctest", "Jace (test)", "917973744625", "jace100233260@gmail.com"]
+  );
+}
+
 export async function seedIfEmpty() {
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM counsellors");
   if (rows[0].n > 0) {

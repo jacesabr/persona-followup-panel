@@ -646,6 +646,21 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
     ? counsellors.find((c) => c.id === counsellorId)
     : null;
 
+  const fillTestData = () => {
+    // datetime-local needs YYYY-MM-DDTHH:mm in *local* time
+    const t = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now
+    t.setMinutes(0, 0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    const iso = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
+    setName("Jace (test lead)");
+    setContact("917973744625");
+    setEmail("jace100233260@gmail.com");
+    setPurpose("Test consult");
+    setServiceDate(iso);
+    setCounsellorId("ctest");
+    setNotes("Auto-filled by 'Fill test data'. Both lead and counsellor route to Jace's phone + email.");
+  };
+
   const submit = () =>
     onSave({
       name,
@@ -666,12 +681,23 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
           </p>
           <p className="font-serif text-2xl">Add a lead</p>
         </div>
-        <button
-          onClick={onCancel}
-          className="text-xs uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
-        >
-          ✕ Cancel
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={fillTestData}
+            className="text-xs uppercase tracking-[0.15em] text-stone-700 hover:text-stone-900 underline underline-offset-4 decoration-dotted"
+            title="Pre-fill the form with Jace's test contact info + Jace counsellor"
+          >
+            ⚡ Fill test data
+          </button>
+          <span className="text-stone-400">·</span>
+          <button
+            onClick={onCancel}
+            className="text-xs uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
+          >
+            ✕ Cancel
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-6 px-6 py-5 md:grid-cols-3">

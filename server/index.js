@@ -7,7 +7,7 @@ import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import twilioStatusRouter from "./routes/twilio_status.js";
 import { migrate } from "./migrate.js";
-import { seedIfEmpty } from "./seed.js";
+import { seedIfEmpty, ensureTestCounsellor } from "./seed.js";
 import { startCron } from "./cron.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +43,7 @@ const PORT = process.env.PORT || 3000;
 async function start() {
   await migrate();
   await seedIfEmpty();
+  await ensureTestCounsellor();
   startCron();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);
