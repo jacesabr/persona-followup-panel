@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,6 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { api } from "./api.js";
+import { COUNTRIES, flagEmoji } from "./countries.js";
 
 // ============================================================
 // Helpers
@@ -56,17 +57,26 @@ export default function LeadFollowup() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const genRef = useRef(0);
 
   const fetchAll = useCallback(async () => {
+    genRef.current += 1;
+    const myGen = genRef.current;
     try {
       const [l, c] = await Promise.all([api.listLeads(), api.listCounsellors()]);
-      setLeads(l);
-      setCounsellors(c);
-      setError(null);
+      if (myGen === genRef.current) {
+        setLeads(l);
+        setCounsellors(c);
+        setError(null);
+      }
     } catch (e) {
-      setError(e.message);
+      if (myGen === genRef.current) {
+        setError(e.message);
+      }
     } finally {
-      setLoading(false);
+      if (myGen === genRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -198,7 +208,15 @@ export default function LeadFollowup() {
             <RotateCcw className="h-3 w-3" /> reset
           </button>
           <button
-            onClick={() => setShowNewLead(true)}
+            onClick={async () => {
+              try {
+                const c = await api.listCounsellors();
+                setCounsellors(c);
+              } catch {
+                // fall back to cached list
+              }
+              setShowNewLead(true);
+            }}
             disabled={busy}
             className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
           >
@@ -305,13 +323,17 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
           </p>
           <p className="truncate text-xs text-stone-600">{lead.email || "—"}</p>
         </button>
-        <a
-          href={`tel:+${lead.contact}`}
-          className="font-mono text-sm text-stone-700 hover:text-stone-900 hover:underline"
-          title="Call"
-        >
-          +{lead.contact}
-        </a>
+        {lead.contact ? (
+          <a
+            href={`tel:+${lead.contact}`}
+            className="font-mono text-sm text-stone-700 hover:text-stone-900 hover:underline"
+            title="Call"
+          >
+            +{lead.contact}
+          </a>
+        ) : (
+          <span className="font-mono text-sm text-stone-700">—</span>
+        )}
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-stone-700">{lead.purpose}</p>
           <p className={`truncate text-xl font-semibold leading-tight ${dateClass}`}>
@@ -634,14 +656,18 @@ function NotifStatus({ label, icon, entry }) {
 
 function NewLeadForm({ counsellors, onCancel, onSave }) {
   const [name, setName] = useState("");
-  const [contact, setContact] = useState("");
+  const [countryIso, setCountryIso] = useState("IN");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [purpose, setPurpose] = useState("");
   const [serviceDate, setServiceDate] = useState("");
   const [counsellorId, setCounsellorId] = useState("");
   const [notes, setNotes] = useState("");
 
-  const canSave = name && contact && email && purpose && serviceDate;
+  const country =
+    COUNTRIES.find((c) => c.iso === countryIso) ||
+    COUNTRIES.find((c) => c.iso === "IN");
+  const canSave = name && phone && email && purpose && serviceDate;
   const counsellor = counsellorId
     ? counsellors.find((c) => c.id === counsellorId)
     : null;
@@ -653,7 +679,8 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
     const pad = (n) => String(n).padStart(2, "0");
     const iso = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
     setName("Jace (test lead)");
-    setContact("917973744625");
+    setCountryIso("IN");
+    setPhone("7973744625");
     setEmail("jace100233260@gmail.com");
     setPurpose("Test consult");
     setServiceDate(iso);
@@ -664,7 +691,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
   const submit = () =>
     onSave({
       name,
-      contact,
+      contact: `${country.dial}${phone}`,
       email,
       purpose,
       service_date: serviceDate,
@@ -713,13 +740,16 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
               className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
             />
           </FormField>
-          <FormField label="WhatsApp number *" hint="Digits only, with country code (e.g. 91 for India)">
-            <input
-              value={contact}
-              onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
-              placeholder="9198xxxxxxxx"
-              className="w-full border-b border-stone-300 bg-transparent py-2 font-mono text-base outline-none focus:border-stone-600"
-            />
+          <FormField label="WhatsApp number *" hint="Pick the country, then enter the local number">
+            <div className="flex items-center gap-2">
+              <CountryCodeSelect value={countryIso} onChange={setCountryIso} />
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                placeholder="9876543210"
+                className="min-w-0 flex-1 border-b border-stone-300 bg-transparent py-2 font-mono text-base outline-none focus:border-stone-600"
+              />
+            </div>
           </FormField>
           <FormField label="Email *" hint="Welcome + reminder emails go here">
             <input
@@ -807,17 +837,11 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-stone-200 bg-stone-50/60 px-6 py-4">
-        <p className="text-xs italic text-stone-600">
-          {canSave
-            ? counsellor
-              ? `Will save and notify ${counsellor.name} immediately.`
-              : "Will save as unassigned — assign later from the row."
-            : "Fill name, WhatsApp, email, purpose, and service time to save."}
-        </p>
+      <div className="flex items-center justify-end border-t border-stone-200 bg-stone-50/60 px-6 py-4">
         <button
           onClick={submit}
           disabled={!canSave}
+          title={canSave ? "" : "Fill name, phone, email, purpose, and date to save"}
           className="border border-[#cc785c] bg-[#cc785c] px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
         >
           Save lead →
@@ -838,6 +862,143 @@ function FormField({ label, hint, children }) {
         <p className="mt-1 text-[12px] italic text-stone-600">{hint}</p>
       )}
     </label>
+  );
+}
+
+function CountryCodeSelect({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const wrapRef = useRef(null);
+  const inputRef = useRef(null);
+  const activeBtnRef = useRef(null);
+
+  const selected =
+    COUNTRIES.find((c) => c.iso === value) ||
+    COUNTRIES.find((c) => c.iso === "IN");
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  // Reset highlighted index when query changes or dropdown opens
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [query, open]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? COUNTRIES.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.dial.includes(q) ||
+          c.iso.toLowerCase().includes(q)
+      )
+    : COUNTRIES;
+
+  // Keep the active button visible as the user navigates with arrow keys
+  useEffect(() => {
+    if (open && activeBtnRef.current) {
+      activeBtnRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeIdx, open]);
+
+  const onSearchKeyDown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered[activeIdx]) {
+        onChange(filtered[activeIdx].iso);
+        setOpen(false);
+        setQuery("");
+      }
+    }
+  };
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 border-b border-stone-300 py-2 pr-1 text-base outline-none hover:border-stone-500 focus:border-stone-600"
+        title={selected.name}
+      >
+        <span aria-hidden="true">{flagEmoji(selected.iso)}</span>
+        <span className="font-mono">+{selected.dial}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-stone-500" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 border border-stone-300 bg-white shadow-lg">
+          <div className="border-b border-stone-200 p-2">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKeyDown}
+              placeholder="Search country, code, or ISO…"
+              className="w-full border border-stone-200 bg-stone-50 px-2 py-1.5 text-sm outline-none focus:border-stone-500"
+            />
+          </div>
+          <ul className="max-h-64 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-xs italic text-stone-600">
+                No matches.
+              </li>
+            ) : (
+              filtered.map((c, idx) => (
+                <li key={c.iso}>
+                  <button
+                    type="button"
+                    ref={idx === activeIdx ? activeBtnRef : null}
+                    onClick={() => {
+                      onChange(c.iso);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-stone-100 ${
+                      idx === activeIdx ? "bg-stone-100" : ""
+                    } ${c.iso === value ? "bg-stone-50 font-medium" : ""}`}
+                  >
+                    <span aria-hidden="true">{flagEmoji(c.iso)}</span>
+                    <span className="flex-1 truncate">{c.name}</span>
+                    <span className="font-mono text-xs text-stone-600">
+                      +{c.dial}
+                    </span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

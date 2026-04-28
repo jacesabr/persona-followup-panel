@@ -1,22 +1,49 @@
 import express from "express";
+import twilio from "twilio";
 import pool from "../db.js";
 import { explainTwilioError } from "../notify/twilio.js";
 
 const router = express.Router();
 
+let warnedNoToken = false;
+
+// Reconstruct the public-facing URL Twilio signed against. Prefer the explicit
+// PUBLIC_BASE_URL when set (handles non-standard ports / path prefixes). Otherwise
+// infer from the request — relies on `app.set("trust proxy", 1)` so req.protocol
+// reads X-Forwarded-Proto. Mirrors twilio-node's own webhook() middleware.
+function buildTwilioUrl(req) {
+  const base = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
+  if (base) return `${base}${req.originalUrl || req.path}`;
+  return `${req.protocol}://${req.get("host")}${req.originalUrl || req.path}`;
+}
+
+function validateTwilioSignature(req) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    if (!warnedNoToken) {
+      console.warn("[twilio status] TWILIO_AUTH_TOKEN not set — skipping signature validation");
+      warnedNoToken = true;
+    }
+    return true;
+  }
+  const signature = req.headers["x-twilio-signature"];
+  return twilio.validateRequest(authToken, signature, buildTwilioUrl(req), req.body || {});
+}
+
 // Twilio's StatusCallback: form-urlencoded POST.
 // Docs: https://www.twilio.com/docs/messaging/guides/track-outbound-message-status
 //
 // Important fields:
-//   MessageSid   — Twilio Message SID (matches our lead_activity.provider_sid)
+//   MessageSid    — Twilio Message SID (matches our lead_activity.provider_sid)
 //   MessageStatus — queued | sent | delivered | read | failed | undelivered ...
-//   ErrorCode    — present on failure
+//   ErrorCode     — present on failure
 //
-// Note: not validating X-Twilio-Signature here. For production, use
-// twilio.validateRequest with the auth token. For this trial-mode demo,
-// the cost of a stray POST hitting this endpoint is at most a stale
-// activity-row update.
+// Signature validation is opt-in via TWILIO_AUTH_TOKEN. When unset, every
+// callback is accepted (one-time warning logged) — acceptable for trial mode.
 router.post("/status", express.urlencoded({ extended: false }), async (req, res) => {
+  if (!validateTwilioSignature(req)) {
+    return res.status(403).send("invalid signature");
+  }
   const { MessageSid, MessageStatus, ErrorCode } = req.body || {};
   if (!MessageSid || !MessageStatus) return res.status(400).send("missing fields");
 
@@ -50,7 +77,7 @@ router.post("/status", express.urlencoded({ extended: false }), async (req, res)
   }
 
   await pool.query(
-    "UPDATE lead_activity SET type = $1, text = $2, error_code = $3, ts = NOW() WHERE id = $4",
+    "UPDATE lead_activity SET type = $1, text = $2, error_code = $3 WHERE id = $4",
     [newType, newText, ErrorCode || null, a.id]
   );
 

@@ -3,9 +3,13 @@
 // In dev, vite.config.js proxies /api → :3000.
 
 async function request(method, path, body) {
+  const token = import.meta.env.VITE_ADMIN_TOKEN;
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

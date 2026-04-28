@@ -89,7 +89,7 @@ export async function fireAssignmentNotifications(lead, counsellor) {
   const subjLead = `Welcome to Persona — your ${lead.purpose} is scheduled`;
   const subjCounsellor = `New lead assigned — ${lead.name} (${lead.purpose})`;
 
-  await Promise.all([
+  await Promise.allSettled([
     lead.contact && trySendWhatsApp(lead.id, "lead", lead.contact, leadMsg, "assignment"),
     lead.email && trySendEmail(lead.id, "lead", lead.email, subjLead, leadMsg, "assignment"),
     counsellor.whatsapp && trySendWhatsApp(lead.id, "counsellor", counsellor.whatsapp, counsellorMsg, "assignment"),
@@ -103,7 +103,7 @@ export async function fireReminderNotifications(lead, counsellor) {
   const subjLead = `Reminder — your ${lead.purpose} session in 12 hours`;
   const subjCounsellor = `Reminder — ${lead.name} session in 12 hours`;
 
-  await Promise.all([
+  await Promise.allSettled([
     lead.contact && trySendWhatsApp(lead.id, "lead", lead.contact, leadMsg, "reminder"),
     lead.email && trySendEmail(lead.id, "lead", lead.email, subjLead, leadMsg, "reminder"),
     counsellor.whatsapp && trySendWhatsApp(lead.id, "counsellor", counsellor.whatsapp, counsellorMsg, "reminder"),

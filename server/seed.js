@@ -45,20 +45,7 @@ export async function ensureTestCounsellor() {
   );
 }
 
-export async function seedIfEmpty() {
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM counsellors");
-  if (rows[0].n > 0) {
-    console.log("[seed] data exists, skipping");
-    return;
-  }
-
-  for (const c of COUNSELLORS) {
-    await pool.query(
-      "INSERT INTO counsellors (id, name, whatsapp, email) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
-      [c.id, c.name, c.whatsapp, c.email]
-    );
-  }
-
+export async function seedLeads() {
   for (const l of LEADS) {
     await pool.query(
       `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, inquiry_date, notes)
@@ -77,6 +64,23 @@ export async function seedIfEmpty() {
       );
     }
   }
+}
+
+export async function seedIfEmpty() {
+  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM counsellors");
+  if (rows[0].n > 0) {
+    console.log("[seed] data exists, skipping");
+    return;
+  }
+
+  for (const c of COUNSELLORS) {
+    await pool.query(
+      "INSERT INTO counsellors (id, name, whatsapp, email) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+      [c.id, c.name, c.whatsapp, c.email]
+    );
+  }
+
+  await seedLeads();
 
   console.log("[seed] inserted counsellors and leads");
 }
