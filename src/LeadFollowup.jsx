@@ -722,7 +722,10 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
       contact: `${country.dial}${phone}`,
       email,
       purpose,
-      service_date: serviceDate,
+      // datetime-local input gives us a bare "YYYY-MM-DDTHH:mm" string in the
+      // user's local timezone. Convert to a proper UTC ISO so Postgres doesn't
+      // reinterpret it as UTC and shift it by the user's tz offset.
+      service_date: serviceDate ? new Date(serviceDate).toISOString() : null,
       counsellor_id: counsellorId || null,
       notes,
     });
