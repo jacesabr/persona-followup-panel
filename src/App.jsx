@@ -70,7 +70,7 @@ function Login({ onAuth }) {
         className="w-full max-w-xl border border-stone-200 bg-white/80 p-12"
       >
         <div className="mb-10 text-center">
-          <p className="text-[11px] uppercase tracking-[0.35em] text-stone-500">
+          <p className="text-[13px] uppercase tracking-[0.35em] text-stone-500">
             Sign in
           </p>
           <h1 className="mt-3 font-serif text-5xl leading-[1.05]">
@@ -82,7 +82,7 @@ function Login({ onAuth }) {
         </div>
 
         <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-500">
             Username
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-300 focus-within:border-stone-600">
@@ -103,7 +103,7 @@ function Login({ onAuth }) {
         </label>
 
         <label className="mt-6 block">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-500">
             Password
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-300 focus-within:border-stone-600">

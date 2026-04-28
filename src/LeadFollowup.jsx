@@ -171,7 +171,7 @@ export default function LeadFollowup() {
       {/* Page heading */}
       <div className="flex items-baseline justify-between">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+          <p className="text-[12px] uppercase tracking-[0.3em] text-stone-500">
             Front desk
           </p>
           <h1 className="mt-1 font-serif text-4xl leading-tight">
@@ -187,7 +187,7 @@ export default function LeadFollowup() {
           <button
             onClick={resetData}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900 disabled:opacity-30"
+            className="inline-flex items-center gap-1.5 text-[12px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900 disabled:opacity-30"
             title="Wipe leads on the server and restore seed data"
           >
             <RotateCcw className="h-3 w-3" /> reset
@@ -207,7 +207,7 @@ export default function LeadFollowup() {
           {error}
           <button
             onClick={() => setError(null)}
-            className="ml-3 text-[10px] uppercase tracking-wider underline"
+            className="ml-3 text-[12px] uppercase tracking-wider underline"
           >
             dismiss
           </button>
@@ -264,7 +264,7 @@ function Stat({ n, label, tone = "" }) {
   return (
     <div>
       <p className={`font-serif text-3xl leading-none ${color}`}>{n}</p>
-      <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-stone-500">
+      <p className="mt-1 text-[12px] uppercase tracking-[0.2em] text-stone-500">
         {label}
       </p>
     </div>
@@ -344,7 +344,7 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
           )}
         </div>
         <span
-          className={`inline-flex items-center justify-center border px-2 py-1 text-[11px] uppercase tracking-[0.15em] ${
+          className={`inline-flex items-center justify-center border px-2 py-1 text-[13px] uppercase tracking-[0.15em] ${
             lead.status === "scheduled"
               ? "border-emerald-200 bg-emerald-50/70 text-emerald-800"
               : lead.status === "completed"
@@ -408,30 +408,30 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
         {/* Left: contact + purpose + notes */}
         <div className="md:col-span-1 space-y-4">
           <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Contact
             </p>
             <p className="mt-1 text-sm font-medium">{lead.name}</p>
             <p className="text-xs text-stone-600">+{lead.contact}</p>
             <p className="text-xs text-stone-600">{lead.email || "—"}</p>
-            <p className="mt-3 text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="mt-3 text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Inquiry date
             </p>
             <p className="text-xs text-stone-700">{fmtDate(lead.inquiry_date)}</p>
           </div>
 
           <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Purpose
             </p>
             <p className="mt-1 text-sm font-medium">{lead.purpose}</p>
-            <p className="mt-3 text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="mt-3 text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Scheduled for
             </p>
             <p className="text-xs text-stone-700">{fmtDateTime(lead.service_date)}</p>
             {hrs >= 0 && hrs <= 48 && (
               <p
-                className={`mt-1 text-[10px] uppercase tracking-[0.15em] ${
+                className={`mt-1 text-[12px] uppercase tracking-[0.15em] ${
                   hrs <= 12 ? "text-red-700" : "text-amber-700"
                 }`}
               >
@@ -442,7 +442,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
 
           {lead.notes && (
             <div className="border border-stone-200 bg-white p-4">
-              <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+              <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
                 Admin notes
               </p>
               <p className="mt-2 text-xs leading-snug text-stone-700">
@@ -455,14 +455,14 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
         {/* Middle: notifications + status */}
         <div className="md:col-span-1 space-y-4">
           <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Notifications
             </p>
-            <p className="mt-1 text-[10px] italic text-stone-500">
+            <p className="mt-1 text-[12px] italic text-stone-500">
               Auto-fired by the server. State below reflects what's been delivered.
             </p>
 
-            <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-stone-700">
+            <p className="mt-4 text-[13px] font-semibold uppercase tracking-[0.15em] text-stone-700">
               On assignment
             </p>
             {!counsellor ? (
@@ -498,7 +498,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
               </div>
             )}
 
-            <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.15em] text-stone-700">
+            <p className="mt-4 text-[13px] font-semibold uppercase tracking-[0.15em] text-stone-700">
               12 hours before service
             </p>
             {!counsellor ? (
@@ -545,26 +545,26 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
           </div>
 
           <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Status
             </p>
             <div className="mt-2 flex gap-2">
               <button
                 onClick={() => onUpdate({ status: "completed" })}
                 disabled={lead.status === "completed"}
-                className="border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+                className="border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 ✓ Mark completed
               </button>
               <button
                 onClick={() => onUpdate({ status: "no_show" })}
                 disabled={lead.status === "no_show"}
-                className="border border-stone-300 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-500 disabled:cursor-not-allowed disabled:opacity-30"
+                className="border border-stone-300 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-500 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 ✕ No-show
               </button>
             </div>
-            <p className="mt-3 text-[10px] italic text-stone-500">
+            <p className="mt-3 text-[12px] italic text-stone-500">
               Completed leads can later be converted into student records.
             </p>
           </div>
@@ -573,7 +573,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
         {/* Right: activity */}
         <div className="md:col-span-1">
           <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
               Activity log
             </p>
             <ul className="mt-3 space-y-3">
@@ -597,7 +597,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
                     />
                     <div className="min-w-0 flex-1">
                       <p className="leading-snug text-stone-700">{a.text}</p>
-                      <p className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-stone-500">
+                      <p className="mt-0.5 text-[12px] uppercase tracking-[0.1em] text-stone-500">
                         {fmtDateTime(a.ts)}
                       </p>
                     </div>
@@ -622,12 +622,12 @@ function NotifStatus({ label, icon, sent, error }) {
     suffix = `✕ failed`;
   }
   return (
-    <div className={`flex items-center justify-between gap-2 border px-2.5 py-1.5 text-[11px] ${cls}`}>
+    <div className={`flex items-center justify-between gap-2 border px-2.5 py-1.5 text-[13px] ${cls}`}>
       <span className="flex items-center gap-1.5">
         {icon}
         {label}
       </span>
-      <span className="text-[9px] uppercase tracking-[0.15em]" title={error?.text || sent?.text}>
+      <span className="text-[13px] uppercase tracking-[0.15em]" title={error?.text || sent?.text}>
         {suffix}
       </span>
     </div>
@@ -663,7 +663,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
     <div className="mt-6 border border-stone-300 bg-white">
       <div className="flex items-baseline justify-between border-b border-stone-300 px-6 py-4">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
             Front desk · new inquiry
           </p>
           <p className="font-serif text-2xl">Add a lead</p>
@@ -678,7 +678,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
 
       <div className="grid gap-6 px-6 py-5 md:grid-cols-3">
         <div className="space-y-4">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
             ① Person
           </p>
           <FormField label="Name *">
@@ -709,7 +709,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
         </div>
 
         <div className="space-y-4">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
             ② Service
           </p>
           <FormField label="Purpose *" hint="Free-fill — what they're coming in for">
@@ -740,7 +740,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
         </div>
 
         <div className="space-y-4">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-500">
             ③ Routing
           </p>
           <FormField label="Counsellor" hint="Pick now, or assign later from the row">
@@ -759,7 +759,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
           </FormField>
 
           <div className="border border-stone-200 bg-stone-50 p-3">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+            <p className="text-[12px] uppercase tracking-[0.2em] text-stone-500">
               On save, the server will send
             </p>
             <ul className="mt-2 space-y-1.5 text-xs">
@@ -806,12 +806,12 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
 function FormField({ label, hint, children }) {
   return (
     <label className="block">
-      <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+      <span className="text-[12px] uppercase tracking-[0.15em] text-stone-500">
         {label}
       </span>
       {children}
       {hint && (
-        <p className="mt-1 text-[10px] italic text-stone-500">{hint}</p>
+        <p className="mt-1 text-[12px] italic text-stone-500">{hint}</p>
       )}
     </label>
   );
@@ -829,7 +829,7 @@ function NotifPreview({ label, ready, hint }) {
         <span className={ready ? "text-stone-700" : "text-stone-400"}>{label}</span>
       </span>
       <span
-        className={`text-[10px] uppercase tracking-[0.1em] ${
+        className={`text-[12px] uppercase tracking-[0.1em] ${
           ready ? "text-emerald-700" : "text-stone-400"
         }`}
       >
