@@ -110,10 +110,16 @@ export default function LeadFollowup() {
     }
   };
 
+  // Sort: soonest upcoming event first; past events drop to the bottom
+  // (keeping past events sorted most-recent-first so they're not totally lost).
+  const now = Date.now();
   const sorted = [...leads].sort((a, b) => {
-    if (!a.counsellor_id && b.counsellor_id) return -1;
-    if (a.counsellor_id && !b.counsellor_id) return 1;
-    return new Date(a.service_date || 0) - new Date(b.service_date || 0);
+    const at = a.service_date ? new Date(a.service_date).getTime() : Infinity;
+    const bt = b.service_date ? new Date(b.service_date).getTime() : Infinity;
+    const aFuture = at >= now;
+    const bFuture = bt >= now;
+    if (aFuture !== bFuture) return aFuture ? -1 : 1;
+    return aFuture ? at - bt : bt - at;
   });
 
   const stats = {
@@ -673,9 +679,10 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
     : null;
 
   const fillTestData = () => {
-    // datetime-local needs YYYY-MM-DDTHH:mm in *local* time
-    const t = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now
-    t.setMinutes(0, 0, 0);
+    // datetime-local needs YYYY-MM-DDTHH:mm in *local* time.
+    // 12h + 1min lands the lead just outside the reminder window — the next
+    // cron tick (≤5min) will pull it in and fire the live WA/email reminder.
+    const t = new Date(Date.now() + (12 * 60 + 1) * 60 * 1000);
     const pad = (n) => String(n).padStart(2, "0");
     const iso = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
     setName("Jace (test lead)");
