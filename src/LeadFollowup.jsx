@@ -643,7 +643,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
   const [counsellorId, setCounsellorId] = useState("");
   const [notes, setNotes] = useState("");
 
-  const canSave = name && contact && purpose && serviceDate;
+  const canSave = name && contact && email && purpose && serviceDate;
   const counsellor = counsellorId
     ? counsellors.find((c) => c.id === counsellorId)
     : null;
@@ -689,7 +689,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
               className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
             />
           </FormField>
-          <FormField label="Phone (with country code) *">
+          <FormField label="WhatsApp number *" hint="Digits only, with country code (e.g. 91 for India)">
             <input
               value={contact}
               onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
@@ -697,7 +697,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
               className="w-full border-b border-stone-300 bg-transparent py-2 font-mono text-base outline-none focus:border-stone-600"
             />
           </FormField>
-          <FormField label="Email">
+          <FormField label="Email *" hint="Welcome + reminder emails go here">
             <input
               type="email"
               value={email}
@@ -789,7 +789,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
             ? counsellor
               ? `Will save and notify ${counsellor.name} immediately.`
               : "Will save as unassigned — assign later from the row."
-            : "Fill name, phone, purpose, and service time to save."}
+            : "Fill name, WhatsApp, email, purpose, and service time to save."}
         </p>
         <button
           onClick={submit}

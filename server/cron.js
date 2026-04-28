@@ -1,7 +1,9 @@
 import pool from "./db.js";
 import { fireReminderNotifications } from "./notify/dispatch.js";
 
-const CHECK_INTERVAL_MS = 60_000; // 1 minute
+// Polled check — fires each lead's reminder ONCE (gated by reminder_sent flag).
+// 5 min is plenty for human-scale appointments and keeps DB load low.
+const CHECK_INTERVAL_MS = 5 * 60_000;
 
 async function checkReminders() {
   const { rows } = await pool.query(`
