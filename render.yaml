@@ -12,6 +12,10 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
+      # Pin server timezone to UTC so bare datetime strings (if any sneak past
+      # validation) never get interpreted in some surprising local zone.
+      - key: TZ
+        value: UTC
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_API_KEY_SID

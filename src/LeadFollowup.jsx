@@ -11,41 +11,17 @@ import {
 } from "lucide-react";
 import { api } from "./api.js";
 import { COUNTRIES, flagEmoji } from "./countries.js";
+import {
+  formatInIst,
+  formatDateInIst,
+  hoursUntil,
+  localInputToUtcIso,
+} from "../lib/time.js";
 
-// ============================================================
-// Helpers
-// ============================================================
-const fmtDateTime = (iso) => {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("en-IN", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-};
-
-const fmtDate = (s) => {
-  if (!s) return "—";
-  try {
-    return new Date(s).toLocaleDateString("en-IN", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return s;
-  }
-};
-
-const hoursUntil = (iso) => {
-  if (!iso) return Infinity;
-  return Math.round((new Date(iso) - new Date()) / 3600000);
-};
+// Local aliases preserve the call sites; the helpers always render in IST so
+// the dashboard, email, and WhatsApp body all show the same wall-clock time.
+const fmtDateTime = formatInIst;
+const fmtDate = formatDateInIst;
 
 // ============================================================
 // Main
@@ -722,10 +698,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
       contact: `${country.dial}${phone}`,
       email,
       purpose,
-      // datetime-local input gives us a bare "YYYY-MM-DDTHH:mm" string in the
-      // user's local timezone. Convert to a proper UTC ISO so Postgres doesn't
-      // reinterpret it as UTC and shift it by the user's tz offset.
-      service_date: serviceDate ? new Date(serviceDate).toISOString() : null,
+      service_date: localInputToUtcIso(serviceDate),
       counsellor_id: counsellorId || null,
       notes,
     });

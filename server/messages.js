@@ -1,15 +1,8 @@
-const fmtDateTime = (iso) => {
-  if (!iso) return "TBD";
-  return new Date(iso).toLocaleString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  });
-};
+import { formatInIst } from "../lib/time.js";
+
+// Long-form IST display for outbound message bodies (weekday + full date + time).
+const fmtDateTime = (iso) =>
+  iso ? formatInIst(iso, { weekday: "short" }) : "TBD";
 
 export function assignmentMessageForLead(lead, counsellor) {
   const firstName = lead.name.split(" ")[0];

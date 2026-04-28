@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { fireAssignmentNotifications } from "../notify/dispatch.js";
 import { seedLeads } from "../seed.js";
+import { isValidUtcIso } from "../../lib/time.js";
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ function isString(v) {
   return typeof v === "string";
 }
 function validateLeadInput(body) {
-  const { name, contact, email, purpose, notes } = body;
+  const { name, contact, email, purpose, notes, service_date } = body;
   if (!isString(name) || name.trim().length < 1 || name.length > 200) {
     return "name must be a non-empty string up to 200 chars";
   }
@@ -28,6 +29,14 @@ function validateLeadInput(body) {
   if (notes !== undefined && notes !== null && notes !== "") {
     if (!isString(notes) || notes.length > 2000) {
       return "notes must be a string up to 2000 chars";
+    }
+  }
+  // Reject bare "YYYY-MM-DDTHH:mm" strings: Postgres TIMESTAMPTZ would
+  // silently reinterpret them as UTC, shifting the stored time by the
+  // submitter's offset. Require an explicit Z or ±HH:MM.
+  if (service_date !== undefined && service_date !== null && service_date !== "") {
+    if (!isValidUtcIso(service_date)) {
+      return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
   }
   return null;
@@ -52,8 +61,8 @@ function validatePatchFields(body) {
     }
   }
   if (body.service_date !== undefined && body.service_date !== null && body.service_date !== "") {
-    if (!isString(body.service_date) || isNaN(Date.parse(body.service_date))) {
-      return "service_date must be a valid ISO 8601 timestamp";
+    if (!isValidUtcIso(body.service_date)) {
+      return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
   }
   return null;
