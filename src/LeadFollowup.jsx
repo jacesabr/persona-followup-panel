@@ -208,19 +208,9 @@ export default function LeadFollowup() {
     <>
       {/* Page heading */}
       <div className="flex items-baseline justify-between">
-        <div>
-          <p className="text-[12px] uppercase tracking-[0.3em] text-stone-600">
-            Front desk
-          </p>
-          <h1 className="mt-1 font-serif text-4xl leading-tight">
-            Lead followup
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-stone-600">
-            New inquiries from calls, walk-ins, and forms. Assign a counsellor +
-            schedule the service. Notifications fire automatically — at assignment
-            and 12 hours before the session.
-          </p>
-        </div>
+        <h1 className="font-serif text-4xl leading-tight">
+          Lead followup
+        </h1>
         <div className="flex items-center gap-3">
           <button
             onClick={resetData}
@@ -256,7 +246,7 @@ export default function LeadFollowup() {
       </div>
 
       {error && (
-        <div className="mt-4 border border-red-200 bg-red-50/70 px-4 py-2 text-xs text-red-800">
+        <div className="mt-4 border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
           {error}
           <button
             onClick={() => setError(null)}
@@ -268,7 +258,7 @@ export default function LeadFollowup() {
       )}
 
       {/* Stats */}
-      <div className="mt-6 grid grid-cols-4 gap-4 border-y border-stone-200 py-4">
+      <div className="mt-6 grid grid-cols-4 gap-4 border-y border-stone-300 py-5">
         <Stat n={stats.total} label="Total leads" />
         <Stat n={stats.unassigned} label="Unassigned" tone={stats.unassigned > 0 ? "amber" : ""} />
         <Stat n={stats.upcoming48} label="≤ 48hr" />
@@ -291,7 +281,7 @@ export default function LeadFollowup() {
       )}
 
       {/* Lead list */}
-      <div className="mt-6 border border-stone-200 bg-white/30">
+      <div className="mt-6 border border-stone-300 bg-white">
         {sorted.map((lead, idx) => (
           <LeadRow
             key={lead.id}
@@ -320,11 +310,11 @@ function Stat({ n, label, tone = "" }) {
       ? "text-amber-700"
       : tone === "red"
       ? "text-red-700"
-      : "text-stone-900";
+      : "text-[#cc785c]";
   return (
     <div>
-      <p className={`font-serif text-3xl leading-none ${color}`}>{n}</p>
-      <p className="mt-1 text-[12px] uppercase tracking-[0.2em] text-stone-600">
+      <p className={`font-serif text-5xl font-bold leading-none ${color}`}>{n}</p>
+      <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-stone-600">
         {label}
       </p>
     </div>
@@ -346,9 +336,9 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
       : "text-stone-700";
 
   return (
-    <div className="border-b border-stone-200 last:border-b-0">
+    <div className="border-b border-stone-300 last:border-b-0">
       <div
-        className="grid items-center gap-3 px-4 py-4 hover:bg-white/50"
+        className="grid items-center gap-3 px-4 py-4 hover:bg-stone-50"
         style={{ gridTemplateColumns: "2rem 1.2fr 9rem 1.4fr 1fr 9rem 4.5rem" }}
       >
         <span className="font-serif text-sm italic text-stone-600">
@@ -394,7 +384,7 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
             <select
               defaultValue=""
               onChange={(e) => onAssign(e.target.value)}
-              className="w-full border border-amber-300 bg-amber-50/70 px-2 py-1.5 text-sm outline-none focus:border-amber-500"
+              className="w-full border border-amber-300 bg-amber-50 px-2 py-1.5 text-sm outline-none focus:border-amber-500"
             >
               <option value="" disabled>
                 ⚠ Assign…
@@ -410,12 +400,12 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
         <span
           className={`inline-flex items-center justify-center border px-2 py-1 text-[13px] uppercase tracking-[0.15em] ${
             lead.status === "scheduled"
-              ? "border-emerald-200 bg-emerald-50/70 text-emerald-800"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
               : lead.status === "completed"
               ? "border-stone-200 bg-stone-50 text-stone-600"
               : lead.status === "no_show"
-              ? "border-red-200 bg-red-50/70 text-red-800"
-              : "border-amber-200 bg-amber-50/70 text-amber-800"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-amber-200 bg-amber-50 text-amber-800"
           }`}
         >
           {lead.status}
@@ -461,7 +451,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
     );
 
   return (
-    <div className="border-t border-stone-200 bg-stone-50/60 p-5">
+    <div className="border-t border-stone-300 bg-stone-100 p-5">
       <div className="grid gap-6 md:grid-cols-3">
         {/* Left: contact + purpose + notes */}
         <div className="md:col-span-1 space-y-4">
@@ -668,13 +658,13 @@ function NotifStatus({ label, icon, entry }) {
   let suffix = "not yet";
   if (entry) {
     if (entry.type === "notification_sent") {
-      cls = "border-emerald-200 bg-emerald-50/40 text-emerald-700";
+      cls = "border-emerald-200 bg-emerald-50 text-emerald-700";
       suffix = `✓ ${fmtDateTime(entry.ts)}`;
     } else if (entry.type === "notification_error") {
-      cls = "border-red-200 bg-red-50/50 text-red-700";
+      cls = "border-red-200 bg-red-50 text-red-700";
       suffix = `✕ failed`;
     } else if (entry.type === "notification_pending") {
-      cls = "border-amber-200 bg-amber-50/50 text-amber-700";
+      cls = "border-amber-200 bg-amber-50 text-amber-700";
       suffix = "sending…";
     }
   }
@@ -739,23 +729,17 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
 
   return (
     <div className="mt-6 border border-stone-300 bg-white">
-      <div className="flex items-baseline justify-between border-b border-stone-300 px-6 py-4">
-        <div>
-          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-            Front desk · new inquiry
-          </p>
-          <p className="font-serif text-2xl">Add a lead</p>
-        </div>
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between border-b border-stone-300 px-6 py-4">
+        <p className="font-serif text-2xl">Add a lead</p>
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={fillTestData}
-            className="text-xs uppercase tracking-[0.15em] text-stone-700 hover:text-stone-900 underline underline-offset-4 decoration-dotted"
+            className="inline-flex items-center gap-2 border-2 border-[#cc785c] bg-[#cc785c]/10 px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] text-[#cc785c] transition hover:bg-[#cc785c]/20"
             title="Pre-fill the form with Jace's test contact info + Jace counsellor"
           >
             ⚡ Fill test data
           </button>
-          <span className="text-stone-400">·</span>
           <button
             onClick={onCancel}
             className="text-xs uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
@@ -875,7 +859,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-end border-t border-stone-200 bg-stone-50/60 px-6 py-4">
+      <div className="flex items-center justify-end border-t border-stone-300 bg-stone-100 px-6 py-4">
         <button
           onClick={submit}
           disabled={!canSave}
@@ -924,13 +908,8 @@ function NewCounsellorForm({ onCancel, onSave }) {
 
   return (
     <div className="mt-6 border border-stone-300 bg-white">
-      <div className="flex items-baseline justify-between border-b border-stone-300 px-6 py-4">
-        <div>
-          <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-            Team · register
-          </p>
-          <p className="font-serif text-2xl">Add a counsellor</p>
-        </div>
+      <div className="flex items-center justify-between border-b border-stone-300 px-6 py-4">
+        <p className="font-serif text-2xl">Add a counsellor</p>
         <button
           onClick={onCancel}
           className="text-xs uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
@@ -970,7 +949,7 @@ function NewCounsellorForm({ onCancel, onSave }) {
         </FormField>
       </div>
 
-      <div className="flex items-center justify-end border-t border-stone-200 bg-stone-50/60 px-6 py-4">
+      <div className="flex items-center justify-end border-t border-stone-300 bg-stone-100 px-6 py-4">
         <button
           onClick={submit}
           disabled={!canSave}
