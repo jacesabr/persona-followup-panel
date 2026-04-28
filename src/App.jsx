@@ -16,9 +16,6 @@ export default function App() {
               · Followup Panel
             </span>
           </div>
-          <span className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-            {import.meta.env.VITE_ADMIN_TOKEN ? "Token-gated" : "Open access · trial mode"}
-          </span>
         </header>
 
         <LeadFollowup />

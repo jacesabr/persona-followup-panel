@@ -28,18 +28,12 @@ services:
         sync: false
       - key: TEST_RECIPIENT_WHATSAPP
         sync: false
-      # Optional API auth — leave blank to keep API open during demo/trial.
-      - key: ADMIN_TOKEN
-        sync: false
-      # Optional CORS allowed origin — blank for same-origin only.
-      - key: CORS_ORIGIN
-        sync: false
       # Optional Twilio webhook signature validation. Set together with
       # PUBLIC_BASE_URL so validateRequest can match the signed URL.
       - key: TWILIO_AUTH_TOKEN
         sync: false
       # Public base URL used for Twilio status callbacks + signature validation.
-      # Set this to the Render service URL (https://<service>.onrender.com).
+      # Set to the Render service URL (https://<service>.onrender.com).
       - key: PUBLIC_BASE_URL
         sync: false
       - key: DATABASE_URL

@@ -1,7 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
-import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
@@ -17,9 +15,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set("trust proxy", 1);
 
-if (process.env.CORS_ORIGIN) {
-  app.use(cors({ origin: process.env.CORS_ORIGIN }));
-}
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", async (req, res) => {
@@ -31,21 +26,6 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-function requireAdminToken(req, res, next) {
-  const expected = process.env.ADMIN_TOKEN;
-  if (!expected) return next();
-  const header = req.headers["authorization"] || "";
-  const m = /^Bearer\s+(.+)$/.exec(header);
-  if (!m) return res.status(401).json({ error: "unauthorized" });
-  const provided = m[1];
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-  next();
-}
-
 const writeLimiter = rateLimit({
   windowMs: 60_000,
   max: 30,
@@ -53,8 +33,6 @@ const writeLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use("/api/leads", requireAdminToken);
-app.use("/api/counsellors", requireAdminToken);
 app.use("/api/leads", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
