@@ -23,7 +23,7 @@ export default function App() {
         <header className="mb-10 flex items-center justify-between border-b border-stone-200 pb-4">
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold tracking-tight">Persona</span>
-            <span className="text-xs uppercase tracking-[0.25em] text-stone-500">
+            <span className="text-xs uppercase tracking-[0.25em] text-stone-600">
               · Followup Panel
             </span>
           </div>
@@ -70,23 +70,23 @@ function Login({ onAuth }) {
         className="w-full max-w-xl border border-stone-200 bg-white/80 p-12"
       >
         <div className="mb-10 text-center">
-          <p className="text-[13px] uppercase tracking-[0.35em] text-stone-500">
+          <p className="text-[13px] uppercase tracking-[0.35em] text-stone-600">
             Sign in
           </p>
           <h1 className="mt-3 font-serif text-5xl leading-[1.05]">
             Persona
           </h1>
-          <p className="mt-3 text-xs uppercase tracking-[0.3em] text-stone-500">
+          <p className="mt-3 text-xs uppercase tracking-[0.3em] text-stone-600">
             Followup Panel
           </p>
         </div>
 
         <label className="block">
-          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
             Username
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-300 focus-within:border-stone-600">
-            <User className="h-4 w-4 text-stone-500" />
+            <User className="h-4 w-4 text-stone-600" />
             <input
               type="text"
               value={user}
@@ -103,11 +103,11 @@ function Login({ onAuth }) {
         </label>
 
         <label className="mt-6 block">
-          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
             Password
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-300 focus-within:border-stone-600">
-            <Lock className="h-4 w-4 text-stone-500" />
+            <Lock className="h-4 w-4 text-stone-600" />
             <input
               type="password"
               value={pw}
