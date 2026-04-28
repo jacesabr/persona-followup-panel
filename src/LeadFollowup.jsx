@@ -76,9 +76,14 @@ export default function LeadFollowup() {
 
   // After mutations that fire async notifications, refetch a couple of times
   // to capture the activity log entries as they're written server-side.
+  // After mutations that fire async notifications, refetch a few times.
+  // Twilio's WhatsApp delivery is polled server-side for ~25s, so spread the
+  // refetches out to capture the final delivered/failed state.
   const refetchSoon = useCallback(() => {
-    setTimeout(fetchAll, 1500);
-    setTimeout(fetchAll, 4000);
+    setTimeout(fetchAll, 2000);
+    setTimeout(fetchAll, 8000);
+    setTimeout(fetchAll, 18000);
+    setTimeout(fetchAll, 30000);
   }, [fetchAll]);
 
   const resetData = async () => {

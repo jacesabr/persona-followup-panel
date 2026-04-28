@@ -1,5 +1,5 @@
 import pool from "../db.js";
-import { sendWhatsApp } from "./twilio.js";
+import { sendWhatsApp, pollWhatsAppFinalStatus, explainTwilioError } from "./twilio.js";
 import { sendEmail } from "./email.js";
 import {
   assignmentMessageForLead,
@@ -19,6 +19,35 @@ async function trySend(leadId, channel, recipient, fn, kind) {
   const label = kind === "reminder" ? "12hr reminder" : "Welcome";
   try {
     const result = await fn();
+
+    // For WhatsApp, Twilio's create() returns "queued" — actual delivery
+    // happens asynchronously. Poll until terminal so the activity log
+    // reflects what really happened.
+    if (channel === "whatsapp" && result.sid) {
+      const final = await pollWhatsAppFinalStatus(result.sid);
+      if (final && (final.status === "delivered" || final.status === "sent")) {
+        await logActivity(leadId, {
+          type: "notification_sent",
+          channel, recipient, kind,
+          text: `${label} ${channel} delivered to ${recipient} (${result.to}).`,
+        });
+        return { ok: true, result };
+      }
+      const reason = final
+        ? `${final.status}${final.errorCode ? ` · ${final.errorCode}` : ""}${
+            explainTwilioError(final.errorCode) ? ` — ${explainTwilioError(final.errorCode)}` : ""
+          }`
+        : "no terminal status within 25s";
+      await logActivity(leadId, {
+        type: "notification_error",
+        channel, recipient, kind,
+        text: `${label} ${channel} to ${recipient} (${result.to}) failed: ${reason}`,
+      });
+      console.error(`[notify] WA to ${recipient} for ${leadId}: ${reason}`);
+      return { ok: false, error: reason };
+    }
+
+    // Email — SendGrid throws synchronously on failure, so success here is real.
     await logActivity(leadId, {
       type: "notification_sent",
       channel, recipient, kind,
