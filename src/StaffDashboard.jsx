@@ -437,7 +437,9 @@ function StaffLeadDetail({
 
         {/* Right: workflow box (the new bit) */}
         <div className="md:col-span-1 space-y-4">
-          {variant === "advanced" && <AdvancedAudioPlaceholder />}
+          {variant === "advanced" && (
+            <AudioUploader lead={lead} onChange={onWorkflowChange} />
+          )}
           <WorkflowBox
             lead={lead}
             counsellorId={counsellorId}
@@ -476,7 +478,32 @@ function NotifPill({ label, icon, entry }) {
   );
 }
 
-function AdvancedAudioPlaceholder() {
+function AudioUploader({ lead, onChange }) {
+  const [state, setState] = useState("idle"); // idle | uploading | success | error
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState(null);
+  const inputRef = useRef(null);
+
+  const onPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setState("uploading");
+    setErr(null);
+    setResult(null);
+    try {
+      const r = await api.uploadAudio(lead.id, file);
+      setResult(r);
+      setState("success");
+      onChange();
+    } catch (e) {
+      setErr(e.message);
+      setState("error");
+    } finally {
+      // Reset the input so the same file can be re-uploaded
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="border-2 border-dashed border-[#cc785c] bg-[#cc785c]/5 p-4">
       <div className="flex items-center gap-2">
@@ -485,11 +512,68 @@ function AdvancedAudioPlaceholder() {
           Audio capture · beta
         </p>
       </div>
-      <p className="mt-2 text-xs leading-snug text-stone-700">
-        Coming soon: record your WhatsApp call from the browser, auto-transcribe
-        with Whisper, and let Claude extract a summary + actionables. For now,
-        paste the transcript manually below.
-      </p>
+
+      {state === "idle" && (
+        <>
+          <p className="mt-2 text-xs leading-snug text-stone-700">
+            Upload a recording — Gemini will transcribe it and auto-extract
+            actionables. Same pipeline a live Twilio call will hit when WABA
+            is enabled. Max 25 MB; mp3 / m4a / wav / webm / ogg.
+          </p>
+          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
+            🎙️ Upload recording
+            <input
+              ref={inputRef}
+              type="file"
+              accept="audio/*"
+              onChange={onPick}
+              className="hidden"
+            />
+          </label>
+        </>
+      )}
+
+      {state === "uploading" && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-stone-700">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#cc785c]" />
+          <span>Transcribing + extracting actionables… (~10–30s)</span>
+        </div>
+      )}
+
+      {state === "success" && result && (
+        <div className="mt-3 space-y-1 text-xs text-stone-700">
+          <p>
+            ✓ Transcript saved ({result.transcript_chars.toLocaleString()} chars).
+          </p>
+          <p>
+            ✓ {result.actionables_count} actionable
+            {result.actionables_count === 1 ? "" : "s"} extracted.
+          </p>
+          {result.extract_error && (
+            <p className="text-amber-700">
+              Note: extractor warning — {result.extract_error}
+            </p>
+          )}
+          <button
+            onClick={() => setState("idle")}
+            className="mt-1 text-[11px] uppercase tracking-[0.15em] text-[#cc785c] underline underline-offset-2 hover:text-[#b86a4f]"
+          >
+            Upload another
+          </button>
+        </div>
+      )}
+
+      {state === "error" && (
+        <div className="mt-3 space-y-1 text-xs">
+          <p className="text-red-700">✕ {err}</p>
+          <button
+            onClick={() => setState("idle")}
+            className="text-[11px] uppercase tracking-[0.15em] text-[#cc785c] underline underline-offset-2 hover:text-[#b86a4f]"
+          >
+            Try again
+          </button>
+        </div>
+      )}
     </div>
   );
 }

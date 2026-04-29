@@ -1,10 +1,20 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import multer from "multer";
 import pool from "../db.js";
 import { fireAssignmentNotifications } from "../notify/dispatch.js";
 import { seedLeads } from "../seed.js";
 import { isValidUtcIso } from "../../lib/time.js";
-import { extractActionables } from "../extract.js";
+import { extractActionables, transcribeAudio } from "../extract.js";
+
+// In-memory storage; counsellor calls cap at ~15 min ≈ 5MB at standard
+// audio rates. 25MB ceiling matches Whisper API's well-tested upper bound
+// and stays within Gemini's inline-data limit so we don't have to use the
+// Files API for the common case.
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 const router = express.Router();
 
@@ -468,6 +478,73 @@ router.post("/:id/actionables/extract", async (req, res, next) => {
       inserted.push(r[0]);
     }
     res.json({ count: inserted.length, actionables: inserted });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/leads/:id/transcript/audio — multipart upload of an audio
+// recording. Server transcribes via Gemini, stores transcript on the lead,
+// then auto-runs the actionables extractor on the result. Same code path
+// the Twilio recording webhook will hit when WABA goes live; this endpoint
+// lets us validate the audio→transcript→actionables loop today against any
+// pre-recorded file.
+router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ error: "no audio file uploaded (field name: 'audio')" });
+    const { buffer, mimetype, originalname, size } = req.file;
+    if (!mimetype || !mimetype.startsWith("audio/")) {
+      return res.status(400).json({ error: `expected audio/* mime type, got ${mimetype}` });
+    }
+
+    const lead = await pool.query("SELECT id FROM leads WHERE id = $1", [id]);
+    if (lead.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+
+    // 1. Transcribe
+    let transcript;
+    try {
+      transcript = await transcribeAudio(buffer, mimetype);
+    } catch (e) {
+      if (/GEMINI_API_KEY/.test(e.message)) {
+        return res.status(503).json({ error: "Gemini API not configured (set GEMINI_API_KEY on the server)" });
+      }
+      console.error("[upload] Gemini transcription error:", e.message);
+      return res.status(502).json({ error: `Transcription error: ${e.message}` });
+    }
+
+    // 2. Persist transcript + log activity
+    await pool.query(
+      "UPDATE leads SET transcript = $1, updated_at = NOW() WHERE id = $2",
+      [transcript, id]
+    );
+    await pool.query(
+      `INSERT INTO lead_activity (lead_id, type, text)
+       VALUES ($1, 'transcript_attached', $2)`,
+      [id, `Audio "${originalname}" (${(size / 1024).toFixed(0)} KB) transcribed via Gemini — ${transcript.length} chars.`]
+    );
+
+    // 3. Extract actionables (best-effort; transcript is saved either way)
+    let extracted = [];
+    let extract_error = null;
+    try {
+      extracted = await extractActionables(transcript);
+      for (const text of extracted) {
+        await pool.query(
+          "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING id",
+          [id, text]
+        );
+      }
+    } catch (e) {
+      console.error("[upload] extractor failed (transcript still saved):", e.message);
+      extract_error = e.message;
+    }
+
+    res.json({
+      transcript_chars: transcript.length,
+      actionables_count: extracted.length,
+      extract_error,
+    });
   } catch (e) {
     next(e);
   }

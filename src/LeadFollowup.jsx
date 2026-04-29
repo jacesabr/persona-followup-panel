@@ -258,6 +258,20 @@ export default function LeadFollowup() {
 
       {/* Lead list */}
       <div className="mt-6 border border-stone-300 bg-white">
+        {sorted.length > 0 && (
+          <div
+            className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2.5 text-[12px] font-bold uppercase tracking-[0.18em] text-stone-800"
+            style={{ gridTemplateColumns: "2rem 1.2fr 9rem 1.4fr 1fr 9rem 4.5rem" }}
+          >
+            <span>#</span>
+            <span>Lead</span>
+            <span>Phone</span>
+            <span>Purpose / When</span>
+            <span>Counsellor</span>
+            <span className="text-center">Status</span>
+            <span className="text-right">View</span>
+          </div>
+        )}
         {sorted.map((lead, idx) => (
           <LeadRow
             key={lead.id}

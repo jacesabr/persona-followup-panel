@@ -65,3 +65,31 @@ export async function extractActionables(transcript) {
     .map((s) => s.trim().slice(0, 1000))
     .slice(0, 30);
 }
+
+const TRANSCRIBE_PROMPT = `Generate a verbatim transcript of this audio recording of a counselling-call conversation. Preserve speaker turns where discernible (label "Counsellor:" / "Caller:" if you can tell who's who; otherwise just transcribe in order). Include filler words and false starts only if relevant — prefer a clean, readable transcript. Do not summarize. Output the transcript text only, no preamble.`;
+
+// Transcribe an audio buffer using Gemini's multimodal input. The same model
+// and account quota as extractActionables — counts against the same free-tier
+// 1500 req/day. mimeType examples: "audio/mpeg", "audio/wav", "audio/mp4",
+// "audio/webm", "audio/ogg".
+export async function transcribeAudio(buffer, mimeType) {
+  if (!buffer || !buffer.length) throw new Error("empty audio buffer");
+  const base64 = buffer.toString("base64");
+
+  const response = await getClient().models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType, data: base64 } },
+          { text: TRANSCRIBE_PROMPT },
+        ],
+      },
+    ],
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("Gemini returned no transcript");
+  return text.trim();
+}

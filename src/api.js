@@ -43,4 +43,18 @@ export const api = {
     request("DELETE", `/api/leads/${leadId}/actionables/${id}`),
   extractActionables: (leadId) =>
     request("POST", `/api/leads/${leadId}/actionables/extract`),
+  uploadAudio: async (leadId, file) => {
+    const fd = new FormData();
+    fd.append("audio", file);
+    const res = await fetch(`/api/leads/${leadId}/transcript/audio`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail;
+      try { detail = await res.json(); } catch { detail = { error: res.statusText }; }
+      throw new Error(detail.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
 };
