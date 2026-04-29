@@ -212,20 +212,9 @@ export default function LeadFollowup({ onPickStaff }) {
 
   return (
     <>
-      {/* Page heading */}
-      <div className="flex items-baseline justify-between">
-        <h1 className="font-serif text-4xl leading-tight">
-          Lead followup
-        </h1>
+      {/* Top action row */}
+      <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button
-            onClick={resetData}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 text-[12px] uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900 disabled:opacity-30"
-            title="Wipe leads on the server and restore seed data"
-          >
-            <RotateCcw className="h-3 w-3" /> reset
-          </button>
           <button
             onClick={() => setShowNewCounsellor(true)}
             disabled={busy}
@@ -248,7 +237,18 @@ export default function LeadFollowup({ onPickStaff }) {
           >
             <Plus className="h-3.5 w-3.5" /> New lead
           </button>
+          <button
+            onClick={resetData}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 text-[12px] uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900 disabled:opacity-30"
+            title="Wipe leads on the server and restore seed data"
+          >
+            <RotateCcw className="h-3 w-3" /> reset
+          </button>
         </div>
+        {onPickStaff && (
+          <ViewStaffPanelPicker counsellors={counsellors} onSelect={onPickStaff} />
+        )}
       </div>
 
       {error && (
@@ -355,6 +355,58 @@ export default function LeadFollowup({ onPickStaff }) {
         )}
       </div>
     </>
+  );
+}
+
+function ViewStaffPanelPicker({ counsellors, onSelect }) {
+  const [open, setOpen] = useState(false);
+  if (counsellors.length === 0) return null;
+
+  const pickRandom = () => {
+    const c = counsellors[Math.floor(Math.random() * counsellors.length)];
+    onSelect({ counsellorId: c.id });
+    setOpen(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
+        View staff panel:
+      </span>
+      <button
+        onClick={pickRandom}
+        className="border border-stone-400 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+      >
+        🎲 Random
+      </button>
+      <div className="relative">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="border border-stone-400 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+        >
+          Pick counsellor ▾
+        </button>
+        {open && (
+          <div className="absolute right-0 top-full z-20 mt-1 w-72 border border-stone-400 bg-white shadow-md">
+            <ul className="max-h-72 overflow-y-auto py-1">
+              {counsellors.map((c) => (
+                <li key={c.id} className="border-b border-stone-200 last:border-b-0">
+                  <button
+                    onClick={() => {
+                      onSelect({ counsellorId: c.id });
+                      setOpen(false);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-stone-100"
+                  >
+                    {c.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
