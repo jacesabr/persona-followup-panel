@@ -501,15 +501,15 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
     const lead = await pool.query("SELECT id FROM leads WHERE id = $1", [id]);
     if (lead.rows.length === 0) return res.status(404).json({ error: "lead not found" });
 
-    // 1. Transcribe
+    // 1. Transcribe (Whisper, translates any-language → English)
     let transcript;
     try {
       transcript = await transcribeAudio(buffer, mimetype);
     } catch (e) {
-      if (/GEMINI_API_KEY/.test(e.message)) {
-        return res.status(503).json({ error: "Gemini API not configured (set GEMINI_API_KEY on the server)" });
+      if (/OPENAI_API_KEY/.test(e.message)) {
+        return res.status(503).json({ error: "OpenAI API not configured (set OPENAI_API_KEY on the server)" });
       }
-      console.error("[upload] Gemini transcription error:", e.message);
+      console.error("[upload] Whisper transcription error:", e.message);
       return res.status(502).json({ error: `Transcription error: ${e.message}` });
     }
 
@@ -521,7 +521,7 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
     await pool.query(
       `INSERT INTO lead_activity (lead_id, type, text)
        VALUES ($1, 'transcript_attached', $2)`,
-      [id, `Audio "${originalname}" (${(size / 1024).toFixed(0)} KB) transcribed via Gemini — ${transcript.length} chars.`]
+      [id, `Audio "${originalname}" (${(size / 1024).toFixed(0)} KB) transcribed via Whisper (translated to English) — ${transcript.length} chars.`]
     );
 
     // 3. Extract actionables (best-effort; transcript is saved either way)

@@ -1,23 +1,32 @@
-// Gemini-backed actionable extractor.
+// Hybrid: Gemini for actionables extraction (text in → JSON out, free tier)
+//         + OpenAI Whisper for audio transcription (audio in → English text out,
+//           translation is Whisper's purpose-built strength).
 //
-// Takes a counselling-call transcript and returns a list of concrete next
-// steps. Uses gemini-2.5-flash with structured-output via responseJsonSchema
-// so the response is validated against our shape server-side, not parsed
-// loosely from prose. Counsellor activity (~10/day) sits well inside Gemini's
-// free tier (15 RPM, 1500 req/day, 1M tokens/day).
-//
-// The endpoint that calls this is POST /api/leads/:id/actionables/extract.
+// The endpoints that call this:
+//   - POST /api/leads/:id/actionables/extract  → extractActionables(transcript)
+//   - POST /api/leads/:id/transcript/audio     → transcribeAudio(buffer, mime)
 
 import { GoogleGenAI } from "@google/genai";
+import OpenAI, { toFile } from "openai";
 
-let client = null;
-function getClient() {
-  if (client) return client;
+let geminiClient = null;
+function getGeminiClient() {
+  if (geminiClient) return geminiClient;
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY not set");
   }
-  client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  return client;
+  geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  return geminiClient;
+}
+
+let openaiClient = null;
+function getOpenAIClient() {
+  if (openaiClient) return openaiClient;
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY not set");
+  }
+  openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiClient;
 }
 
 const SYSTEM = `You are an assistant analyzing a counselling-call transcript at Persona, an education-counselling firm. Counsellors talk with prospective students or their parents about university applications, aptitude testing, SOP review, interview prep, and similar.
@@ -43,7 +52,7 @@ const SCHEMA = {
 };
 
 export async function extractActionables(transcript) {
-  const response = await getClient().models.generateContent({
+  const response = await getGeminiClient().models.generateContent({
     model: "gemini-2.5-flash",
     contents: `Transcript:\n\n${transcript}`,
     config: {
@@ -66,30 +75,29 @@ export async function extractActionables(transcript) {
     .slice(0, 30);
 }
 
-const TRANSCRIBE_PROMPT = `Generate a verbatim transcript of this audio recording of a counselling-call conversation. Preserve speaker turns where discernible (label "Counsellor:" / "Caller:" if you can tell who's who; otherwise just transcribe in order). Include filler words and false starts only if relevant — prefer a clean, readable transcript. Do not summarize. Output the transcript text only, no preamble.`;
-
-// Transcribe an audio buffer using Gemini's multimodal input. The same model
-// and account quota as extractActionables — counts against the same free-tier
-// 1500 req/day. mimeType examples: "audio/mpeg", "audio/wav", "audio/mp4",
-// "audio/webm", "audio/ogg".
+// Transcribe an audio buffer using OpenAI Whisper's audio.translations endpoint.
+// Whisper's translation mode auto-detects the source language (Hindi, Tamil,
+// Bengali, Punjabi, etc. — all 99 supported langs) and emits English. Single
+// API call, no prompt engineering required, gold-standard quality on Indian-
+// language → English. ~$0.006/min.
+//
+// File size cap: 25 MB per request (matches our multer limit). For longer
+// recordings, the caller should chunk; current counsellor-call lengths
+// (~10 min ≈ 5 MB) sit well under.
+//
+// mimeType examples: "audio/mpeg", "audio/wav", "audio/mp4", "audio/webm",
+// "audio/ogg". Whisper accepts mp3, mp4, mpeg, mpga, m4a, wav, webm.
 export async function transcribeAudio(buffer, mimeType) {
   if (!buffer || !buffer.length) throw new Error("empty audio buffer");
-  const base64 = buffer.toString("base64");
 
-  const response = await getClient().models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { inlineData: { mimeType, data: base64 } },
-          { text: TRANSCRIBE_PROMPT },
-        ],
-      },
-    ],
+  const ext = (mimeType || "").split("/")[1]?.split(";")[0] || "mp3";
+  const file = await toFile(buffer, `audio.${ext}`, { type: mimeType });
+
+  const result = await getOpenAIClient().audio.translations.create({
+    file,
+    model: "whisper-1",
   });
 
-  const text = response.text;
-  if (!text) throw new Error("Gemini returned no transcript");
-  return text.trim();
+  if (!result?.text) throw new Error("Whisper returned no transcript");
+  return result.text.trim();
 }
