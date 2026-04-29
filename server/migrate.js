@@ -45,6 +45,23 @@ CREATE INDEX IF NOT EXISTS idx_lead_activity_lead_id ON lead_activity(lead_id);
 ALTER TABLE lead_activity ADD COLUMN IF NOT EXISTS provider_sid TEXT;
 ALTER TABLE lead_activity ADD COLUMN IF NOT EXISTS error_code TEXT;
 CREATE INDEX IF NOT EXISTS idx_lead_activity_provider_sid ON lead_activity(provider_sid);
+
+-- Staff workflow: full transcript captured per lead (latest wins) and a
+-- separate table of actionables so each row can be ticked / annotated
+-- independently. lead_activity continues to capture the *when* (viewed,
+-- call_logged, transcript_attached); these store the *what*.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS transcript TEXT;
+
+CREATE TABLE IF NOT EXISTS lead_actionables (
+  id BIGSERIAL PRIMARY KEY,
+  lead_id TEXT REFERENCES leads(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  completed BOOLEAN DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  completed_note TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_actionables_lead_id ON lead_actionables(lead_id);
 `;
 
 export async function migrate() {

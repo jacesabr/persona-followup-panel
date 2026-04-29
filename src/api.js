@@ -17,6 +17,7 @@ async function request(method, path, body) {
     }
     throw new Error(detail.error || `HTTP ${res.status}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -27,4 +28,17 @@ export const api = {
   createLead: (data) => request("POST", "/api/leads", data),
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
   resetLeads: () => request("POST", "/api/leads/reset"),
+  // Staff workflow
+  markViewed: (leadId, counsellorId) =>
+    request("POST", `/api/leads/${leadId}/view`, { counsellor_id: counsellorId }),
+  logCall: (leadId, body) =>
+    request("POST", `/api/leads/${leadId}/call`, body),
+  setTranscript: (leadId, body) =>
+    request("PUT", `/api/leads/${leadId}/transcript`, body),
+  addActionable: (leadId, text) =>
+    request("POST", `/api/leads/${leadId}/actionables`, { text }),
+  updateActionable: (leadId, id, patch) =>
+    request("PATCH", `/api/leads/${leadId}/actionables/${id}`, patch),
+  deleteActionable: (leadId, id) =>
+    request("DELETE", `/api/leads/${leadId}/actionables/${id}`),
 };

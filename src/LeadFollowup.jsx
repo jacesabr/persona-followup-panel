@@ -586,45 +586,152 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
           </div>
         </div>
 
-        {/* Right: activity */}
-        <div className="md:col-span-1">
-          <div className="border border-stone-200 bg-white p-4">
-            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-              Activity log
-            </p>
-            <ul className="mt-3 space-y-3">
-              {(lead.activity || [])
-                .slice()
-                .reverse()
-                .map((a) => (
-                  <li key={a.id} className="flex gap-2 text-xs">
-                    <span
-                      className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-                        a.type === "notification_sent"
-                          ? "bg-emerald-500"
-                          : a.type === "notification_error"
-                          ? "bg-red-500"
-                          : a.type === "notification_pending"
-                          ? "bg-amber-400"
-                          : a.type === "assignment"
-                          ? "bg-amber-500"
-                          : a.type === "status"
-                          ? "bg-stone-700"
-                          : "bg-stone-300"
-                      }`}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="leading-snug text-stone-700">{a.text}</p>
-                      <p className="mt-0.5 text-[12px] uppercase tracking-[0.1em] text-stone-600">
-                        {fmtDateTime(a.ts)}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-            </ul>
-          </div>
+        {/* Right: split log — Technical (notifications) + Staff workflow */}
+        <div className="md:col-span-1 space-y-4">
+          <TechnicalLog activity={lead.activity || []} />
+          <StaffWorkflowLog lead={lead} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function TechnicalLog({ activity }) {
+  const technical = activity.filter(
+    (a) =>
+      a.type === "notification_sent" ||
+      a.type === "notification_error" ||
+      a.type === "notification_pending"
+  );
+  return (
+    <div className="border border-stone-300 bg-white p-4">
+      <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+        Technical · notifications
+      </p>
+      {technical.length === 0 ? (
+        <p className="mt-2 text-xs italic text-stone-500">
+          No notifications fired yet.
+        </p>
+      ) : (
+        <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+          {technical.slice().reverse().map((a) => (
+            <li key={a.id} className="flex gap-2 text-xs">
+              <span
+                className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
+                  a.type === "notification_sent"
+                    ? "bg-emerald-500"
+                    : a.type === "notification_error"
+                    ? "bg-red-500"
+                    : "bg-amber-400"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="leading-snug text-stone-700">{a.text}</p>
+                <p className="mt-0.5 text-[11px] uppercase tracking-[0.1em] text-stone-500">
+                  {fmtDateTime(a.ts)}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function StaffWorkflowLog({ lead }) {
+  const activity = lead.activity || [];
+  const assigned = activity.filter((a) => a.type === "assignment").slice(-1)[0];
+  const viewed = activity.filter((a) => a.type === "viewed").slice(-1)[0];
+  const calls = activity.filter((a) => a.type === "call_logged");
+  const transcriptUpdates = activity.filter((a) => a.type === "transcript_attached");
+  const actionables = lead.actionables || [];
+  const done = actionables.filter((a) => a.completed).length;
+
+  return (
+    <div className="border border-stone-300 bg-white p-4">
+      <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+        Staff workflow
+      </p>
+
+      <dl className="mt-3 space-y-2.5 text-xs">
+        <Row label="Assigned" value={assigned ? `${fmtDateTime(assigned.ts)} — ${assigned.text}` : "—"} />
+        <Row label="Viewed" value={viewed ? fmtDateTime(viewed.ts) : <em className="text-stone-500">not yet</em>} />
+        <Row
+          label={`Calls (${calls.length})`}
+          value={
+            calls.length === 0 ? (
+              <em className="text-stone-500">none logged</em>
+            ) : (
+              <ul className="space-y-1">
+                {calls.slice().reverse().slice(0, 3).map((c) => (
+                  <li key={c.id} className="leading-snug text-stone-700">
+                    <span className="text-[11px] uppercase tracking-[0.1em] text-stone-500">
+                      {fmtDateTime(c.ts)}
+                    </span>
+                    <br />
+                    {c.text}
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        />
+        <Row
+          label="Transcript"
+          value={
+            lead.transcript ? (
+              <details className="text-stone-700">
+                <summary className="cursor-pointer text-[#cc785c] hover:text-[#b86a4f]">
+                  {lead.transcript.length} chars
+                  {transcriptUpdates.length > 0
+                    ? ` · last updated ${fmtDateTime(transcriptUpdates.slice(-1)[0].ts)}`
+                    : ""}{" "}
+                  — show
+                </summary>
+                <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-stone-200 bg-stone-50 p-2 text-[11px] leading-relaxed">
+                  {lead.transcript}
+                </p>
+              </details>
+            ) : (
+              <em className="text-stone-500">not yet</em>
+            )
+          }
+        />
+        <Row
+          label={`Actionables (${done}/${actionables.length})`}
+          value={
+            actionables.length === 0 ? (
+              <em className="text-stone-500">none yet</em>
+            ) : (
+              <ul className="space-y-1">
+                {actionables.map((a) => (
+                  <li
+                    key={a.id}
+                    className={`flex items-start gap-1.5 ${
+                      a.completed ? "text-stone-500 line-through" : "text-stone-800"
+                    }`}
+                  >
+                    <span aria-hidden="true">{a.completed ? "✓" : "○"}</span>
+                    <span className="flex-1 leading-snug">{a.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        />
+      </dl>
+    </div>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div>
+      <dt className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-stone-700">{value}</dd>
     </div>
   );
 }
