@@ -3,6 +3,7 @@ import { LogOut, User, Lock } from "lucide-react";
 import LeadFollowup from "./LeadFollowup.jsx";
 import StaffDashboard from "./StaffDashboard.jsx";
 import { api } from "./api.js";
+import { formatInIst } from "../lib/time.js";
 
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "admin";
@@ -74,7 +75,7 @@ export default function App() {
     const staffName =
       counsellors.find((c) => c.id === impersonating.counsellorId)?.name || "—";
     return (
-      <Frame onSignOut={onSignOut} panelLabel="Staff Panel">
+      <Frame onSignOut={onSignOut} viewLabel="Counsellor followup dashboard view">
         <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
         <StaffDashboard
           counsellorId={impersonating.counsellorId}
@@ -87,7 +88,7 @@ export default function App() {
 
   if (session.role === "admin") {
     return (
-      <Frame onSignOut={onSignOut} panelLabel="Admin Panel">
+      <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
         <LeadFollowup
           onPickStaff={(impersonationState) => setImpersonating(impersonationState)}
         />
@@ -97,7 +98,7 @@ export default function App() {
 
   // session.role === "staff"
   return (
-    <Frame onSignOut={onSignOut} panelLabel="Staff Panel">
+    <Frame onSignOut={onSignOut} viewLabel="Counsellor followup dashboard view">
       <StaffDashboard
         counsellorId={session.counsellorId}
         counsellors={counsellors}
@@ -106,7 +107,7 @@ export default function App() {
   );
 }
 
-function Frame({ children, onSignOut, panelLabel }) {
+function Frame({ children, onSignOut, viewLabel }) {
   return (
     <div
       className="min-h-screen w-full font-serif text-stone-900"
@@ -116,16 +117,14 @@ function Frame({ children, onSignOut, panelLabel }) {
         <header className="mb-10 flex items-center border-b border-stone-300 pb-4">
           <div className="flex flex-1 items-baseline gap-3">
             <span className="text-2xl font-semibold tracking-tight">Persona</span>
-            <span className="text-xs uppercase tracking-[0.25em] text-stone-600">
-              · Followup Panel
-            </span>
+            {viewLabel && (
+              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
+                · {viewLabel}
+              </span>
+            )}
           </div>
-          {panelLabel && (
-            <p className="shrink-0 text-lg font-bold uppercase tracking-[0.3em] text-[#cc785c]">
-              {panelLabel}
-            </p>
-          )}
-          <div className="flex flex-1 justify-end">
+          <div className="flex flex-1 items-center justify-end gap-5">
+            <LiveClock />
             <button
               onClick={onSignOut}
               className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900"
@@ -136,6 +135,30 @@ function Frame({ children, onSignOut, panelLabel }) {
         </header>
         {children}
       </div>
+    </div>
+  );
+}
+
+// Always-visible clock pinned to IST (Ludhiana / Asia/Kolkata). Updates every
+// second so anyone glancing at the header can confirm the displayed time
+// matches their wall clock — that's the whole point of having it here.
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="text-right leading-tight">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+        Ludhiana time
+      </p>
+      <p className="text-xs font-semibold tabular-nums text-stone-700">
+        {formatInIst(now.toISOString(), {
+          weekday: "short",
+          second: "2-digit",
+        })}
+      </p>
     </div>
   );
 }

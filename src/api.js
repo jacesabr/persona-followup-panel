@@ -22,11 +22,19 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  listLeads: () => request("GET", "/api/leads"),
+  // Default returns only active leads. Admin passes { includeArchived: true }
+  // to also receive archived rows for the collapsible "Archived" section.
+  listLeads: ({ includeArchived = false } = {}) =>
+    request(
+      "GET",
+      `/api/leads${includeArchived ? "?include_archived=true" : ""}`
+    ),
   listCounsellors: () => request("GET", "/api/counsellors"),
   createCounsellor: (data) => request("POST", "/api/counsellors", data),
   createLead: (data) => request("POST", "/api/leads", data),
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
+  archiveLead: (id) => request("POST", `/api/leads/${id}/archive`),
+  unarchiveLead: (id) => request("POST", `/api/leads/${id}/unarchive`),
   resetLeads: () => request("POST", "/api/leads/reset"),
   // Staff workflow
   markViewed: (leadId, counsellorId) =>

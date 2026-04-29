@@ -687,48 +687,40 @@ function AudioUploader({ lead, onChange }) {
   };
 
   return (
-    <div className="border-2 border-dashed border-[#cc785c] bg-[#cc785c]/5 p-4">
-      <div className="flex items-start gap-2">
-        <Mic className="mt-0.5 h-4 w-4 shrink-0 text-[#cc785c]" />
-        <div>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
+    <div className="border-2 border-dashed border-[#cc785c] bg-[#cc785c]/5 p-5">
+      <div className="flex items-start gap-3">
+        <Mic className="mt-1 h-6 w-6 shrink-0 text-[#cc785c]" />
+        <div className="min-w-0">
+          <p className="font-serif text-2xl font-semibold leading-tight text-[#cc785c]">
             Call student
           </p>
-          <p className="text-[10px] uppercase tracking-[0.15em] text-[#cc785c]/70">
-            [ only audio record until WhatsApp Business number is added ]
+          <p className="mt-1 text-sm text-stone-700">
+            Until your WhatsApp Business number is connected, record the call here.
           </p>
         </div>
       </div>
 
       {state === "idle" && (
-        <>
-          <p className="mt-3 text-xs leading-snug text-stone-700">
-            Record a call from this browser, or upload an existing audio
-            file. Whisper transcribes (any language → English) and Gemini
-            auto-extracts actionables. This mirrors the live Twilio
-            pipeline that activates when your WhatsApp Business number
-            goes live. Max ~10 min recording / 10 MB upload.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={startRecording}
-              className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f]"
-            >
-              🔴 Record now
-            </button>
-            <label className="inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
-              🎙️ Upload file
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                onChange={onPickFile}
-                className="hidden"
-              />
-            </label>
-          </div>
-        </>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={startRecording}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f]"
+          >
+            🔴 Record now
+          </button>
+          <label className="inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-4 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
+            🎙️ Upload file
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              onChange={onPickFile}
+              className="hidden"
+            />
+          </label>
+          <span className="text-xs italic text-stone-500">up to 10 min</span>
+        </div>
       )}
 
       {state === "recording" && (

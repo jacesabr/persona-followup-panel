@@ -18,6 +18,7 @@ async function checkReminders() {
           AND reminder_sent = FALSE
           AND status = 'scheduled'
           AND counsellor_id IS NOT NULL
+          AND archived = FALSE
         FOR UPDATE SKIP LOCKED
       )
       RETURNING *

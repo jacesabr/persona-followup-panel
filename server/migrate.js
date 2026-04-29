@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS lead_actionables (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_actionables_lead_id ON lead_actionables(lead_id);
+
+-- Archive support: admin-only soft-delete. Archived rows stay in the DB
+-- (so the activity log + actionables remain readable) but disappear from the
+-- main admin table behind a collapsed "Archived" section. Counsellors don't
+-- see archived leads in their staff dashboard.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+-- Partial index: active queries scan only non-archived rows, which is the
+-- 99% case once the archive grows. Bool indexes are fine but the partial
+-- form keeps the index small even with thousands of archived leads.
+CREATE INDEX IF NOT EXISTS idx_leads_active ON leads(service_date) WHERE archived = FALSE;
 `;
 
 export async function migrate() {

@@ -17,6 +17,7 @@ import {
   formatTimeInIst,
   hoursUntil,
   localInputToUtcIso,
+  utcIsoToIstInput,
 } from "../lib/time.js";
 
 // Local aliases preserve the call sites; the helpers always render in IST so
@@ -77,7 +78,10 @@ export default function LeadFollowup({ onPickStaff }) {
     genRef.current += 1;
     const myGen = genRef.current;
     try {
-      const [l, c] = await Promise.all([api.listLeads(), api.listCounsellors()]);
+      const [l, c] = await Promise.all([
+        api.listLeads({ includeArchived: true }),
+        api.listCounsellors(),
+      ]);
       if (myGen === genRef.current) {
         setLeads(l);
         setCounsellors(c);
@@ -148,7 +152,18 @@ export default function LeadFollowup({ onPickStaff }) {
     l.service_date ? new Date(l.service_date).getTime() : Infinity;
   const STATUS_ORDER = { unassigned: 0, scheduled: 1, completed: 2, no_show: 3 };
 
-  const sorted = [...leads].sort((a, b) => {
+  // Split active vs archived once. Stats, sort, and the main table all run on
+  // active rows only; the archived set drops into a collapsible section below.
+  const activeLeads = leads.filter((l) => !l.archived);
+  const archivedLeads = leads
+    .filter((l) => l.archived)
+    .sort((a, b) => {
+      const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
+      const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
+      return bt - at; // most-recently-archived first
+    });
+
+  const sorted = [...activeLeads].sort((a, b) => {
     switch (sortBy) {
       case "staff": {
         const an = counsellorName(a.counsellor_id) || "zzz_unassigned";
@@ -180,7 +195,8 @@ export default function LeadFollowup({ onPickStaff }) {
   });
 
   // Compute hoursUntil once per lead instead of 4× across the two filters.
-  const leadHours = leads.map((l) => ({ lead: l, hrs: hoursUntil(l.service_date) }));
+  // Stats and reminder buckets only consider active (non-archived) leads.
+  const leadHours = activeLeads.map((l) => ({ lead: l, hrs: hoursUntil(l.service_date) }));
 
   // Buckets are mutually exclusive: a lead 6h away counts only in imminent12,
   // not in upcoming48. The previous overlap inflated the 48hr number.
@@ -203,8 +219,8 @@ export default function LeadFollowup({ onPickStaff }) {
   }
 
   const stats = {
-    total: leads.length,
-    unassigned: leads.filter((l) => !l.counsellor_id).length,
+    total: activeLeads.length,
+    unassigned: activeLeads.filter((l) => !l.counsellor_id).length,
     upcoming48: upcoming48Leads.length,
     imminent12: imminent12Leads.length,
     reminderBreakdown,
@@ -227,6 +243,33 @@ export default function LeadFollowup({ onPickStaff }) {
     setBusy(true);
     try {
       const updated = await api.updateLead(leadId, patch);
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? updated : l)));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const archiveLead = async (leadId) => {
+    setBusy(true);
+    try {
+      const updated = await api.archiveLead(leadId);
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? updated : l)));
+      // Collapse the row — the archived view starts hidden so leaving it open
+      // would mean the row vanishes mid-interaction.
+      if (expanded === leadId) setExpanded(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unarchiveLead = async (leadId) => {
+    setBusy(true);
+    try {
+      const updated = await api.unarchiveLead(leadId);
       setLeads((prev) => prev.map((l) => (l.id === leadId ? updated : l)));
     } catch (e) {
       setError(e.message);
@@ -413,6 +456,7 @@ export default function LeadFollowup({ onPickStaff }) {
             onToggle={() => setExpanded(expanded === lead.id ? null : lead.id)}
             onAssign={(cid) => assignLead(lead.id, cid)}
             onUpdate={(patch) => updateLead(lead.id, patch)}
+            onArchive={() => archiveLead(lead.id)}
           />
         ))}
         {sorted.length === 0 && (
@@ -421,7 +465,74 @@ export default function LeadFollowup({ onPickStaff }) {
           </p>
         )}
       </div>
+
+      <ArchivedSection
+        leads={archivedLeads}
+        counsellors={counsellors}
+        onUnarchive={unarchiveLead}
+      />
     </>
+  );
+}
+
+// Collapsible "Archived" section. Hidden by default — click the header to
+// expand. Each row lists name + when + counsellor and an Unarchive button.
+function ArchivedSection({ leads, counsellors, onUnarchive }) {
+  const [open, setOpen] = useState(false);
+  if (leads.length === 0) return null;
+  const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
+  return (
+    <div className="mt-6 border border-stone-300 bg-stone-50">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left text-[12px] font-bold uppercase tracking-[0.18em] text-stone-700 hover:bg-stone-100"
+      >
+        <span className="inline-flex items-center gap-2">
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+          Archived ({leads.length})
+        </span>
+        <span className="text-[11px] font-normal normal-case tracking-normal text-stone-500">
+          {open ? "click to collapse" : "click to expand"}
+        </span>
+      </button>
+      {open && (
+        <ul className="divide-y divide-stone-200 border-t border-stone-200 bg-white">
+          {leads.map((lead) => (
+            <li
+              key={lead.id}
+              className="grid items-center gap-3 px-4 py-3 text-sm"
+              style={{ gridTemplateColumns: "1.2fr 1.4fr 1fr 8rem" }}
+            >
+              <span className="font-semibold text-stone-800">{lead.name}</span>
+              <span className="text-stone-700">
+                <span className="text-stone-500">{lead.purpose} · </span>
+                {fmtDateTime(lead.service_date)}
+              </span>
+              <span className="text-stone-700">
+                {counsellorNameById.get(lead.counsellor_id) || "—"}
+              </span>
+              <span className="flex flex-col items-end gap-0.5">
+                <button
+                  onClick={() => onUnarchive(lead.id)}
+                  className="text-xs uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f]"
+                >
+                  ↩ Unarchive
+                </button>
+                {lead.archived_at && (
+                  <span className="text-[10px] uppercase tracking-[0.1em] text-stone-500">
+                    archived {fmtDateTime(lead.archived_at)}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -497,7 +608,7 @@ function Stat({ n, label, sublabel, tone = "" }) {
   );
 }
 
-function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdate }) {
+function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdate, onArchive }) {
   const counsellor = lead.counsellor_id
     ? counsellors.find((c) => c.id === lead.counsellor_id)
     : null;
@@ -604,13 +715,14 @@ function LeadRow({ idx, lead, counsellors, expanded, onToggle, onAssign, onUpdat
           lead={lead}
           counsellor={counsellor}
           onUpdate={onUpdate}
+          onArchive={onArchive}
         />
       )}
     </div>
   );
 }
 
-function LeadDetail({ lead, counsellor, onUpdate }) {
+function LeadDetail({ lead, counsellor, onUpdate, onArchive }) {
   const hrs = hoursUntil(lead.service_date);
 
   // For each (channel, recipient, kind) tuple there's at most one row
@@ -696,12 +808,12 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
             ) : (
               <div className="mt-2 space-y-1.5">
                 <NotifStatus
-                  label="Lead · WhatsApp"
+                  label="Student · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
                   entry={findStatus("whatsapp", "lead", "assignment")}
                 />
                 <NotifStatus
-                  label="Lead · Email"
+                  label="Student · Email"
                   icon={<Mail className="h-3 w-3" />}
                   entry={findStatus("email", "lead", "assignment")}
                 />
@@ -737,12 +849,12 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
             ) : (
               <div className="mt-2 space-y-1.5">
                 <NotifStatus
-                  label="Lead · WhatsApp"
+                  label="Student · WhatsApp"
                   icon={<MessageCircle className="h-3 w-3" />}
                   entry={findStatus("whatsapp", "lead", "reminder")}
                 />
                 <NotifStatus
-                  label="Lead · Email"
+                  label="Student · Email"
                   icon={<Mail className="h-3 w-3" />}
                   entry={findStatus("email", "lead", "reminder")}
                 />
@@ -764,7 +876,7 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
             <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
               Status
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               <button
                 onClick={() => onUpdate({ status: "completed" })}
                 disabled={lead.status === "completed"}
@@ -779,9 +891,18 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
               >
                 ✕ No-show
               </button>
+              {onArchive && (
+                <button
+                  onClick={onArchive}
+                  className="border border-stone-300 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-500"
+                  title="Hide this student from the main list. They'll move to the Archived section below and you can restore them anytime."
+                >
+                  📁 Archive
+                </button>
+              )}
             </div>
             <p className="mt-3 text-[12px] italic text-stone-600">
-              Completed leads can later be converted into student records.
+              Archive hides the student from the main list — restore anytime from the Archived section below.
             </p>
           </div>
         </div>
@@ -859,24 +980,18 @@ function ActivityLog({ lead }) {
 
 function ActivityRow({ a, lead }) {
   const [expanded, setExpanded] = useState(false);
-  const summary = summarizeActivity(a);
+  const { dotClass, sentence } = summarizeActivity(a);
   const isTranscript = a.type === "transcript_attached" && lead.transcript;
 
   return (
-    <li className="text-xs">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] tabular-nums text-stone-500">
+    <li className="text-sm leading-relaxed">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 w-14 shrink-0 font-mono text-xs tabular-nums text-stone-500">
           {formatTimeInIst(a.ts)}
         </span>
-        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${summary.dotClass}`} />
-        <span className="min-w-0 flex-1 leading-snug">
-          <span className="font-medium text-stone-800">{summary.label}</span>
-          {summary.detail && (
-            <>
-              {" "}
-              <span className="text-stone-600">{summary.detail}</span>
-            </>
-          )}
+        <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+        <span className="min-w-0 flex-1 text-stone-800">
+          {sentence}
           {isTranscript && (
             <button
               onClick={() => setExpanded(!expanded)}
@@ -888,7 +1003,7 @@ function ActivityRow({ a, lead }) {
         </span>
       </div>
       {isTranscript && expanded && (
-        <pre className="ml-12 mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-stone-200 bg-stone-50 p-2 font-sans text-[11px] leading-relaxed text-stone-700">
+        <pre className="ml-20 mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded border border-stone-200 bg-stone-50 p-3 font-sans text-xs leading-relaxed text-stone-700">
           {lead.transcript}
         </pre>
       )}
@@ -896,96 +1011,124 @@ function ActivityRow({ a, lead }) {
   );
 }
 
+// Each branch returns a single full sentence — easier to scan than the old
+// label + detail split. Keeps the dot color so the row is still visually
+// type-coded at a glance.
 function summarizeActivity(a) {
   const t = a.type;
   switch (t) {
     case "inquiry":
-      return { dotClass: "bg-stone-400", label: "Lead created", detail: a.text };
+      return { dotClass: "bg-stone-400", sentence: a.text || "Lead created." };
     case "assignment":
-      return { dotClass: "bg-amber-500", label: a.text };
+      return { dotClass: "bg-amber-500", sentence: a.text };
     case "viewed":
-      return { dotClass: "bg-stone-400", label: a.text };
+      return { dotClass: "bg-stone-400", sentence: a.text };
     case "call_logged":
-      return { dotClass: "bg-blue-500", label: "Call logged", detail: a.text };
+      return { dotClass: "bg-blue-500", sentence: a.text };
     case "transcript_attached":
-      return { dotClass: "bg-purple-500", label: "Transcript saved", detail: a.text };
+      return { dotClass: "bg-purple-500", sentence: a.text || "Transcript saved." };
     case "status":
-      return { dotClass: "bg-stone-700", label: a.text };
-    case "notification_sent": {
-      const channel = a.channel === "email" ? "email" : "WhatsApp";
-      const recipient = a.recipient || "—";
-      const kind = a.kind === "reminder" ? "12hr reminder" : "welcome";
+      return { dotClass: "bg-stone-700", sentence: a.text };
+    case "notification_sent":
       return {
         dotClass: "bg-emerald-500",
-        label: `${channel} ${kind}`,
-        detail: `→ ${recipient}`,
+        sentence: notificationSentence(a, "sent"),
       };
-    }
     case "notification_error":
-      return { dotClass: "bg-red-500", label: "Notification failed", detail: a.text };
+      return {
+        dotClass: "bg-red-500",
+        sentence: notificationSentence(a, "failed"),
+      };
     case "notification_pending":
-      return { dotClass: "bg-amber-400", label: "Notification queued", detail: a.text };
+      return {
+        dotClass: "bg-amber-400",
+        sentence: notificationSentence(a, "pending"),
+      };
     case "actionable_added":
       return {
         dotClass: "bg-orange-500",
-        label: "Actionable added",
-        detail: a.text.replace(/^Actionable added: /, ""),
+        sentence: `Next step added — ${stripPrefix(a.text, "Actionable added: ")}`,
       };
     case "actionable_completed":
       return {
         dotClass: "bg-emerald-500",
-        label: "✓ Completed",
-        detail: a.text.replace(/^Completed: /, ""),
+        sentence: `Marked complete — ${stripPrefix(a.text, "Completed: ")}`,
       };
     case "actionable_uncompleted":
       return {
         dotClass: "bg-stone-400",
-        label: "↺ Reopened",
-        detail: a.text.replace(/^Reopened: /, ""),
+        sentence: `Reopened — ${stripPrefix(a.text, "Reopened: ")}`,
       };
     case "actionable_edited":
       return {
         dotClass: "bg-stone-400",
-        label: "Edited actionable",
-        detail: a.text.replace(/^Edited actionable: /, ""),
+        sentence: `Next step edited — ${stripPrefix(a.text, "Edited actionable: ")}`,
       };
     case "actionable_deleted":
       return {
         dotClass: "bg-stone-400",
-        label: "Removed actionable",
-        detail: a.text.replace(/^Removed actionable: /, ""),
+        sentence: `Next step removed — ${stripPrefix(a.text, "Removed actionable: ")}`,
       };
-    case "actionables_extracted":
-      return { dotClass: "bg-orange-500", label: "Auto-extracted", detail: a.text };
+    case "actionables_extracted": {
+      // Server text e.g. "3 actionables auto-extracted from transcript"
+      const cleaned = (a.text || "").replace(/actionable/gi, "next step");
+      return {
+        dotClass: "bg-orange-500",
+        sentence: cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) + "." : "Next steps auto-extracted.",
+      };
+    }
     default:
-      return { dotClass: "bg-stone-300", label: a.text };
+      return { dotClass: "bg-stone-300", sentence: a.text || t };
   }
+}
+
+function stripPrefix(text, prefix) {
+  if (!text) return "";
+  return text.startsWith(prefix) ? text.slice(prefix.length) : text;
+}
+
+// Builds a natural-English sentence for notification activity rows.
+function notificationSentence(a, state) {
+  const recipient = a.recipient === "counsellor" ? "the counsellor" : "the student";
+  let phrase;
+  if (a.kind === "reminder") {
+    phrase = a.channel === "email" ? "12-hour email reminder" : "12-hour WhatsApp reminder";
+  } else {
+    phrase = a.channel === "email" ? "Welcome email" : "Welcome WhatsApp message";
+  }
+  if (state === "sent") {
+    return `${phrase} delivered to ${recipient}.`;
+  }
+  if (state === "pending") {
+    return `${phrase} queued for ${recipient} — waiting for delivery confirmation.`;
+  }
+  // failed — surface server's hint text since it usually explains why
+  if (a.text && a.text !== phrase) return a.text.endsWith(".") ? a.text : a.text + ".";
+  return `${phrase} to ${recipient} failed to deliver.`;
 }
 
 function NotifStatus({ label, icon, entry }) {
   let cls = "border-stone-200 bg-white text-stone-600";
-  let suffix = "not yet";
+  let statusLine = "Not yet sent.";
   if (entry) {
     if (entry.type === "notification_sent") {
       cls = "border-emerald-200 bg-emerald-50 text-emerald-700";
-      suffix = `✓ ${fmtDateTime(entry.ts)}`;
+      statusLine = `✓ Sent on ${fmtDateTime(entry.ts)}.`;
     } else if (entry.type === "notification_error") {
       cls = "border-red-200 bg-red-50 text-red-700";
-      suffix = `✕ failed`;
+      statusLine = `✕ Failed to send on ${fmtDateTime(entry.ts)}.`;
     } else if (entry.type === "notification_pending") {
       cls = "border-amber-200 bg-amber-50 text-amber-700";
-      suffix = "sending…";
+      statusLine = `Sending… (queued ${fmtDateTime(entry.ts)})`;
     }
   }
   return (
-    <div className={`flex items-center justify-between gap-2 border px-2.5 py-1.5 text-[13px] ${cls}`}>
-      <span className="flex items-center gap-1.5">
+    <div className={`border px-3 py-2 ${cls}`} title={entry?.text}>
+      <div className="flex items-center gap-1.5 text-[13px] font-semibold">
         {icon}
-        {label}
-      </span>
-      <span className="text-[13px] uppercase tracking-[0.15em]" title={entry?.text}>
-        {suffix}
-      </span>
+        <span>{label}</span>
+      </div>
+      <p className="mt-1 text-[12px] leading-snug">{statusLine}</p>
     </div>
   );
 }
@@ -1009,12 +1152,12 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
     : null;
 
   const fillTestData = () => {
-    // datetime-local needs YYYY-MM-DDTHH:mm in *local* time.
     // 12h + 1min lands the lead just outside the reminder window — the next
     // cron tick (≤5min) will pull it in and fire the live WA/email reminder.
+    // Input is rendered as IST wall-clock so the form shows the same time the
+    // counsellor would type, regardless of their browser's local timezone.
     const t = new Date(Date.now() + (12 * 60 + 1) * 60 * 1000);
-    const pad = (n) => String(n).padStart(2, "0");
-    const iso = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
+    const iso = utcIsoToIstInput(t.toISOString());
     setName("Jace (test lead)");
     setCountryIso("IN");
     setPhone("7973744625");
@@ -1149,7 +1292,7 @@ function NewLeadForm({ counsellors, onCancel, onSave }) {
             </p>
             <ul className="mt-2 space-y-1.5 text-xs">
               <NotifPreview
-                label="Lead · WhatsApp + email"
+                label="Student · WhatsApp + email"
                 ready={!!counsellor}
                 hint={counsellor ? "fires now" : "needs counsellor"}
               />

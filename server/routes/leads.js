@@ -139,12 +139,16 @@ async function attachActivity(leads) {
   }));
 }
 
-// GET /api/leads — all leads with their activity
+// GET /api/leads — leads with their activity. Hides archived rows by default
+// so the staff dashboard never surfaces archived leads to counsellors. Admin
+// passes ?include_archived=true to also receive the archived set.
 router.get("/", async (req, res, next) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM leads ORDER BY service_date ASC NULLS LAST"
-    );
+    const includeArchived = req.query.include_archived === "true";
+    const sql = includeArchived
+      ? "SELECT * FROM leads ORDER BY service_date ASC NULLS LAST"
+      : "SELECT * FROM leads WHERE archived = FALSE ORDER BY service_date ASC NULLS LAST";
+    const { rows } = await pool.query(sql);
     const enriched = await attachActivity(rows);
     res.json(enriched);
   } catch (e) {
@@ -290,6 +294,62 @@ router.patch("/:id", async (req, res, next) => {
       );
     }
 
+    const { rows: finalRows } = await pool.query("SELECT * FROM leads WHERE id = $1", [id]);
+    const enriched = await attachActivity(finalRows);
+    res.json(enriched[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/leads/:id/archive — soft-delete: hide from main admin table,
+// remove from counsellor staff dashboard. Idempotent.
+router.post("/:id/archive", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE leads SET archived = TRUE, archived_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND archived = FALSE RETURNING *`,
+      [id]
+    );
+    if (rows.length === 0) {
+      const exists = await pool.query("SELECT archived FROM leads WHERE id = $1", [id]);
+      if (exists.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+      // already archived — return current state without re-logging
+      const enriched = await attachActivity(exists.rows);
+      return res.json(enriched[0]);
+    }
+    await pool.query(
+      "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'archived', $2)",
+      [id, "Lead archived by admin."]
+    );
+    const { rows: finalRows } = await pool.query("SELECT * FROM leads WHERE id = $1", [id]);
+    const enriched = await attachActivity(finalRows);
+    res.json(enriched[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/leads/:id/unarchive — restore an archived lead.
+router.post("/:id/unarchive", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE leads SET archived = FALSE, archived_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND archived = TRUE RETURNING *`,
+      [id]
+    );
+    if (rows.length === 0) {
+      const exists = await pool.query("SELECT archived FROM leads WHERE id = $1", [id]);
+      if (exists.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+      const enriched = await attachActivity(exists.rows);
+      return res.json(enriched[0]);
+    }
+    await pool.query(
+      "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'unarchived', $2)",
+      [id, "Lead unarchived by admin."]
+    );
     const { rows: finalRows } = await pool.query("SELECT * FROM leads WHERE id = $1", [id]);
     const enriched = await attachActivity(finalRows);
     res.json(enriched[0]);
