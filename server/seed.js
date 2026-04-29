@@ -8,29 +8,48 @@ const COUNSELLORS = [
   { id: "c5", name: "Neha Sharma", whatsapp: "919811001005", email: "neha@persona.in" },
 ];
 
+// Seed dates are computed relative to whenever the server first seeds, so
+// the demo always shows leads with sensible relative timing (some upcoming,
+// some recent past) regardless of when the env was provisioned.
+function relDate(daysFromNow, hoursIst = 10) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  // Anchor in IST for readability (counsellors are in India). Convert to
+  // an explicit +05:30 ISO so Postgres TIMESTAMPTZ stores the correct UTC.
+  const pad = (n) => String(n).padStart(2, "0");
+  const datePart = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${datePart}T${pad(hoursIst)}:00:00+05:30`;
+}
+function relInquiry(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 const LEADS = [
   {
     id: "L001", name: "Simran Bhatia", contact: "919811001711", email: "simran.bhatia@example.com",
-    purpose: "STK aptitude test", service_date: "2026-05-06T10:00:00+05:30",
-    counsellor_id: "c1", status: "scheduled", inquiry_date: "2026-04-22",
+    purpose: "STK aptitude test", service_date: relDate(7, 10),
+    counsellor_id: "c1", status: "scheduled", inquiry_date: relInquiry(7),
     notes: "Class 12 student, parents called first. Specifically asked for aptitude testing.",
   },
   {
     id: "L002", name: "Aarav Khanna", contact: "919811002831", email: "aarav.k@example.com",
-    purpose: "Career counselling session", service_date: "2026-04-29T15:00:00+05:30",
-    counsellor_id: "c2", status: "scheduled", inquiry_date: "2026-04-24",
+    purpose: "Career counselling session", service_date: relDate(2, 15),
+    counsellor_id: "c2", status: "scheduled", inquiry_date: relInquiry(5),
     notes: "Heard about us from a friend. Confused between engineering and economics tracks.",
   },
   {
     id: "L003", name: "Pooja Malhotra", contact: "919811003942", email: "pooja.m@example.com",
-    purpose: "SOP review", service_date: "2026-04-28T11:00:00+05:30",
-    counsellor_id: "c3", status: "scheduled", inquiry_date: "2026-04-21",
+    purpose: "SOP review", service_date: relDate(1, 11),
+    counsellor_id: "c3", status: "scheduled", inquiry_date: relInquiry(8),
     notes: "Already has SOP draft for Cornell. Wants a 1-hour review session.",
   },
   {
     id: "L004", name: "Vivaan Sethi", contact: "919811004102", email: "vivaan.sethi@example.com",
-    purpose: "University shortlisting", service_date: "2026-05-02T16:00:00+05:30",
-    counsellor_id: null, status: "unassigned", inquiry_date: "2026-04-25",
+    purpose: "University shortlisting", service_date: relDate(4, 16),
+    counsellor_id: null, status: "unassigned", inquiry_date: relInquiry(4),
     notes: "Class 11, just exploring. Parents not yet involved.",
   },
 ];

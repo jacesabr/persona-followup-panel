@@ -156,10 +156,11 @@ export default function StaffDashboard({
       {/* Stats */}
       <div className="mt-6 grid grid-cols-3 gap-4 border-y border-stone-300 py-5">
         <Stat n={stats.myLeads} label="My leads" />
-        <Stat n={stats.upcoming48} label="≤ 48hr" />
+        <Stat n={stats.upcoming48} label="≤ 48hr" sublabel="Appointments" />
         <Stat
           n={stats.imminent12}
           label="≤ 12hr (reminder)"
+          sublabel="Appointments"
           tone={stats.imminent12 > 0 ? "red" : ""}
         />
       </div>
@@ -191,11 +192,14 @@ export default function StaffDashboard({
   );
 }
 
-function Stat({ n, label, tone = "" }) {
+function Stat({ n, label, sublabel, tone = "" }) {
   const color = tone === "red" ? "text-red-700" : "text-[#cc785c]";
   return (
     <div>
       <p className={`font-serif text-5xl font-bold leading-none ${color}`}>{n}</p>
+      {sublabel && (
+        <p className="mt-1 text-[11px] italic text-stone-500">{sublabel}</p>
+      )}
       <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-stone-600">
         {label}
       </p>
@@ -515,7 +519,7 @@ function AudioUploader({ lead, onChange }) {
             Upload a recording — Whisper will transcribe it (translates any
             language to English) and Gemini auto-extracts actionables. Same
             pipeline a live WhatsApp call will hit once the Business number
-            is enabled. Max 25 MB; mp3 / m4a / wav / webm / ogg.
+            is enabled. Max 10 MB (~10 min audio); mp3 / m4a / wav / webm / ogg.
           </p>
           <label className="mt-3 inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
             🎙️ Upload recording

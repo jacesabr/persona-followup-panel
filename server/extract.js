@@ -6,8 +6,9 @@
 //   - POST /api/leads/:id/actionables/extract  → extractActionables(transcript)
 //   - POST /api/leads/:id/transcript/audio     → transcribeAudio(buffer, mime)
 
+import fs from "node:fs";
 import { GoogleGenAI } from "@google/genai";
-import OpenAI, { toFile } from "openai";
+import OpenAI from "openai";
 
 let geminiClient = null;
 function getGeminiClient() {
@@ -19,14 +20,36 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+// 120s ceiling on Whisper calls — long enough for ≤10 min audio (our cap)
+// in the worst case, short enough that a hung call doesn't tie up a request
+// past Render's HTTP timeout.
+const OPENAI_TIMEOUT_MS = 120_000;
+
 let openaiClient = null;
 function getOpenAIClient() {
   if (openaiClient) return openaiClient;
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY not set");
   }
-  openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  openaiClient = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: OPENAI_TIMEOUT_MS,
+    maxRetries: 1, // one retry on transient network errors
+  });
   return openaiClient;
+}
+
+// 30s on Gemini text extraction — input is small (≤100k transcript chars)
+// and the response is bounded by our JSON schema. A timeout this short
+// catches genuinely-hung calls; normal latency is 2–8s.
+const GEMINI_TIMEOUT_MS = 30_000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 const SYSTEM = `You are an assistant analyzing a counselling-call transcript at Persona, an education-counselling firm. Counsellors talk with prospective students or their parents about university applications, aptitude testing, SOP review, interview prep, and similar.
@@ -52,15 +75,19 @@ const SCHEMA = {
 };
 
 export async function extractActionables(transcript) {
-  const response = await getGeminiClient().models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `Transcript:\n\n${transcript}`,
-    config: {
-      systemInstruction: SYSTEM,
-      responseMimeType: "application/json",
-      responseJsonSchema: SCHEMA,
-    },
-  });
+  const response = await withTimeout(
+    getGeminiClient().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Transcript:\n\n${transcript}`,
+      config: {
+        systemInstruction: SYSTEM,
+        responseMimeType: "application/json",
+        responseJsonSchema: SCHEMA,
+      },
+    }),
+    GEMINI_TIMEOUT_MS,
+    "Gemini extractActionables"
+  );
 
   const text = response.text;
   if (!text) throw new Error("Gemini returned no text");
@@ -75,29 +102,25 @@ export async function extractActionables(transcript) {
     .slice(0, 30);
 }
 
-// Transcribe an audio buffer using OpenAI Whisper's audio.translations endpoint.
-// Whisper's translation mode auto-detects the source language (Hindi, Tamil,
-// Bengali, Punjabi, etc. — all 99 supported langs) and emits English. Single
-// API call, no prompt engineering required, gold-standard quality on Indian-
-// language → English. ~$0.006/min.
+// Transcribe an audio file on disk via OpenAI Whisper's translations endpoint.
+// We pass a fs.ReadStream rather than buffering the whole file into memory —
+// this matters once multiple counsellor uploads land concurrently (Render
+// free tier is 512 MB; 5 × 10 MB streamed >> 5 × 10 MB buffered).
 //
-// File size cap: 25 MB per request (matches our multer limit). For longer
-// recordings, the caller should chunk; current counsellor-call lengths
-// (~10 min ≈ 5 MB) sit well under.
+// Whisper's translation mode auto-detects the source language across its 99
+// supported languages (Hindi, Tamil, Bengali, Punjabi, etc.) and emits
+// English. Single API call, no prompt engineering required, gold-standard
+// quality on Indian-language → English. ~$0.006/min.
 //
-// mimeType examples: "audio/mpeg", "audio/wav", "audio/mp4", "audio/webm",
-// "audio/ogg". Whisper accepts mp3, mp4, mpeg, mpga, m4a, wav, webm.
-export async function transcribeAudio(buffer, mimeType) {
-  if (!buffer || !buffer.length) throw new Error("empty audio buffer");
-
-  const ext = (mimeType || "").split("/")[1]?.split(";")[0] || "mp3";
-  const file = await toFile(buffer, `audio.${ext}`, { type: mimeType });
-
+// File size cap is enforced at the multer layer (10 MB ≈ ~10 min audio).
+// Whisper accepts mp3, mp4, mpeg, mpga, m4a, wav, webm.
+export async function transcribeAudio(filePath) {
+  if (!filePath) throw new Error("transcribeAudio requires a file path");
+  const stream = fs.createReadStream(filePath);
   const result = await getOpenAIClient().audio.translations.create({
-    file,
+    file: stream,
     model: "whisper-1",
   });
-
   if (!result?.text) throw new Error("Whisper returned no transcript");
   return result.text.trim();
 }

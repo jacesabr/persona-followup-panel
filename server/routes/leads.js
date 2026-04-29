@@ -1,5 +1,8 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import multer from "multer";
 import pool from "../db.js";
 import { fireAssignmentNotifications } from "../notify/dispatch.js";
@@ -7,14 +10,41 @@ import { seedLeads } from "../seed.js";
 import { isValidUtcIso } from "../../lib/time.js";
 import { extractActionables, transcribeAudio } from "../extract.js";
 
-// In-memory storage; counsellor calls cap at ~15 min ≈ 5MB at standard
-// audio rates. 25MB ceiling matches Whisper API's well-tested upper bound
-// and stays within Gemini's inline-data limit so we don't have to use the
-// Files API for the common case.
+// Disk storage instead of memory: streamed straight from disk to Whisper
+// later, so 5 simultaneous 10 MB uploads don't blow the 512 MB Render free
+// tier RAM. 10 MB cap ≈ ~10 min audio at standard mp3 bitrate, which
+// transcribes inside Whisper's expected window and keeps total request time
+// below Render's HTTP timeout.
 const audioUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).slice(0, 8) || ".audio";
+      cb(null, `persona-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
+
+// Per-lead upload lock — serializes concurrent uploads to the same lead so
+// the transcript + actionables pipeline can't race. Two webhooks for the
+// same lead within seconds is the realistic case once Twilio recordings
+// arrive (e.g. retry, or a re-recorded segment); this Map keeps them from
+// stepping on each other's UPDATE.
+const uploadLocks = new Map(); // leadId -> Promise
+async function withUploadLock(leadId, fn) {
+  const prev = uploadLocks.get(leadId);
+  if (prev) {
+    try { await prev; } catch { /* prior failed; we still proceed */ }
+  }
+  const p = (async () => fn())();
+  uploadLocks.set(leadId, p);
+  try {
+    return await p;
+  } finally {
+    if (uploadLocks.get(leadId) === p) uploadLocks.delete(leadId);
+  }
+}
 
 const router = express.Router();
 
@@ -504,112 +534,135 @@ router.post("/:id/actionables/extract", async (req, res, next) => {
 });
 
 // POST /api/leads/:id/transcript/audio — multipart upload of an audio
-// recording. Server transcribes via Gemini, stores transcript on the lead,
-// then auto-runs the actionables extractor on the result. Same code path
-// the Twilio recording webhook will hit when WABA goes live; this endpoint
-// lets us validate the audio→transcript→actionables loop today against any
-// pre-recorded file.
+// recording. Server transcribes via Whisper (any-language → English), stores
+// transcript on the lead, then auto-runs the actionables extractor on the
+// result. Same code path the Twilio recording webhook will hit when WABA
+// goes live.
 router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, res, next) => {
+  // The handler body always cleans up the temp file, even on early-returns.
+  const cleanup = () => {
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => { /* swallow */ });
+    }
+  };
+
   try {
     const { id } = req.params;
     if (!req.file) return res.status(400).json({ error: "no audio file uploaded (field name: 'audio')" });
-    const { buffer, mimetype, originalname, size } = req.file;
+    const { path: tmpPath, mimetype, originalname, size } = req.file;
     if (!mimetype || !mimetype.startsWith("audio/")) {
+      cleanup();
       return res.status(400).json({ error: `expected audio/* mime type, got ${mimetype}` });
     }
 
     const lead = await pool.query("SELECT id FROM leads WHERE id = $1", [id]);
-    if (lead.rows.length === 0) return res.status(404).json({ error: "lead not found" });
-
-    // 1. Transcribe (Whisper, translates any-language → English)
-    let transcript;
-    try {
-      transcript = await transcribeAudio(buffer, mimetype);
-    } catch (e) {
-      if (/OPENAI_API_KEY/.test(e.message)) {
-        return res.status(503).json({ error: "OpenAI API not configured (set OPENAI_API_KEY on the server)" });
-      }
-      console.error("[upload] Whisper transcription error:", e.message);
-      return res.status(502).json({ error: `Transcription error: ${e.message}` });
+    if (lead.rows.length === 0) {
+      cleanup();
+      return res.status(404).json({ error: "lead not found" });
     }
 
-    // 2. Persist transcript + log activity
-    await pool.query(
-      "UPDATE leads SET transcript = $1, updated_at = NOW() WHERE id = $2",
-      [transcript, id]
-    );
-    await pool.query(
-      `INSERT INTO lead_activity (lead_id, type, text)
-       VALUES ($1, 'transcript_attached', $2)`,
-      [id, `Audio "${originalname}" (${(size / 1024).toFixed(0)} KB) transcribed via Whisper (translated to English) — ${transcript.length} chars.`]
-    );
+    // Per-lead lock: serialize concurrent uploads against the same lead so
+    // their transcript writes + actionable inserts can't race.
+    const result = await withUploadLock(id, async () => {
+      // 1. Transcribe (Whisper, translates any-language → English)
+      let transcript;
+      try {
+        transcript = await transcribeAudio(tmpPath);
+      } catch (e) {
+        if (/OPENAI_API_KEY/.test(e.message)) {
+          return { status: 503, body: { error: "OpenAI API not configured (set OPENAI_API_KEY on the server)" } };
+        }
+        console.error("[upload] Whisper transcription error:", e.message);
+        return { status: 502, body: { error: `Transcription error: ${e.message}` } };
+      }
 
-    // 3. Extract actionables (best-effort; transcript is saved either way)
-    //
-    // On re-upload, we want a fresh set rather than accumulating duplicates
-    // alongside the previous extraction. Counsellor-added actionables (entered
-    // manually) are preserved — only the auto-extracted ones from the prior
-    // run are cleared. We identify "auto-extracted" rows by joining against
-    // the most recent `actionables_extracted` activity row for this lead and
-    // wiping any actionables created at-or-after that timestamp that the
-    // counsellor hasn't ticked.
-    //
-    // Conservative behavior: we only purge auto-extracted rows that are
-    // still incomplete. Anything the counsellor has actively engaged with
-    // (completed, edited via PATCH, etc.) is left alone.
-    let extracted = [];
-    let extract_error = null;
-    let replaced_count = 0;
-    try {
-      extracted = await extractActionables(transcript);
-
-      // Find the timestamp of the previous bulk extract for this lead, if any.
-      const { rows: prev } = await pool.query(
-        `SELECT ts FROM lead_activity
-         WHERE lead_id = $1 AND type = 'actionables_extracted'
-         ORDER BY ts DESC LIMIT 1`,
-        [id]
+      // 2. Persist transcript + log activity
+      await pool.query(
+        "UPDATE leads SET transcript = $1, updated_at = NOW() WHERE id = $2",
+        [transcript, id]
       );
-      if (prev.length > 0) {
-        const { rowCount } = await pool.query(
-          `DELETE FROM lead_actionables
-           WHERE lead_id = $1
-             AND completed = FALSE
-             AND created_at >= $2`,
-          [id, prev[0].ts]
-        );
-        replaced_count = rowCount || 0;
-      }
+      await pool.query(
+        `INSERT INTO lead_activity (lead_id, type, text)
+         VALUES ($1, 'transcript_attached', $2)`,
+        [id, `Audio "${originalname}" (${(size / 1024).toFixed(0)} KB) transcribed via Whisper (translated to English) — ${transcript.length} chars.`]
+      );
 
-      for (const text of extracted) {
-        await pool.query(
-          "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING id",
-          [id, text]
+      // 3. Extract actionables (best-effort; transcript is saved either way).
+      //    On re-upload we replace the previous auto-extracted set instead
+      //    of accumulating duplicates — counsellor-added or counsellor-
+      //    completed actionables are preserved.
+      let extracted = [];
+      let extract_error = null;
+      let replaced_count = 0;
+      try {
+        extracted = await extractActionables(transcript);
+
+        const { rows: prev } = await pool.query(
+          `SELECT ts FROM lead_activity
+           WHERE lead_id = $1 AND type = 'actionables_extracted'
+           ORDER BY ts DESC LIMIT 1`,
+          [id]
         );
-      }
-      if (extracted.length > 0) {
-        const note =
-          replaced_count > 0
+        if (prev.length > 0) {
+          const { rowCount } = await pool.query(
+            `DELETE FROM lead_actionables
+             WHERE lead_id = $1
+               AND completed = FALSE
+               AND created_at >= $2`,
+            [id, prev[0].ts]
+          );
+          replaced_count = rowCount || 0;
+        }
+
+        for (const text of extracted) {
+          await pool.query(
+            "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING id",
+            [id, text]
+          );
+        }
+        if (extracted.length > 0) {
+          const note = replaced_count > 0
             ? `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio (replaced ${replaced_count} from prior extraction)`
             : `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio`;
-        await pool.query(
-          "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionables_extracted', $2)",
-          [id, note]
-        );
+          await pool.query(
+            "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionables_extracted', $2)",
+            [id, note]
+          );
+        }
+      } catch (e) {
+        console.error("[upload] extractor failed (transcript still saved):", e.message);
+        extract_error = e.message;
       }
-    } catch (e) {
-      console.error("[upload] extractor failed (transcript still saved):", e.message);
-      extract_error = e.message;
-    }
 
-    res.json({
-      transcript_chars: transcript.length,
-      actionables_count: extracted.length,
-      extract_error,
+      return {
+        status: 200,
+        body: {
+          transcript_chars: transcript.length,
+          actionables_count: extracted.length,
+          extract_error,
+        },
+      };
     });
+
+    res.status(result.status).json(result.body);
   } catch (e) {
     next(e);
+  } finally {
+    cleanup();
   }
+});
+
+// Multer error handler (file size limit etc.) — produces a clean JSON error
+// instead of the default HTML "PayloadTooLargeError" page when files exceed
+// the 10 MB cap or violate other limits.
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const msg = err.code === "LIMIT_FILE_SIZE"
+      ? "audio file too large — max 10 MB"
+      : `upload error: ${err.message}`;
+    return res.status(413).json({ error: msg });
+  }
+  next(err);
 });
 
 // DELETE /api/leads/:leadId/actionables/:id

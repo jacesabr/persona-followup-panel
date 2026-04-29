@@ -64,17 +64,26 @@ export default function LeadFollowup({ onPickStaff }) {
     fetchAll();
   }, [fetchAll]);
 
-  // After mutations that fire async notifications, refetch a couple of times
-  // to capture the activity log entries as they're written server-side.
-  // After mutations that fire async notifications, refetch a few times.
-  // Twilio's WhatsApp delivery is polled server-side for ~25s, so spread the
-  // refetches out to capture the final delivered/failed state.
+  // After mutations that fire async notifications, refetch a few times so
+  // the activity log catches up with server-written rows. Twilio's WhatsApp
+  // delivery polls server-side for ~25s, so we spread the retries out.
+  // Timer IDs are tracked so the unmount cleanup can cancel pending fetches.
+  const timersRef = useRef([]);
   const refetchSoon = useCallback(() => {
-    setTimeout(fetchAll, 2000);
-    setTimeout(fetchAll, 8000);
-    setTimeout(fetchAll, 18000);
-    setTimeout(fetchAll, 30000);
+    timersRef.current.push(
+      setTimeout(fetchAll, 2000),
+      setTimeout(fetchAll, 8000),
+      setTimeout(fetchAll, 18000),
+      setTimeout(fetchAll, 30000),
+    );
   }, [fetchAll]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, []);
 
   const resetData = async () => {
     if (!window.confirm("Reset to seed leads? This will discard all changes on the server.")) return;
@@ -97,8 +106,10 @@ export default function LeadFollowup({ onPickStaff }) {
   //   student — by lead.name alphabetical
   //   status  — grouped by status (unassigned → scheduled → completed → no_show)
   const now = Date.now();
-  const counsellorName = (id) =>
-    id ? counsellors.find((c) => c.id === id)?.name || "" : "";
+  // Build a lookup once so the sort comparator is O(1) per access instead of
+  // O(N counsellors) per comparison.
+  const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
+  const counsellorName = (id) => (id ? counsellorNameById.get(id) || "" : "");
   const dateMs = (l) =>
     l.service_date ? new Date(l.service_date).getTime() : Infinity;
   const STATUS_ORDER = { unassigned: 0, scheduled: 1, completed: 2, no_show: 3 };
