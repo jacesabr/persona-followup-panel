@@ -373,7 +373,7 @@ function Stat({ n, label, sublabel, tone = "" }) {
     <div>
       <p className={`font-serif text-5xl font-bold leading-none ${color}`}>{n}</p>
       {sublabel && (
-        <p className="mt-1 text-[11px] italic text-stone-500">{sublabel}</p>
+        <p className="mt-1 text-sm font-semibold italic text-stone-700">{sublabel}</p>
       )}
       <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-stone-600">
         {label}

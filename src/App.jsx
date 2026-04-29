@@ -123,7 +123,7 @@ function Frame({ children, onSignOut, panelLabel }) {
             </span>
           </div>
           {panelLabel && (
-            <p className="shrink-0 text-sm font-semibold uppercase tracking-[0.3em] text-[#cc785c]">
+            <p className="shrink-0 text-lg font-bold uppercase tracking-[0.3em] text-[#cc785c]">
               {panelLabel}
             </p>
           )}
