@@ -40,9 +40,10 @@ services:
       # Set to the Render service URL (https://<service>.onrender.com).
       - key: PUBLIC_BASE_URL
         sync: false
-      # Anthropic API key for the staff_advanced auto-extract-actionables flow.
-      # Optional — without it, the button errors cleanly and other features still work.
-      - key: ANTHROPIC_API_KEY
+      # Google Gemini API key for the staff_advanced auto-extract-actionables
+      # flow (gemini-2.5-flash). Optional — without it, the button errors
+      # cleanly and other features still work. Free tier covers ~1500 req/day.
+      - key: GEMINI_API_KEY
         sync: false
       - key: DATABASE_URL
         fromDatabase:

@@ -452,11 +452,11 @@ router.post("/:id/actionables/extract", async (req, res, next) => {
     try {
       extracted = await extractActionables(transcript);
     } catch (e) {
-      if (/ANTHROPIC_API_KEY/.test(e.message)) {
-        return res.status(503).json({ error: "Claude API not configured (set ANTHROPIC_API_KEY on the server)" });
+      if (/GEMINI_API_KEY/.test(e.message)) {
+        return res.status(503).json({ error: "Gemini API not configured (set GEMINI_API_KEY on the server)" });
       }
-      console.error("[extract] Claude error:", e.message);
-      return res.status(502).json({ error: `Claude error: ${e.message}` });
+      console.error("[extract] Gemini error:", e.message);
+      return res.status(502).json({ error: `Gemini error: ${e.message}` });
     }
 
     const inserted = [];
