@@ -26,13 +26,11 @@ import {
 // Props:
 //   counsellorId   — the counsellor whose pipeline we're viewing
 //   counsellors    — full counsellor roster (for name lookup)
-//   variant        — "regular" | "advanced" (initial value; flippable)
 //   isImpersonation — true when admin is viewing-as; tweaks header copy
 // ============================================================
 export default function StaffDashboard({
   counsellorId,
   counsellors = [],
-  variant: initialVariant = "regular",
   isImpersonation = false,
 }) {
   const [leads, setLeads] = useState([]);
@@ -40,13 +38,7 @@ export default function StaffDashboard({
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(null);
-  const [variant, setVariant] = useState(initialVariant);
   const viewedRef = useRef(new Set()); // dedupe view-pings per session
-
-  // Reset variant whenever the prop changes (e.g. admin re-picks via dropdown).
-  useEffect(() => {
-    setVariant(initialVariant);
-  }, [initialVariant]);
 
   const counsellor = counsellors.find((c) => c.id === counsellorId);
 
@@ -136,20 +128,11 @@ export default function StaffDashboard({
       <div className="flex items-end justify-between">
         <div>
           <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-            {isImpersonation ? "Viewing as staff" : "Staff"}
+            Counsellor
           </p>
           <h1 className="mt-1 font-serif text-4xl leading-tight">
             {counsellor ? counsellor.name : "—"}
           </h1>
-          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-stone-600">
-            {variant === "advanced" ? "Advanced (beta)" : "Regular"} ·{" "}
-            <button
-              onClick={() => setVariant(variant === "advanced" ? "regular" : "advanced")}
-              className="underline underline-offset-2 hover:text-stone-900"
-            >
-              switch to {variant === "advanced" ? "regular" : "advanced"}
-            </button>
-          </p>
         </div>
       </div>
 
@@ -194,7 +177,6 @@ export default function StaffDashboard({
               onToggle={() => onToggleExpand(lead)}
               onUpdateStatus={updateStatus}
               onWorkflowChange={onWorkflowChange}
-              variant={variant}
               busy={busy}
             />
           ))
@@ -225,7 +207,6 @@ function StaffLeadRow({
   onToggle,
   onUpdateStatus,
   onWorkflowChange,
-  variant,
   busy,
 }) {
   const hrs = hoursUntil(lead.service_date);
@@ -303,7 +284,6 @@ function StaffLeadRow({
           counsellorId={counsellorId}
           onUpdateStatus={onUpdateStatus}
           onWorkflowChange={onWorkflowChange}
-          variant={variant}
           busy={busy}
         />
       )}
@@ -317,7 +297,6 @@ function StaffLeadDetail({
   counsellorId,
   onUpdateStatus,
   onWorkflowChange,
-  variant,
   busy,
 }) {
   const findStatus = (channel, recipient, kind) =>
@@ -413,38 +392,15 @@ function StaffLeadDetail({
             </div>
           </div>
 
-          {/* Activity log (compact) */}
-          <div className="border border-stone-300 bg-white p-4">
-            <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-              Activity
-            </p>
-            <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
-              {(lead.activity || [])
-                .slice()
-                .reverse()
-                .slice(0, 12)
-                .map((a) => (
-                  <li key={a.id} className="text-xs leading-snug text-stone-700">
-                    <p>{a.text}</p>
-                    <p className="text-[11px] uppercase tracking-[0.1em] text-stone-500">
-                      {formatInIst(a.ts)}
-                    </p>
-                  </li>
-                ))}
-            </ul>
-          </div>
         </div>
 
-        {/* Right: workflow box (the new bit) */}
+        {/* Right: call-student uploader + workflow box */}
         <div className="md:col-span-1 space-y-4">
-          {variant === "advanced" && (
-            <AudioUploader lead={lead} onChange={onWorkflowChange} />
-          )}
+          <AudioUploader lead={lead} onChange={onWorkflowChange} />
           <WorkflowBox
             lead={lead}
             counsellorId={counsellorId}
             onChange={onWorkflowChange}
-            variant={variant}
           />
         </div>
       </div>
@@ -506,18 +462,24 @@ function AudioUploader({ lead, onChange }) {
 
   return (
     <div className="border-2 border-dashed border-[#cc785c] bg-[#cc785c]/5 p-4">
-      <div className="flex items-center gap-2">
-        <Mic className="h-4 w-4 text-[#cc785c]" />
-        <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
-          Audio capture · beta
-        </p>
+      <div className="flex items-start gap-2">
+        <Mic className="mt-0.5 h-4 w-4 shrink-0 text-[#cc785c]" />
+        <div>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
+            Call student
+          </p>
+          <p className="text-[10px] uppercase tracking-[0.15em] text-[#cc785c]/70">
+            [ only audio record until WhatsApp Business number is added ]
+          </p>
+        </div>
       </div>
 
       {state === "idle" && (
         <>
-          <p className="mt-2 text-xs leading-snug text-stone-700">
-            Upload a recording — Gemini will transcribe it and auto-extract
-            actionables. Same pipeline a live Twilio call will hit when WABA
+          <p className="mt-3 text-xs leading-snug text-stone-700">
+            Upload a recording — Whisper will transcribe it (translates any
+            language to English) and Gemini auto-extracts actionables. Same
+            pipeline a live WhatsApp call will hit once the Business number
             is enabled. Max 25 MB; mp3 / m4a / wav / webm / ogg.
           </p>
           <label className="mt-3 inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
@@ -581,12 +543,11 @@ function AudioUploader({ lead, onChange }) {
 // ============================================================
 // WorkflowBox: call logger + transcript editor + actionables
 // ============================================================
-function WorkflowBox({ lead, counsellorId, onChange, variant }) {
+function WorkflowBox({ lead, counsellorId, onChange }) {
   return (
     <div className="space-y-4">
       <CallLogger lead={lead} counsellorId={counsellorId} onChange={onChange} />
-      <TranscriptEditor lead={lead} counsellorId={counsellorId} onChange={onChange} />
-      <ActionablesList lead={lead} onChange={onChange} variant={variant} />
+      <ActionablesList lead={lead} onChange={onChange} />
     </div>
   );
 }
@@ -695,100 +656,16 @@ function CallLogger({ lead, counsellorId, onChange }) {
   );
 }
 
-function TranscriptEditor({ lead, counsellorId, onChange }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(lead.transcript || "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-
-  // Re-sync local text when the lead's transcript changes externally (e.g.
-  // another tab updated it, or this is a fresh expand).
-  useEffect(() => {
-    if (!editing) setText(lead.transcript || "");
-  }, [lead.transcript, editing]);
-
-  const save = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.setTranscript(lead.id, {
-        counsellor_id: counsellorId,
-        transcript: text,
-      });
-      setEditing(false);
-      onChange();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="border border-stone-300 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-          Transcript
-        </p>
-        {!editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f]"
-          >
-            {lead.transcript ? "Edit" : "Add"}
-          </button>
-        )}
-      </div>
-
-      {editing ? (
-        <div className="mt-2 space-y-2">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={8}
-            placeholder="Paste the call transcript here…"
-            className="w-full border border-stone-300 bg-stone-50 p-2 text-xs leading-relaxed outline-none focus:border-stone-600"
-          />
-          {err && <p className="text-xs text-red-700">{err}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={save}
-              disabled={busy}
-              className="border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-30"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => {
-                setEditing(false);
-                setText(lead.transcript || "");
-                setErr(null);
-              }}
-              className="text-[12px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-stone-700">
-          {lead.transcript || (
-            <span className="italic text-stone-500">No transcript yet.</span>
-          )}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function ActionablesList({ lead, onChange, variant }) {
+function ActionablesList({ lead, onChange }) {
   const [newText, setNewText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [extracting, setExtracting] = useState(false);
 
+  // Auto-extract is available whenever a transcript exists. Audio upload
+  // populates it; otherwise this stays hidden.
   const canExtract =
-    variant === "advanced" && !!lead.transcript && lead.transcript.trim().length >= 20;
+    !!lead.transcript && lead.transcript.trim().length >= 20;
 
   const addOne = async (e) => {
     e.preventDefault();

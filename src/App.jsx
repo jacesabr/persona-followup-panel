@@ -71,13 +71,14 @@ export default function App() {
 
   // Admin viewing-as a staff member
   if (session.role === "admin" && impersonating) {
+    const staffName =
+      counsellors.find((c) => c.id === impersonating.counsellorId)?.name || "—";
     return (
-      <Frame onSignOut={onSignOut}>
-        <BackToAdminBanner onExit={() => setImpersonating(null)} />
+      <Frame onSignOut={onSignOut} panelLabel="Staff Panel">
+        <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
         <StaffDashboard
           counsellorId={impersonating.counsellorId}
           counsellors={counsellors}
-          variant={impersonating.variant}
           isImpersonation
         />
       </Frame>
@@ -86,7 +87,7 @@ export default function App() {
 
   if (session.role === "admin") {
     return (
-      <Frame onSignOut={onSignOut}>
+      <Frame onSignOut={onSignOut} panelLabel="Admin Panel">
         <AdminViewAsDropdown
           counsellors={counsellors}
           onSelect={(impersonationState) => setImpersonating(impersonationState)}
@@ -98,7 +99,7 @@ export default function App() {
 
   // session.role === "staff"
   return (
-    <Frame onSignOut={onSignOut}>
+    <Frame onSignOut={onSignOut} panelLabel="Staff Panel">
       <StaffDashboard
         counsellorId={session.counsellorId}
         counsellors={counsellors}
@@ -107,26 +108,33 @@ export default function App() {
   );
 }
 
-function Frame({ children, onSignOut }) {
+function Frame({ children, onSignOut, panelLabel }) {
   return (
     <div
       className="min-h-screen w-full font-serif text-stone-900"
       style={{ backgroundColor: "#faf9f5" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-10">
-        <header className="mb-10 flex items-center justify-between border-b border-stone-300 pb-4">
-          <div className="flex items-baseline gap-3">
+        <header className="mb-10 flex items-center border-b border-stone-300 pb-4">
+          <div className="flex flex-1 items-baseline gap-3">
             <span className="text-2xl font-semibold tracking-tight">Persona</span>
             <span className="text-xs uppercase tracking-[0.25em] text-stone-600">
               · Followup Panel
             </span>
           </div>
-          <button
-            onClick={onSignOut}
-            className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900"
-          >
-            <LogOut className="h-3 w-3" /> sign out
-          </button>
+          {panelLabel && (
+            <p className="shrink-0 text-sm font-semibold uppercase tracking-[0.3em] text-[#cc785c]">
+              {panelLabel}
+            </p>
+          )}
+          <div className="flex flex-1 justify-end">
+            <button
+              onClick={onSignOut}
+              className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900"
+            >
+              <LogOut className="h-3 w-3" /> sign out
+            </button>
+          </div>
         </header>
         {children}
       </div>
@@ -134,11 +142,11 @@ function Frame({ children, onSignOut }) {
   );
 }
 
-function BackToAdminBanner({ onExit }) {
+function BackToAdminBanner({ staffName, onExit }) {
   return (
     <div className="mb-6 flex items-center justify-between border border-[#cc785c] bg-[#cc785c]/10 px-4 py-3">
       <p className="text-xs uppercase tracking-[0.15em] text-[#cc785c]">
-        Viewing as staff (admin impersonation)
+        Viewing Staff Panel of : <span className="font-semibold">{staffName}</span>
       </p>
       <button
         onClick={onExit}
@@ -156,7 +164,7 @@ function AdminViewAsDropdown({ counsellors, onSelect }) {
 
   const pickRandom = () => {
     const c = counsellors[Math.floor(Math.random() * counsellors.length)];
-    onSelect({ counsellorId: c.id, variant: "regular" });
+    onSelect({ counsellorId: c.id });
     setOpen(false);
   };
 
@@ -183,29 +191,15 @@ function AdminViewAsDropdown({ counsellors, onSelect }) {
             <ul className="max-h-72 overflow-y-auto py-1">
               {counsellors.map((c) => (
                 <li key={c.id} className="border-b border-stone-200 last:border-b-0">
-                  <div className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="truncate">{c.name}</span>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        onClick={() => {
-                          onSelect({ counsellorId: c.id, variant: "regular" });
-                          setOpen(false);
-                        }}
-                        className="text-[11px] uppercase tracking-[0.1em] text-stone-700 hover:text-[#cc785c] underline underline-offset-2"
-                      >
-                        staff
-                      </button>
-                      <button
-                        onClick={() => {
-                          onSelect({ counsellorId: c.id, variant: "advanced" });
-                          setOpen(false);
-                        }}
-                        className="text-[11px] uppercase tracking-[0.1em] text-[#cc785c] hover:text-[#b86a4f] underline underline-offset-2"
-                      >
-                        advanced
-                      </button>
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => {
+                      onSelect({ counsellorId: c.id });
+                      setOpen(false);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-stone-100"
+                  >
+                    {c.name}
+                  </button>
                 </li>
               ))}
             </ul>

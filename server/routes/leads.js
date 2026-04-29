@@ -389,13 +389,17 @@ router.post("/:id/actionables", async (req, res, next) => {
     if (!isString(text) || text.trim().length < 1 || text.length > 1000) {
       return res.status(400).json({ error: "text must be a non-empty string up to 1000 chars" });
     }
-    // Confirm the lead exists; otherwise PG will throw an FK violation.
     const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [id]);
     if (leadCheck.rows.length === 0) return res.status(404).json({ error: "lead not found" });
 
+    const trimmed = text.trim();
     const { rows } = await pool.query(
       "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING *",
-      [id, text.trim()]
+      [id, trimmed]
+    );
+    await pool.query(
+      "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionable_added', $2)",
+      [id, `Actionable added: ${trimmed.slice(0, 200)}`]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -440,7 +444,24 @@ router.patch("/:leadId/actionables/:id", async (req, res, next) => {
       values
     );
     if (rows.length === 0) return res.status(404).json({ error: "actionable not found" });
-    res.json(rows[0]);
+    const updated = rows[0];
+
+    // Surface the meaningful state change to the admin activity log.
+    if (completed !== undefined) {
+      const action = completed ? "actionable_completed" : "actionable_uncompleted";
+      const verb = completed ? "Completed" : "Reopened";
+      await pool.query(
+        "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, $2, $3)",
+        [leadId, action, `${verb}: ${updated.text.slice(0, 200)}`]
+      );
+    } else if (text !== undefined) {
+      await pool.query(
+        "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionable_edited', $2)",
+        [leadId, `Edited actionable: ${updated.text.slice(0, 200)}`]
+      );
+    }
+
+    res.json(updated);
   } catch (e) {
     next(e);
   }
@@ -476,6 +497,12 @@ router.post("/:id/actionables/extract", async (req, res, next) => {
         [id, text]
       );
       inserted.push(r[0]);
+    }
+    if (inserted.length > 0) {
+      await pool.query(
+        "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionables_extracted', $2)",
+        [id, `${inserted.length} actionable${inserted.length === 1 ? "" : "s"} auto-extracted from transcript`]
+      );
     }
     res.json({ count: inserted.length, actionables: inserted });
   } catch (e) {
@@ -533,6 +560,12 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
         await pool.query(
           "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING id",
           [id, text]
+        );
+      }
+      if (extracted.length > 0) {
+        await pool.query(
+          "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionables_extracted', $2)",
+          [id, `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio`]
         );
       }
     } catch (e) {

@@ -14,6 +14,7 @@ import { COUNTRIES, flagEmoji } from "./countries.js";
 import {
   formatInIst,
   formatDateInIst,
+  formatTimeInIst,
   hoursUntil,
   localInputToUtcIso,
 } from "../lib/time.js";
@@ -264,7 +265,7 @@ export default function LeadFollowup() {
             style={{ gridTemplateColumns: "2rem 1.2fr 9rem 1.4fr 1fr 9rem 4.5rem" }}
           >
             <span>#</span>
-            <span>Lead</span>
+            <span>Student</span>
             <span>Phone</span>
             <span>Purpose / When</span>
             <span>Counsellor</span>
@@ -600,154 +601,180 @@ function LeadDetail({ lead, counsellor, onUpdate }) {
           </div>
         </div>
 
-        {/* Right: split log — Technical (notifications) + Staff workflow */}
-        <div className="md:col-span-1 space-y-4">
-          <TechnicalLog activity={lead.activity || []} />
-          <StaffWorkflowLog lead={lead} />
+        {/* Right: unified activity log — grouped by day, summarized */}
+        <div className="md:col-span-1">
+          <ActivityLog lead={lead} />
         </div>
       </div>
     </div>
   );
 }
 
-function TechnicalLog({ activity }) {
-  const technical = activity.filter(
-    (a) =>
-      a.type === "notification_sent" ||
-      a.type === "notification_error" ||
-      a.type === "notification_pending"
-  );
-  return (
-    <div className="border border-stone-300 bg-white p-4">
-      <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-        Technical · notifications
-      </p>
-      {technical.length === 0 ? (
-        <p className="mt-2 text-xs italic text-stone-500">
-          No notifications fired yet.
+// ============================================================
+// Admin activity log — single, grouped, summarized.
+// ============================================================
+function ActivityLog({ lead }) {
+  const items = (lead.activity || []).slice().reverse(); // newest first
+
+  if (items.length === 0) {
+    return (
+      <div className="border border-stone-300 bg-white p-4">
+        <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+          Activity log
         </p>
-      ) : (
-        <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
-          {technical.slice().reverse().map((a) => (
-            <li key={a.id} className="flex gap-2 text-xs">
-              <span
-                className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-                  a.type === "notification_sent"
-                    ? "bg-emerald-500"
-                    : a.type === "notification_error"
-                    ? "bg-red-500"
-                    : "bg-amber-400"
-                }`}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="leading-snug text-stone-700">{a.text}</p>
-                <p className="mt-0.5 text-[11px] uppercase tracking-[0.1em] text-stone-500">
-                  {fmtDateTime(a.ts)}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <p className="mt-3 text-xs italic text-stone-500">
+          No activity yet.
+        </p>
+      </div>
+    );
+  }
+
+  // Group consecutive entries by IST date.
+  const todayLabel = formatDateInIst(new Date().toISOString());
+  const yesterdayLabel = formatDateInIst(new Date(Date.now() - 86_400_000).toISOString());
+  const groups = [];
+  let currentLabel = null;
+  let currentItems = null;
+  for (const a of items) {
+    let label = formatDateInIst(a.ts);
+    if (label === todayLabel) label = "Today";
+    else if (label === yesterdayLabel) label = "Yesterday";
+    if (label !== currentLabel) {
+      currentItems = [];
+      groups.push({ label, items: currentItems });
+      currentLabel = label;
+    }
+    currentItems.push(a);
+  }
+
+  return (
+    <div className="border border-stone-300 bg-white">
+      <div className="border-b border-stone-200 px-4 py-3">
+        <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+          Activity log
+        </p>
+      </div>
+      <div className="max-h-[36rem] overflow-y-auto p-4">
+        {groups.map((g, gi) => (
+          <div key={gi} className={gi > 0 ? "mt-5" : ""}>
+            <p className="sticky top-[-1rem] -mx-4 -mt-4 border-b border-stone-200 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+              {g.label}
+            </p>
+            <ul className="mt-3 space-y-2.5">
+              {g.items.map((a) => (
+                <ActivityRow key={a.id} a={a} lead={lead} />
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityRow({ a, lead }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = summarizeActivity(a);
+  const isTranscript = a.type === "transcript_attached" && lead.transcript;
+
+  return (
+    <li className="text-xs">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] tabular-nums text-stone-500">
+          {formatTimeInIst(a.ts)}
+        </span>
+        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${summary.dotClass}`} />
+        <span className="min-w-0 flex-1 leading-snug">
+          <span className="font-medium text-stone-800">{summary.label}</span>
+          {summary.detail && (
+            <>
+              {" "}
+              <span className="text-stone-600">{summary.detail}</span>
+            </>
+          )}
+          {isTranscript && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="ml-2 text-[#cc785c] underline underline-offset-2 hover:text-[#b86a4f]"
+            >
+              {expanded ? "hide" : "view"}
+            </button>
+          )}
+        </span>
+      </div>
+      {isTranscript && expanded && (
+        <pre className="ml-12 mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-stone-200 bg-stone-50 p-2 font-sans text-[11px] leading-relaxed text-stone-700">
+          {lead.transcript}
+        </pre>
       )}
-    </div>
+    </li>
   );
 }
 
-function StaffWorkflowLog({ lead }) {
-  const activity = lead.activity || [];
-  const assigned = activity.filter((a) => a.type === "assignment").slice(-1)[0];
-  const viewed = activity.filter((a) => a.type === "viewed").slice(-1)[0];
-  const calls = activity.filter((a) => a.type === "call_logged");
-  const transcriptUpdates = activity.filter((a) => a.type === "transcript_attached");
-  const actionables = lead.actionables || [];
-  const done = actionables.filter((a) => a.completed).length;
-
-  return (
-    <div className="border border-stone-300 bg-white p-4">
-      <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-        Staff workflow
-      </p>
-
-      <dl className="mt-3 space-y-2.5 text-xs">
-        <Row label="Assigned" value={assigned ? `${fmtDateTime(assigned.ts)} — ${assigned.text}` : "—"} />
-        <Row label="Viewed" value={viewed ? fmtDateTime(viewed.ts) : <em className="text-stone-500">not yet</em>} />
-        <Row
-          label={`Calls (${calls.length})`}
-          value={
-            calls.length === 0 ? (
-              <em className="text-stone-500">none logged</em>
-            ) : (
-              <ul className="space-y-1">
-                {calls.slice().reverse().slice(0, 3).map((c) => (
-                  <li key={c.id} className="leading-snug text-stone-700">
-                    <span className="text-[11px] uppercase tracking-[0.1em] text-stone-500">
-                      {fmtDateTime(c.ts)}
-                    </span>
-                    <br />
-                    {c.text}
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        />
-        <Row
-          label="Transcript"
-          value={
-            lead.transcript ? (
-              <details className="text-stone-700">
-                <summary className="cursor-pointer text-[#cc785c] hover:text-[#b86a4f]">
-                  {lead.transcript.length} chars
-                  {transcriptUpdates.length > 0
-                    ? ` · last updated ${fmtDateTime(transcriptUpdates.slice(-1)[0].ts)}`
-                    : ""}{" "}
-                  — show
-                </summary>
-                <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-stone-200 bg-stone-50 p-2 text-[11px] leading-relaxed">
-                  {lead.transcript}
-                </p>
-              </details>
-            ) : (
-              <em className="text-stone-500">not yet</em>
-            )
-          }
-        />
-        <Row
-          label={`Actionables (${done}/${actionables.length})`}
-          value={
-            actionables.length === 0 ? (
-              <em className="text-stone-500">none yet</em>
-            ) : (
-              <ul className="space-y-1">
-                {actionables.map((a) => (
-                  <li
-                    key={a.id}
-                    className={`flex items-start gap-1.5 ${
-                      a.completed ? "text-stone-500 line-through" : "text-stone-800"
-                    }`}
-                  >
-                    <span aria-hidden="true">{a.completed ? "✓" : "○"}</span>
-                    <span className="flex-1 leading-snug">{a.text}</span>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        />
-      </dl>
-    </div>
-  );
-}
-
-function Row({ label, value }) {
-  return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-stone-700">{value}</dd>
-    </div>
-  );
+function summarizeActivity(a) {
+  const t = a.type;
+  switch (t) {
+    case "inquiry":
+      return { dotClass: "bg-stone-400", label: "Lead created", detail: a.text };
+    case "assignment":
+      return { dotClass: "bg-amber-500", label: a.text };
+    case "viewed":
+      return { dotClass: "bg-stone-400", label: a.text };
+    case "call_logged":
+      return { dotClass: "bg-blue-500", label: "Call logged", detail: a.text };
+    case "transcript_attached":
+      return { dotClass: "bg-purple-500", label: "Transcript saved", detail: a.text };
+    case "status":
+      return { dotClass: "bg-stone-700", label: a.text };
+    case "notification_sent": {
+      const channel = a.channel === "email" ? "email" : "WhatsApp";
+      const recipient = a.recipient || "—";
+      const kind = a.kind === "reminder" ? "12hr reminder" : "welcome";
+      return {
+        dotClass: "bg-emerald-500",
+        label: `${channel} ${kind}`,
+        detail: `→ ${recipient}`,
+      };
+    }
+    case "notification_error":
+      return { dotClass: "bg-red-500", label: "Notification failed", detail: a.text };
+    case "notification_pending":
+      return { dotClass: "bg-amber-400", label: "Notification queued", detail: a.text };
+    case "actionable_added":
+      return {
+        dotClass: "bg-orange-500",
+        label: "Actionable added",
+        detail: a.text.replace(/^Actionable added: /, ""),
+      };
+    case "actionable_completed":
+      return {
+        dotClass: "bg-emerald-500",
+        label: "✓ Completed",
+        detail: a.text.replace(/^Completed: /, ""),
+      };
+    case "actionable_uncompleted":
+      return {
+        dotClass: "bg-stone-400",
+        label: "↺ Reopened",
+        detail: a.text.replace(/^Reopened: /, ""),
+      };
+    case "actionable_edited":
+      return {
+        dotClass: "bg-stone-400",
+        label: "Edited actionable",
+        detail: a.text.replace(/^Edited actionable: /, ""),
+      };
+    case "actionable_deleted":
+      return {
+        dotClass: "bg-stone-400",
+        label: "Removed actionable",
+        detail: a.text.replace(/^Removed actionable: /, ""),
+      };
+    case "actionables_extracted":
+      return { dotClass: "bg-orange-500", label: "Auto-extracted", detail: a.text };
+    default:
+      return { dotClass: "bg-stone-300", label: a.text };
+  }
 }
 
 function NotifStatus({ label, icon, entry }) {
