@@ -519,15 +519,51 @@ function NotifPill({ label, icon, entry }) {
   );
 }
 
+// Auto-stop recordings at 10 minutes to stay within the 10 MB upload cap.
+const REC_MAX_SECONDS = 600;
+
+function formatRecTime(s) {
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${mm}:${String(ss).padStart(2, "0")}`;
+}
+
 function AudioUploader({ lead, onChange }) {
-  const [state, setState] = useState("idle"); // idle | uploading | success | error
+  // idle | recording | uploading | success | error
+  const [state, setState] = useState("idle");
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
-  const inputRef = useRef(null);
+  const [recSeconds, setRecSeconds] = useState(0);
 
-  const onPick = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const fileInputRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+
+  // Release any held resources on unmount (mic stream, timer, recorder).
+  useEffect(() => {
+    return () => stopAllResources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function stopAllResources() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (recorderRef.current && recorderRef.current.state === "recording") {
+      try { recorderRef.current.stop(); } catch { /* ignore */ }
+    }
+    recorderRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    chunksRef.current = [];
+  }
+
+  async function uploadFile(file) {
     setState("uploading");
     setErr(null);
     setResult(null);
@@ -539,10 +575,115 @@ function AudioUploader({ lead, onChange }) {
     } catch (e) {
       setErr(e.message);
       setState("error");
-    } finally {
-      // Reset the input so the same file can be re-uploaded
-      if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+    await uploadFile(file);
+  };
+
+  const startRecording = async () => {
+    setErr(null);
+    setResult(null);
+
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia ||
+      typeof window.MediaRecorder === "undefined"
+    ) {
+      setErr(
+        "Your browser doesn't support audio recording. Try Chrome / Edge / Firefox, or use the upload button."
+      );
+      setState("error");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mr = new MediaRecorder(stream);
+      recorderRef.current = mr;
+      chunksRef.current = [];
+
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mr.onstop = async () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+
+        const mimeType = mr.mimeType || "audio/webm";
+        const ext = mimeType.includes("webm")
+          ? "webm"
+          : mimeType.includes("ogg")
+          ? "ogg"
+          : mimeType.includes("mp4")
+          ? "m4a"
+          : "webm";
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        chunksRef.current = [];
+        recorderRef.current = null;
+
+        if (blob.size === 0) {
+          setErr("Recording was empty — try again.");
+          setState("error");
+          return;
+        }
+
+        const file = new File(
+          [blob],
+          `recording-${Date.now()}.${ext}`,
+          { type: mimeType }
+        );
+        await uploadFile(file);
+      };
+
+      mr.start();
+      setState("recording");
+      setRecSeconds(0);
+      timerRef.current = setInterval(() => {
+        setRecSeconds((s) => {
+          const next = s + 1;
+          // Auto-stop at the 10-minute cap so we stay under the 10 MB
+          // server-side upload limit.
+          if (next >= REC_MAX_SECONDS && recorderRef.current?.state === "recording") {
+            try { recorderRef.current.stop(); } catch { /* ignore */ }
+          }
+          return next;
+        });
+      }, 1000);
+    } catch (e) {
+      const msg =
+        e.name === "NotAllowedError" || e.name === "PermissionDeniedError"
+          ? "Microphone permission denied. Allow it in browser settings and try again."
+          : `Couldn't access microphone: ${e.message}`;
+      setErr(msg);
+      setState("error");
+    }
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current?.state === "recording") {
+      try { recorderRef.current.stop(); } catch { /* ignore */ }
+    }
+  };
+
+  const reset = () => {
+    stopAllResources();
+    setRecSeconds(0);
+    setErr(null);
+    setResult(null);
+    setState("idle");
   };
 
   return (
@@ -562,22 +703,55 @@ function AudioUploader({ lead, onChange }) {
       {state === "idle" && (
         <>
           <p className="mt-3 text-xs leading-snug text-stone-700">
-            Upload a recording — Whisper will transcribe it (translates any
-            language to English) and Gemini auto-extracts actionables. Same
-            pipeline a live WhatsApp call will hit once the Business number
-            is enabled. Max 10 MB (~10 min audio); mp3 / m4a / wav / webm / ogg.
+            Record a call from this browser, or upload an existing audio
+            file. Whisper transcribes (any language → English) and Gemini
+            auto-extracts actionables. This mirrors the live Twilio
+            pipeline that activates when your WhatsApp Business number
+            goes live. Max ~10 min recording / 10 MB upload.
           </p>
-          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
-            🎙️ Upload recording
-            <input
-              ref={inputRef}
-              type="file"
-              accept="audio/*"
-              onChange={onPick}
-              className="hidden"
-            />
-          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={startRecording}
+              className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f]"
+            >
+              🔴 Record now
+            </button>
+            <label className="inline-flex cursor-pointer items-center gap-2 border border-[#cc785c] bg-white px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-[#cc785c] hover:bg-[#cc785c]/10">
+              🎙️ Upload file
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                onChange={onPickFile}
+                className="hidden"
+              />
+            </label>
+          </div>
         </>
+      )}
+
+      {state === "recording" && (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2 text-sm text-stone-800">
+            <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+            <span className="font-mono tabular-nums">
+              Recording {formatRecTime(recSeconds)}
+            </span>
+            {recSeconds >= 540 && (
+              <span className="text-[11px] uppercase tracking-[0.1em] text-amber-700">
+                (10-min cap approaching)
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={stopRecording}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-2 text-[12px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f]"
+          >
+            ⏹ Stop &amp; transcribe
+          </button>
+        </div>
       )}
 
       {state === "uploading" && (
@@ -602,10 +776,10 @@ function AudioUploader({ lead, onChange }) {
             </p>
           )}
           <button
-            onClick={() => setState("idle")}
+            onClick={reset}
             className="mt-1 text-[11px] uppercase tracking-[0.15em] text-[#cc785c] underline underline-offset-2 hover:text-[#b86a4f]"
           >
-            Upload another
+            Record / upload another
           </button>
         </div>
       )}
@@ -614,7 +788,7 @@ function AudioUploader({ lead, onChange }) {
         <div className="mt-3 space-y-1 text-xs">
           <p className="text-red-700">✕ {err}</p>
           <button
-            onClick={() => setState("idle")}
+            onClick={reset}
             className="text-[11px] uppercase tracking-[0.15em] text-[#cc785c] underline underline-offset-2 hover:text-[#b86a4f]"
           >
             Try again
