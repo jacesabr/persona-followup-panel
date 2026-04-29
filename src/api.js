@@ -41,4 +41,6 @@ export const api = {
     request("PATCH", `/api/leads/${leadId}/actionables/${id}`, patch),
   deleteActionable: (leadId, id) =>
     request("DELETE", `/api/leads/${leadId}/actionables/${id}`),
+  extractActionables: (leadId) =>
+    request("POST", `/api/leads/${leadId}/actionables/extract`),
 };

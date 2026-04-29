@@ -442,6 +442,7 @@ function StaffLeadDetail({
             lead={lead}
             counsellorId={counsellorId}
             onChange={onWorkflowChange}
+            variant={variant}
           />
         </div>
       </div>
@@ -496,12 +497,12 @@ function AdvancedAudioPlaceholder() {
 // ============================================================
 // WorkflowBox: call logger + transcript editor + actionables
 // ============================================================
-function WorkflowBox({ lead, counsellorId, onChange }) {
+function WorkflowBox({ lead, counsellorId, onChange, variant }) {
   return (
     <div className="space-y-4">
       <CallLogger lead={lead} counsellorId={counsellorId} onChange={onChange} />
       <TranscriptEditor lead={lead} counsellorId={counsellorId} onChange={onChange} />
-      <ActionablesList lead={lead} onChange={onChange} />
+      <ActionablesList lead={lead} onChange={onChange} variant={variant} />
     </div>
   );
 }
@@ -696,10 +697,14 @@ function TranscriptEditor({ lead, counsellorId, onChange }) {
   );
 }
 
-function ActionablesList({ lead, onChange }) {
+function ActionablesList({ lead, onChange, variant }) {
   const [newText, setNewText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [extracting, setExtracting] = useState(false);
+
+  const canExtract =
+    variant === "advanced" && !!lead.transcript && lead.transcript.trim().length >= 20;
 
   const addOne = async (e) => {
     e.preventDefault();
@@ -714,6 +719,22 @@ function ActionablesList({ lead, onChange }) {
       setErr(e.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const extract = async () => {
+    setExtracting(true);
+    setErr(null);
+    try {
+      const result = await api.extractActionables(lead.id);
+      onChange();
+      if (result.count === 0) {
+        setErr("Claude didn't find any clear actionables in the transcript.");
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -747,9 +768,21 @@ function ActionablesList({ lead, onChange }) {
 
   return (
     <div className="border border-stone-300 bg-white p-4">
-      <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
-        Actionables ({done}/{items.length})
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
+          Actionables ({done}/{items.length})
+        </p>
+        {canExtract && (
+          <button
+            onClick={extract}
+            disabled={busy || extracting}
+            title="Use Claude to extract actionables from the transcript"
+            className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f] disabled:opacity-40"
+          >
+            {extracting ? "Extracting…" : "✨ Auto-extract"}
+          </button>
+        )}
+      </div>
       {items.length > 0 && (
         <ul className="mt-2 space-y-1.5">
           {items.map((a) => (

@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { fireAssignmentNotifications } from "../notify/dispatch.js";
 import { seedLeads } from "../seed.js";
 import { isValidUtcIso } from "../../lib/time.js";
+import { extractActionables } from "../extract.js";
 
 const router = express.Router();
 
@@ -430,6 +431,43 @@ router.patch("/:leadId/actionables/:id", async (req, res, next) => {
     );
     if (rows.length === 0) return res.status(404).json({ error: "actionable not found" });
     res.json(rows[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/leads/:id/actionables/extract — run Claude on the lead's
+// transcript and bulk-insert the extracted actionables.
+router.post("/:id/actionables/extract", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query("SELECT transcript FROM leads WHERE id = $1", [id]);
+    if (rows.length === 0) return res.status(404).json({ error: "lead not found" });
+    const transcript = rows[0].transcript;
+    if (!transcript || transcript.trim().length < 20) {
+      return res.status(400).json({ error: "transcript is empty or too short to extract from" });
+    }
+
+    let extracted;
+    try {
+      extracted = await extractActionables(transcript);
+    } catch (e) {
+      if (/ANTHROPIC_API_KEY/.test(e.message)) {
+        return res.status(503).json({ error: "Claude API not configured (set ANTHROPIC_API_KEY on the server)" });
+      }
+      console.error("[extract] Claude error:", e.message);
+      return res.status(502).json({ error: `Claude error: ${e.message}` });
+    }
+
+    const inserted = [];
+    for (const text of extracted) {
+      const { rows: r } = await pool.query(
+        "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING *",
+        [id, text]
+      );
+      inserted.push(r[0]);
+    }
+    res.json({ count: inserted.length, actionables: inserted });
   } catch (e) {
     next(e);
   }

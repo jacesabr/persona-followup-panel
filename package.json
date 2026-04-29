@@ -12,6 +12,7 @@
     "test": "node --test lib/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@sendgrid/mail": "^8.1.4",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
