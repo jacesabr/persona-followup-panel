@@ -20,6 +20,35 @@ import {
   localInputToUtcIso,
 } from "../lib/time.js";
 
+// Returns the reminder-delivery status for a given lead, derived from
+// the activity log. See LeadFollowup.jsx for the full doc.
+function reminderStatusFor(lead) {
+  const reminders = (lead.activity || []).filter(
+    (a) => a.kind === "reminder" && a.recipient === "lead"
+  );
+  if (reminders.length === 0) return "not_yet";
+  if (reminders.some((a) => a.type === "notification_sent")) return "sent";
+  if (reminders.some((a) => a.type === "notification_pending")) return "pending";
+  return "failed";
+}
+
+function buildReminderSublabel(b, total) {
+  if (total === 0) return "Appointments";
+  const parts = [];
+  if (b.sent > 0) parts.push(`${b.sent} sent`);
+  if (b.pending > 0) parts.push(`${b.pending} pending`);
+  if (b.failed > 0) parts.push(`${b.failed} failed ⚠`);
+  if (b.not_yet > 0) parts.push(`${b.not_yet} not yet`);
+  return parts.join(" · ");
+}
+
+function reminderTone(b, total) {
+  if (total === 0) return "";
+  if (b.failed > 0) return "red";
+  if (b.pending > 0 || b.not_yet > 0) return "amber";
+  return "";
+}
+
 // ============================================================
 // StaffDashboard — filtered, write-restricted view of leads.
 //
@@ -75,14 +104,27 @@ export default function StaffDashboard({
     return aFuture ? at - bt : bt - at;
   });
 
+  // Mutually exclusive buckets: a lead 6h away counts only in imminent12.
+  const myLeadHours = myLeads.map((l) => ({ lead: l, hrs: hoursUntil(l.service_date) }));
+  const upcoming48Leads = myLeadHours.filter(
+    ({ hrs }) => hrs > 12 && hrs <= 48
+  );
+  const imminent12Leads = myLeadHours.filter(
+    ({ hrs }) => hrs >= 0 && hrs <= 12
+  );
+
+  // Verify the lead actually received the reminder for each ≤12hr lead —
+  // fail visibly (red flag) if any channels errored.
+  const reminderBreakdown = { sent: 0, pending: 0, failed: 0, not_yet: 0 };
+  for (const { lead } of imminent12Leads) {
+    reminderBreakdown[reminderStatusFor(lead)]++;
+  }
+
   const stats = {
     myLeads: myLeads.length,
-    upcoming48: myLeads.filter(
-      (l) => hoursUntil(l.service_date) <= 48 && hoursUntil(l.service_date) >= 0
-    ).length,
-    imminent12: myLeads.filter(
-      (l) => hoursUntil(l.service_date) <= 12 && hoursUntil(l.service_date) >= 0
-    ).length,
+    upcoming48: upcoming48Leads.length,
+    imminent12: imminent12Leads.length,
+    reminderBreakdown,
   };
 
   const onToggleExpand = async (lead) => {
@@ -156,12 +198,16 @@ export default function StaffDashboard({
       {/* Stats */}
       <div className="mt-6 grid grid-cols-3 gap-4 border-y border-stone-300 py-5">
         <Stat n={stats.myLeads} label="My leads" />
-        <Stat n={stats.upcoming48} label="≤ 48hr" sublabel="Appointments" />
+        <Stat
+          n={stats.upcoming48}
+          label="12 – 48 hr"
+          sublabel="Appointments"
+        />
         <Stat
           n={stats.imminent12}
-          label="≤ 12hr (reminder)"
-          sublabel="Appointments"
-          tone={stats.imminent12 > 0 ? "red" : ""}
+          label="≤ 12 hr (reminder)"
+          sublabel={buildReminderSublabel(stats.reminderBreakdown, stats.imminent12)}
+          tone={reminderTone(stats.reminderBreakdown, stats.imminent12)}
         />
       </div>
 

@@ -24,6 +24,40 @@ import {
 const fmtDateTime = formatInIst;
 const fmtDate = formatDateInIst;
 
+// Verifies whether the lead actually received its 12-hour reminder by
+// inspecting the activity log. Looks at any `kind: reminder` notification
+// addressed to the lead (either WhatsApp or email channel).
+//   sent    — at least one channel confirmed delivered
+//   pending — Twilio webhook hasn't updated the WA pending row yet
+//   failed  — all channel attempts errored (no successful delivery)
+//   not_yet — no reminder activity at all (cron hasn't fired)
+function reminderStatusFor(lead) {
+  const reminders = (lead.activity || []).filter(
+    (a) => a.kind === "reminder" && a.recipient === "lead"
+  );
+  if (reminders.length === 0) return "not_yet";
+  if (reminders.some((a) => a.type === "notification_sent")) return "sent";
+  if (reminders.some((a) => a.type === "notification_pending")) return "pending";
+  return "failed";
+}
+
+function buildReminderSublabel(b, total) {
+  if (total === 0) return "Appointments";
+  const parts = [];
+  if (b.sent > 0) parts.push(`${b.sent} sent`);
+  if (b.pending > 0) parts.push(`${b.pending} pending`);
+  if (b.failed > 0) parts.push(`${b.failed} failed ⚠`);
+  if (b.not_yet > 0) parts.push(`${b.not_yet} not yet`);
+  return parts.join(" · ");
+}
+
+function reminderTone(b, total) {
+  if (total === 0) return "";
+  if (b.failed > 0) return "red";
+  if (b.pending > 0 || b.not_yet > 0) return "amber";
+  return "";
+}
+
 // ============================================================
 // Main
 // ============================================================
@@ -147,15 +181,33 @@ export default function LeadFollowup({ onPickStaff }) {
 
   // Compute hoursUntil once per lead instead of 4× across the two filters.
   const leadHours = leads.map((l) => ({ lead: l, hrs: hoursUntil(l.service_date) }));
+
+  // Buckets are mutually exclusive: a lead 6h away counts only in imminent12,
+  // not in upcoming48. The previous overlap inflated the 48hr number.
+  const upcoming48Leads = leadHours.filter(
+    ({ lead, hrs }) => lead.counsellor_id && hrs > 12 && hrs <= 48
+  );
+  const imminent12Leads = leadHours.filter(
+    ({ lead, hrs }) => lead.counsellor_id && hrs >= 0 && hrs <= 12
+  );
+
+  // For each lead at the reminder window, verify the reminder actually
+  // reached the lead via the activity log:
+  //   sent     — at least one channel (WA or email) confirmed delivered
+  //   pending  — Twilio webhook hasn't updated us yet
+  //   failed   — all channels errored
+  //   not_yet  — cron hasn't fired (lead just entered window)
+  const reminderBreakdown = { sent: 0, pending: 0, failed: 0, not_yet: 0 };
+  for (const { lead } of imminent12Leads) {
+    reminderBreakdown[reminderStatusFor(lead)]++;
+  }
+
   const stats = {
     total: leads.length,
     unassigned: leads.filter((l) => !l.counsellor_id).length,
-    upcoming48: leadHours.filter(
-      ({ lead, hrs }) => lead.counsellor_id && hrs <= 48 && hrs >= 0
-    ).length,
-    imminent12: leadHours.filter(
-      ({ lead, hrs }) => lead.counsellor_id && hrs <= 12 && hrs >= 0
-    ).length,
+    upcoming48: upcoming48Leads.length,
+    imminent12: imminent12Leads.length,
+    reminderBreakdown,
   };
 
   const assignLead = async (leadId, counsellorId) => {
@@ -278,12 +330,16 @@ export default function LeadFollowup({ onPickStaff }) {
       <div className="mt-6 grid grid-cols-4 gap-4 border-y border-stone-300 py-5">
         <Stat n={stats.total} label="Total leads" />
         <Stat n={stats.unassigned} label="Unassigned" tone={stats.unassigned > 0 ? "amber" : ""} />
-        <Stat n={stats.upcoming48} label="≤ 48hr" sublabel="Appointments" />
+        <Stat
+          n={stats.upcoming48}
+          label="12 – 48 hr"
+          sublabel="Appointments"
+        />
         <Stat
           n={stats.imminent12}
-          label="≤ 12hr (reminder)"
-          sublabel="Appointments"
-          tone={stats.imminent12 > 0 ? "red" : ""}
+          label="≤ 12 hr (reminder)"
+          sublabel={buildReminderSublabel(stats.reminderBreakdown, stats.imminent12)}
+          tone={reminderTone(stats.reminderBreakdown, stats.imminent12)}
         />
       </div>
 
