@@ -36,6 +36,7 @@ export default function LeadFollowup() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [sortBy, setSortBy] = useState("default");
   const genRef = useRef(0);
 
   const fetchAll = useCallback(async () => {
@@ -89,16 +90,48 @@ export default function LeadFollowup() {
     }
   };
 
-  // Sort: soonest upcoming event first; past events drop to the bottom
-  // (keeping past events sorted most-recent-first so they're not totally lost).
+  // Sort behavior:
+  //   default — unassigned first, then upcoming-soonest, past at bottom
+  //   staff   — by counsellor name (unassigned grouped at the end)
+  //   date    — by service_date ascending (soonest first regardless of state)
+  //   student — by lead.name alphabetical
+  //   status  — grouped by status (unassigned → scheduled → completed → no_show)
   const now = Date.now();
+  const counsellorName = (id) =>
+    id ? counsellors.find((c) => c.id === id)?.name || "" : "";
+  const dateMs = (l) =>
+    l.service_date ? new Date(l.service_date).getTime() : Infinity;
+  const STATUS_ORDER = { unassigned: 0, scheduled: 1, completed: 2, no_show: 3 };
+
   const sorted = [...leads].sort((a, b) => {
-    const at = a.service_date ? new Date(a.service_date).getTime() : Infinity;
-    const bt = b.service_date ? new Date(b.service_date).getTime() : Infinity;
-    const aFuture = at >= now;
-    const bFuture = bt >= now;
-    if (aFuture !== bFuture) return aFuture ? -1 : 1;
-    return aFuture ? at - bt : bt - at;
+    switch (sortBy) {
+      case "staff": {
+        const an = counsellorName(a.counsellor_id) || "zzz_unassigned";
+        const bn = counsellorName(b.counsellor_id) || "zzz_unassigned";
+        const cmp = an.localeCompare(bn);
+        return cmp !== 0 ? cmp : dateMs(a) - dateMs(b);
+      }
+      case "date":
+        return dateMs(a) - dateMs(b);
+      case "student":
+        return (a.name || "").localeCompare(b.name || "");
+      case "status": {
+        const ao = STATUS_ORDER[a.status] ?? 99;
+        const bo = STATUS_ORDER[b.status] ?? 99;
+        return ao !== bo ? ao - bo : dateMs(a) - dateMs(b);
+      }
+      default: {
+        const aUn = !a.counsellor_id;
+        const bUn = !b.counsellor_id;
+        if (aUn !== bUn) return aUn ? -1 : 1;
+        const at = dateMs(a);
+        const bt = dateMs(b);
+        const aFuture = at >= now;
+        const bFuture = bt >= now;
+        if (aFuture !== bFuture) return aFuture ? -1 : 1;
+        return aFuture ? at - bt : bt - at;
+      }
+    }
   });
 
   const stats = {
@@ -238,8 +271,13 @@ export default function LeadFollowup() {
       <div className="mt-6 grid grid-cols-4 gap-4 border-y border-stone-300 py-5">
         <Stat n={stats.total} label="Total leads" />
         <Stat n={stats.unassigned} label="Unassigned" tone={stats.unassigned > 0 ? "amber" : ""} />
-        <Stat n={stats.upcoming48} label="≤ 48hr" />
-        <Stat n={stats.imminent12} label="≤ 12hr (reminder)" tone={stats.imminent12 > 0 ? "red" : ""} />
+        <Stat n={stats.upcoming48} label="≤ 48hr" sublabel="Appointments" />
+        <Stat
+          n={stats.imminent12}
+          label="≤ 12hr (reminder)"
+          sublabel="Appointments"
+          tone={stats.imminent12 > 0 ? "red" : ""}
+        />
       </div>
 
       {showNewCounsellor && (
@@ -257,8 +295,37 @@ export default function LeadFollowup() {
         />
       )}
 
+      {/* Sort controls */}
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+          Sort by:
+        </span>
+        {[
+          { key: "default", label: "Default" },
+          { key: "staff", label: "Staff" },
+          { key: "date", label: "Date" },
+          { key: "student", label: "Student" },
+          { key: "status", label: "Status" },
+        ].map((opt) => {
+          const active = sortBy === opt.key;
+          return (
+            <button
+              key={opt.key}
+              onClick={() => setSortBy(opt.key)}
+              className={
+                active
+                  ? "border border-[#cc785c] bg-[#cc785c] px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-white"
+                  : "border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-500 hover:text-stone-900"
+              }
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Lead list */}
-      <div className="mt-6 border border-stone-300 bg-white">
+      <div className="mt-3 border border-stone-300 bg-white">
         {sorted.length > 0 && (
           <div
             className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2.5 text-[12px] font-bold uppercase tracking-[0.18em] text-stone-800"
@@ -295,7 +362,7 @@ export default function LeadFollowup() {
   );
 }
 
-function Stat({ n, label, tone = "" }) {
+function Stat({ n, label, sublabel, tone = "" }) {
   const color =
     tone === "amber"
       ? "text-amber-700"
@@ -305,6 +372,9 @@ function Stat({ n, label, tone = "" }) {
   return (
     <div>
       <p className={`font-serif text-5xl font-bold leading-none ${color}`}>{n}</p>
+      {sublabel && (
+        <p className="mt-1 text-[11px] italic text-stone-500">{sublabel}</p>
+      )}
       <p className="mt-2 text-[12px] uppercase tracking-[0.2em] text-stone-600">
         {label}
       </p>
