@@ -27,7 +27,7 @@ const fmtDate = formatDateInIst;
 // ============================================================
 // Main
 // ============================================================
-export default function LeadFollowup() {
+export default function LeadFollowup({ onPickStaff }) {
   const [leads, setLeads] = useState([]);
   const [counsellors, setCounsellors] = useState([]);
   const [expanded, setExpanded] = useState(null);
@@ -134,20 +134,16 @@ export default function LeadFollowup() {
     }
   });
 
+  // Compute hoursUntil once per lead instead of 4× across the two filters.
+  const leadHours = leads.map((l) => ({ lead: l, hrs: hoursUntil(l.service_date) }));
   const stats = {
     total: leads.length,
     unassigned: leads.filter((l) => !l.counsellor_id).length,
-    upcoming48: leads.filter(
-      (l) =>
-        l.counsellor_id &&
-        hoursUntil(l.service_date) <= 48 &&
-        hoursUntil(l.service_date) >= 0
+    upcoming48: leadHours.filter(
+      ({ lead, hrs }) => lead.counsellor_id && hrs <= 48 && hrs >= 0
     ).length,
-    imminent12: leads.filter(
-      (l) =>
-        l.counsellor_id &&
-        hoursUntil(l.service_date) <= 12 &&
-        hoursUntil(l.service_date) >= 0
+    imminent12: leadHours.filter(
+      ({ lead, hrs }) => lead.counsellor_id && hrs <= 12 && hrs >= 0
     ).length,
   };
 

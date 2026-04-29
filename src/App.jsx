@@ -29,7 +29,7 @@ function clearSession() {
 export default function App() {
   const [session, setSession] = useState(loadSession);
   // For admin only — when set, render the StaffDashboard "as" this counsellor.
-  // Shape: { counsellorId, variant: "regular" | "advanced" }
+  // Shape: { counsellorId }
   const [impersonating, setImpersonating] = useState(null);
   const [counsellors, setCounsellors] = useState([]);
 
@@ -88,11 +88,9 @@ export default function App() {
   if (session.role === "admin") {
     return (
       <Frame onSignOut={onSignOut} panelLabel="Admin Panel">
-        <AdminViewAsDropdown
-          counsellors={counsellors}
-          onSelect={(impersonationState) => setImpersonating(impersonationState)}
+        <LeadFollowup
+          onPickStaff={(impersonationState) => setImpersonating(impersonationState)}
         />
-        <LeadFollowup />
       </Frame>
     );
   }
@@ -154,58 +152,6 @@ function BackToAdminBanner({ staffName, onExit }) {
       >
         ← Back to admin
       </button>
-    </div>
-  );
-}
-
-function AdminViewAsDropdown({ counsellors, onSelect }) {
-  const [open, setOpen] = useState(false);
-  if (counsellors.length === 0) return null;
-
-  const pickRandom = () => {
-    const c = counsellors[Math.floor(Math.random() * counsellors.length)];
-    onSelect({ counsellorId: c.id });
-    setOpen(false);
-  };
-
-  return (
-    <div className="mb-4 flex items-center justify-end gap-3">
-      <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
-        View staff panel:
-      </span>
-      <button
-        onClick={pickRandom}
-        className="border border-stone-400 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
-      >
-        🎲 Random
-      </button>
-      <div className="relative">
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="border border-stone-400 bg-white px-3 py-1.5 text-[12px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
-        >
-          Pick counsellor ▾
-        </button>
-        {open && (
-          <div className="absolute right-0 top-full z-20 mt-1 w-72 border border-stone-400 bg-white shadow-md">
-            <ul className="max-h-72 overflow-y-auto py-1">
-              {counsellors.map((c) => (
-                <li key={c.id} className="border-b border-stone-200 last:border-b-0">
-                  <button
-                    onClick={() => {
-                      onSelect({ counsellorId: c.id });
-                      setOpen(false);
-                    }}
-                    className="block w-full px-3 py-2 text-left text-sm hover:bg-stone-100"
-                  >
-                    {c.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

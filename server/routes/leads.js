@@ -206,9 +206,26 @@ router.patch("/:id", async (req, res, next) => {
       return v;
     })];
 
+    // Reasons to reset reminder_sent so the cron re-fires the 12hr reminder:
+    //   1. Counsellor changed — the new counsellor needs to be notified.
+    //   2. service_date changed — the existing reminder was anchored to the
+    //      OLD time. If staff moves the appointment forward, the old reminder
+    //      is now wrong; we need a fresh one anchored to the new time.
+    //      (Without this, rescheduling silently skips the reminder for the new slot.)
     let extraSet = "";
-    if (req.body.counsellor_id && req.body.counsellor_id !== before.counsellor_id) {
+    const counsellorChanged =
+      req.body.counsellor_id && req.body.counsellor_id !== before.counsellor_id;
+    const serviceDateChanged =
+      req.body.service_date !== undefined &&
+      req.body.service_date !== null &&
+      req.body.service_date !== "" &&
+      new Date(req.body.service_date).getTime() !==
+        (before.service_date ? new Date(before.service_date).getTime() : NaN);
+
+    if (counsellorChanged) {
       extraSet = ", status = 'scheduled', reminder_sent = FALSE";
+    } else if (serviceDateChanged) {
+      extraSet = ", reminder_sent = FALSE";
     }
 
     const sql = `UPDATE leads SET ${set}${extraSet}, updated_at = NOW() WHERE id = $1 RETURNING *`;
@@ -233,6 +250,13 @@ router.patch("/:id", async (req, res, next) => {
       await pool.query(
         "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, $2, $3)",
         [id, "status", `Status changed to ${req.body.status}.`]
+      );
+    } else if (counsellorChanged && before.status === "unassigned") {
+      // counsellor_id assigned → extraSet auto-flipped status to 'scheduled'.
+      // Log it explicitly so the activity feed reflects the implicit change.
+      await pool.query(
+        "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, $2, $3)",
+        [id, "status", "Status changed to scheduled."]
       );
     }
 
@@ -331,37 +355,6 @@ router.post("/:id/call", async (req, res, next) => {
       [id, counsellor_id, ts, text]
     );
     res.status(201).json(rows[0]);
-  } catch (e) {
-    next(e);
-  }
-});
-
-// PUT /api/leads/:id/transcript — set / replace the transcript.
-router.put("/:id/transcript", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { counsellor_id, transcript } = req.body;
-    if (!isString(counsellor_id) || counsellor_id.length < 1) {
-      return res.status(400).json({ error: "counsellor_id is required" });
-    }
-    if (!isString(transcript) || transcript.length > 100_000) {
-      return res.status(400).json({ error: "transcript must be a string up to 100k chars" });
-    }
-    const cname = await getCounsellorName(counsellor_id);
-    if (!cname) return res.status(400).json({ error: "counsellor not found" });
-
-    const { rows } = await pool.query(
-      "UPDATE leads SET transcript = $1, updated_at = NOW() WHERE id = $2 RETURNING transcript",
-      [transcript, id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: "lead not found" });
-
-    await pool.query(
-      `INSERT INTO lead_activity (lead_id, type, recipient, text)
-       VALUES ($1, 'transcript_attached', $2, $3)`,
-      [id, counsellor_id, `Transcript updated by ${cname} (${transcript.length} chars).`]
-    );
-    res.json({ transcript: rows[0].transcript });
   } catch (e) {
     next(e);
   }
@@ -467,7 +460,7 @@ router.patch("/:leadId/actionables/:id", async (req, res, next) => {
   }
 });
 
-// POST /api/leads/:id/actionables/extract — run Claude on the lead's
+// POST /api/leads/:id/actionables/extract — run Gemini on the lead's
 // transcript and bulk-insert the extracted actionables.
 router.post("/:id/actionables/extract", async (req, res, next) => {
   try {
@@ -552,10 +545,42 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
     );
 
     // 3. Extract actionables (best-effort; transcript is saved either way)
+    //
+    // On re-upload, we want a fresh set rather than accumulating duplicates
+    // alongside the previous extraction. Counsellor-added actionables (entered
+    // manually) are preserved — only the auto-extracted ones from the prior
+    // run are cleared. We identify "auto-extracted" rows by joining against
+    // the most recent `actionables_extracted` activity row for this lead and
+    // wiping any actionables created at-or-after that timestamp that the
+    // counsellor hasn't ticked.
+    //
+    // Conservative behavior: we only purge auto-extracted rows that are
+    // still incomplete. Anything the counsellor has actively engaged with
+    // (completed, edited via PATCH, etc.) is left alone.
     let extracted = [];
     let extract_error = null;
+    let replaced_count = 0;
     try {
       extracted = await extractActionables(transcript);
+
+      // Find the timestamp of the previous bulk extract for this lead, if any.
+      const { rows: prev } = await pool.query(
+        `SELECT ts FROM lead_activity
+         WHERE lead_id = $1 AND type = 'actionables_extracted'
+         ORDER BY ts DESC LIMIT 1`,
+        [id]
+      );
+      if (prev.length > 0) {
+        const { rowCount } = await pool.query(
+          `DELETE FROM lead_actionables
+           WHERE lead_id = $1
+             AND completed = FALSE
+             AND created_at >= $2`,
+          [id, prev[0].ts]
+        );
+        replaced_count = rowCount || 0;
+      }
+
       for (const text of extracted) {
         await pool.query(
           "INSERT INTO lead_actionables (lead_id, text) VALUES ($1, $2) RETURNING id",
@@ -563,9 +588,13 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
         );
       }
       if (extracted.length > 0) {
+        const note =
+          replaced_count > 0
+            ? `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio (replaced ${replaced_count} from prior extraction)`
+            : `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio`;
         await pool.query(
           "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionables_extracted', $2)",
-          [id, `${extracted.length} actionable${extracted.length === 1 ? "" : "s"} auto-extracted from uploaded audio`]
+          [id, note]
         );
       }
     } catch (e) {
@@ -587,11 +616,24 @@ router.post("/:id/transcript/audio", audioUpload.single("audio"), async (req, re
 router.delete("/:leadId/actionables/:id", async (req, res, next) => {
   try {
     const { leadId, id } = req.params;
+    // Capture the text before deleting so the activity log row is meaningful.
+    const { rows: pre } = await pool.query(
+      "SELECT text FROM lead_actionables WHERE id = $1 AND lead_id = $2",
+      [id, leadId]
+    );
+    const actionableText = pre[0]?.text || "(unknown)";
+
     const { rowCount } = await pool.query(
       "DELETE FROM lead_actionables WHERE id = $1 AND lead_id = $2",
       [id, leadId]
     );
     if (rowCount === 0) return res.status(404).json({ error: "actionable not found" });
+
+    await pool.query(
+      "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'actionable_deleted', $2)",
+      [leadId, `Removed actionable: ${actionableText.slice(0, 200)}`]
+    );
+
     res.status(204).end();
   } catch (e) {
     next(e);

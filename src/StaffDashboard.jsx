@@ -39,18 +39,23 @@ export default function StaffDashboard({
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const viewedRef = useRef(new Set()); // dedupe view-pings per session
+  const genRef = useRef(0); // gate stale fetches, mirrors LeadFollowup
 
   const counsellor = counsellors.find((c) => c.id === counsellorId);
 
   const fetchAll = useCallback(async () => {
+    genRef.current += 1;
+    const myGen = genRef.current;
     try {
       const all = await api.listLeads();
-      setLeads(all);
-      setError(null);
+      if (myGen === genRef.current) {
+        setLeads(all);
+        setError(null);
+      }
     } catch (e) {
-      setError(e.message);
+      if (myGen === genRef.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (myGen === genRef.current) setLoading(false);
     }
   }, []);
 
@@ -368,26 +373,56 @@ function StaffLeadDetail({
             <p className="text-[12px] uppercase tracking-[0.25em] text-stone-600">
               Notifications (auto-fired)
             </p>
-            <div className="mt-2 space-y-1.5">
+
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+              To student
+            </p>
+            <div className="mt-1.5 space-y-1.5">
               <NotifPill
                 label="Welcome WA"
-                icon={<MessageCircle className="h-3 w-3" />}
+                icon={<MessageCircle className="h-3.5 w-3.5" />}
                 entry={findStatus("whatsapp", "lead", "assignment")}
               />
               <NotifPill
                 label="Welcome email"
-                icon={<Mail className="h-3 w-3" />}
+                icon={<Mail className="h-3.5 w-3.5" />}
                 entry={findStatus("email", "lead", "assignment")}
               />
               <NotifPill
                 label="12hr reminder WA"
-                icon={<MessageCircle className="h-3 w-3" />}
+                icon={<MessageCircle className="h-3.5 w-3.5" />}
                 entry={findStatus("whatsapp", "lead", "reminder")}
               />
               <NotifPill
                 label="12hr reminder email"
-                icon={<Mail className="h-3 w-3" />}
+                icon={<Mail className="h-3.5 w-3.5" />}
                 entry={findStatus("email", "lead", "reminder")}
+              />
+            </div>
+
+            <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+              To counsellor (you)
+            </p>
+            <div className="mt-1.5 space-y-1.5">
+              <NotifPill
+                label="Welcome WA"
+                icon={<MessageCircle className="h-3.5 w-3.5" />}
+                entry={findStatus("whatsapp", "counsellor", "assignment")}
+              />
+              <NotifPill
+                label="Welcome email"
+                icon={<Mail className="h-3.5 w-3.5" />}
+                entry={findStatus("email", "counsellor", "assignment")}
+              />
+              <NotifPill
+                label="12hr reminder WA"
+                icon={<MessageCircle className="h-3.5 w-3.5" />}
+                entry={findStatus("whatsapp", "counsellor", "reminder")}
+              />
+              <NotifPill
+                label="12hr reminder email"
+                icon={<Mail className="h-3.5 w-3.5" />}
+                entry={findStatus("email", "counsellor", "reminder")}
               />
             </div>
           </div>
@@ -424,12 +459,12 @@ function NotifPill({ label, icon, entry }) {
     }
   }
   return (
-    <div className={`flex items-center justify-between gap-2 border px-2.5 py-1.5 text-[13px] ${cls}`}>
-      <span className="flex items-center gap-1.5">
+    <div className={`flex items-center justify-between gap-2 border px-3 py-2 text-[14px] ${cls}`}>
+      <span className="flex items-center gap-2 font-medium">
         {icon}
         {label}
       </span>
-      <span className="text-[12px] uppercase tracking-[0.1em]">{suffix}</span>
+      <span className="text-[13px] uppercase tracking-[0.1em]">{suffix}</span>
     </div>
   );
 }
@@ -690,7 +725,7 @@ function ActionablesList({ lead, onChange }) {
       const result = await api.extractActionables(lead.id);
       onChange();
       if (result.count === 0) {
-        setErr("Claude didn't find any clear actionables in the transcript.");
+        setErr("Gemini didn't find any clear actionables in the transcript.");
       }
     } catch (e) {
       setErr(e.message);
@@ -737,7 +772,7 @@ function ActionablesList({ lead, onChange }) {
           <button
             onClick={extract}
             disabled={busy || extracting}
-            title="Use Claude to extract actionables from the transcript"
+            title="Use Gemini to extract actionables from the transcript"
             className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f] disabled:opacity-40"
           >
             {extracting ? "Extracting…" : "✨ Auto-extract"}

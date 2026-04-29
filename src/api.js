@@ -33,8 +33,6 @@ export const api = {
     request("POST", `/api/leads/${leadId}/view`, { counsellor_id: counsellorId }),
   logCall: (leadId, body) =>
     request("POST", `/api/leads/${leadId}/call`, body),
-  setTranscript: (leadId, body) =>
-    request("PUT", `/api/leads/${leadId}/transcript`, body),
   addActionable: (leadId, text) =>
     request("POST", `/api/leads/${leadId}/actionables`, { text }),
   updateActionable: (leadId, id, patch) =>
