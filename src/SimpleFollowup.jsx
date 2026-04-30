@@ -7,12 +7,12 @@ import {
   Archive,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Undo2,
   History,
   Pencil,
 } from "lucide-react";
 import { api } from "./api.js";
+import ArchivedSection from "./ArchivedSection.jsx";
 import {
   formatDateInIst,
   formatTimeInIst,
@@ -551,7 +551,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         )}
       </div>
 
-      <ArchivedSection
+      <ArchivedLeads
         leads={archivedLeads}
         counsellors={counsellors}
         onUnarchive={unarchiveLead}
@@ -582,69 +582,48 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 // ============================================================
 // Collapsible "Archived" panel below the main sheet. Hidden by default.
 // Shows each archived lead on a single compact line with name · purpose ·
-// counsellor · when-archived · Unarchive. Returning a lead to the active
-// sheet is a one-click action so the user can quickly recover from a
-// mis-archive without a refetch.
-function ArchivedSection({ leads, counsellors, onUnarchive }) {
-  const [open, setOpen] = useState(false);
-  if (leads.length === 0) return null;
+// counsellor · when-archived · Unarchive. Each row renders via the
+// generic ArchivedSection's renderRow callback so the chrome stays
+// shared with the tasks-archive panel.
+function ArchivedLeads({ leads, counsellors, onUnarchive }) {
   const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
   return (
-    <div className="mt-4 border border-stone-300 bg-stone-50">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-stone-700 hover:bg-stone-100"
-      >
-        <span className="inline-flex items-center gap-1.5">
-          {open ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          Archived ({leads.length})
-        </span>
-        <span className="text-[10px] font-normal normal-case tracking-normal text-stone-500">
-          {open ? "click to collapse" : "click to expand"}
-        </span>
-      </button>
-      {open && (
-        <ul className="divide-y divide-stone-200 border-t border-stone-200 bg-white">
-          {leads.map((lead) => (
-            <li
-              key={lead.id}
-              className="flex items-center justify-between gap-3 px-3 py-2 text-[13px] text-stone-700"
-            >
-              <div className="min-w-0 flex-1 truncate">
-                <span className="font-semibold text-stone-900">
-                  {lead.name || "—"}
-                </span>
-                {lead.purpose && (
-                  <span className="ml-2 text-stone-600">— {lead.purpose}</span>
-                )}
-                {(lead.counsellor_id || lead.counsellor_name) && (
-                  <span className="ml-2 text-[12px] text-stone-500">
-                    ·{" "}
-                    {counsellorNameById.get(lead.counsellor_id) ||
-                      lead.counsellor_name}
-                  </span>
-                )}
-                {lead.archived_at && (
-                  <span className="ml-2 text-[11px] text-stone-400">
-                    · archived {formatDateInIst(lead.archived_at)}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => onUnarchive(lead.id)}
-                className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
-              >
-                <Undo2 className="h-3 w-3" /> Unarchive
-              </button>
-            </li>
-          ))}
-        </ul>
+    <ArchivedSection
+      items={leads}
+      renderRow={(lead) => (
+        <li
+          key={lead.id}
+          className="flex items-center justify-between gap-3 px-3 py-2 text-[13px] text-stone-700"
+        >
+          <div className="min-w-0 flex-1 truncate">
+            <span className="font-semibold text-stone-900">
+              {lead.name || "—"}
+            </span>
+            {lead.purpose && (
+              <span className="ml-2 text-stone-600">— {lead.purpose}</span>
+            )}
+            {(lead.counsellor_id || lead.counsellor_name) && (
+              <span className="ml-2 text-[12px] text-stone-500">
+                ·{" "}
+                {counsellorNameById.get(lead.counsellor_id) ||
+                  lead.counsellor_name}
+              </span>
+            )}
+            {lead.archived_at && (
+              <span className="ml-2 text-[11px] text-stone-400">
+                · archived {formatDateInIst(lead.archived_at)}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => onUnarchive(lead.id)}
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+          >
+            <Undo2 className="h-3 w-3" /> Unarchive
+          </button>
+        </li>
       )}
-    </div>
+    />
   );
 }
 

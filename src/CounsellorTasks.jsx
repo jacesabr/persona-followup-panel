@@ -6,12 +6,11 @@ import {
   Check,
   Star,
   Archive,
-  ChevronDown,
-  ChevronRight,
   Undo2,
 } from "lucide-react";
 import { api } from "./api.js";
 import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
+import ArchivedSection from "./ArchivedSection.jsx";
 
 function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
@@ -590,71 +589,50 @@ export default function CounsellorTasks({
   );
 }
 
-// Collapsible "Archived" panel mirroring the lead-archive pattern: hidden
-// by default, click to expand. Each archived task shows its date, student,
-// task body, and an Unarchive button to restore it to the active list.
+// Collapsible "Archived" panel mirroring the lead-archive pattern. Chrome
+// (collapse, header, count, divider) is shared via the generic
+// ArchivedSection; this component owns just the per-row layout.
 function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
-  const [open, setOpen] = useState(false);
-  if (tasks.length === 0) return null;
   return (
-    <div className="mt-4 border border-stone-300 bg-stone-50">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-stone-700 hover:bg-stone-100"
-      >
-        <span className="inline-flex items-center gap-1.5">
-          {open ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          Archived ({tasks.length})
-        </span>
-        <span className="text-[10px] font-normal normal-case tracking-normal text-stone-500">
-          {open ? "click to collapse" : "click to expand"}
-        </span>
-      </button>
-      {open && (
-        <ul className="divide-y divide-stone-200 border-t border-stone-200 bg-white">
-          {tasks.map((task) => {
-            const isBusy = busyId === task.id;
-            return (
-              <li
-                key={task.id}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-[14px] text-stone-700"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="tabular-nums text-[13px] text-stone-500">
-                    {formatDateInIst(task.due_date)}
-                  </span>
-                  <span className="ml-2 font-semibold text-stone-900">
-                    {task.lead_name || task.student_name || "—"}
-                  </span>
-                  <span className="ml-2 text-stone-700">— {task.text}</span>
-                  {task.archived_at && (
-                    <span className="ml-2 text-[11px] text-stone-400">
-                      · archived {formatDateInIst(task.archived_at)}
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => onUnarchive(task)}
-                  disabled={isBusy}
-                  className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900 disabled:opacity-50"
-                >
-                  {isBusy ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Undo2 className="h-3 w-3" />
-                  )}
-                  Unarchive
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+    <ArchivedSection
+      items={tasks}
+      renderRow={(task) => {
+        const isBusy = busyId === task.id;
+        return (
+          <li
+            key={task.id}
+            className="flex items-center justify-between gap-3 px-3 py-2 text-[14px] text-stone-700"
+          >
+            <div className="min-w-0 flex-1">
+              <span className="tabular-nums text-[13px] text-stone-500">
+                {formatDateInIst(task.due_date)}
+              </span>
+              <span className="ml-2 font-semibold text-stone-900">
+                {task.lead_name || task.student_name || "—"}
+              </span>
+              <span className="ml-2 text-stone-700">— {task.text}</span>
+              {task.archived_at && (
+                <span className="ml-2 text-[11px] text-stone-400">
+                  · archived {formatDateInIst(task.archived_at)}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => onUnarchive(task)}
+              disabled={isBusy}
+              className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900 disabled:opacity-50"
+            >
+              {isBusy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Undo2 className="h-3 w-3" />
+              )}
+              Unarchive
+            </button>
+          </li>
+        );
+      }}
+    />
   );
 }
 
