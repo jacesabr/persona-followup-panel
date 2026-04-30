@@ -8,7 +8,7 @@ import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import twilioStatusRouter from "./routes/twilio_status.js";
 import { migrate } from "./migrate.js";
-import { seedIfEmpty, ensureTestCounsellor } from "./seed.js";
+import { seedIfEmpty, ensureTestCounsellor, seedAppointmentsIfEmpty } from "./seed.js";
 import { startCron } from "./cron.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,6 +64,9 @@ async function start() {
   await migrate();
   await seedIfEmpty();
   await ensureTestCounsellor();
+  // Backfill demo appointment history for existing DBs that had seed leads
+  // before lead_appointments was introduced. No-op once the table is non-empty.
+  await seedAppointmentsIfEmpty();
   startCron();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);

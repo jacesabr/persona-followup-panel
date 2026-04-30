@@ -27,6 +27,48 @@ function relInquiry(daysAgo) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Sample appointment history for the demo leads. Mix of past + upcoming,
+// with some past notes filled in and one left empty to demo the
+// "fill in details after the session" workflow. The upcoming row matches
+// each lead's service_date so the calendar's green tile maps to a real
+// row (instead of the synthetic fallback that legacy data uses).
+const APPOINTMENTS = [
+  // Simran Bhatia — STK aptitude test prep journey
+  {
+    lead_id: "L001",
+    days_offset: -14,
+    hour: 10,
+    notes:
+      "Initial assessment. Strong analytical skills, weaker on verbal reasoning. Target: 720+ on STK. Sent practice set 1 by email.",
+  },
+  {
+    lead_id: "L001",
+    days_offset: -7,
+    hour: 10,
+    notes: null, // session happened, counsellor hasn't logged it yet
+  },
+  {
+    lead_id: "L001",
+    days_offset: 7,
+    hour: 10,
+    notes: null, // upcoming, matches existing service_date
+  },
+  // Aarav Khanna — career counselling
+  {
+    lead_id: "L002",
+    days_offset: -10,
+    hour: 15,
+    notes:
+      "Career interest survey results. Top three: Economics, CS, Public Policy. Walked through pros and cons of each track for someone with strong math + writing.",
+  },
+  {
+    lead_id: "L002",
+    days_offset: 2,
+    hour: 15,
+    notes: null, // upcoming, matches existing service_date
+  },
+];
+
 const LEADS = [
   {
     id: "L001", name: "Simran Bhatia", contact: "919811001711", email: "simran.bhatia@example.com",
@@ -83,6 +125,46 @@ export async function seedLeads() {
       );
     }
   }
+
+  // Sample appointment history. Inserted unconditionally on seed (deletes
+  // cascade from leads, so a reset wipes these too).
+  for (const a of APPOINTMENTS) {
+    await pool.query(
+      "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3)",
+      [a.lead_id, relDate(a.days_offset, a.hour), a.notes]
+    );
+  }
+}
+
+// Backfill appointments for an existing DB that already has the seed leads
+// but no lead_appointments rows (the table was added in a later migration).
+// Idempotent — skips when any appointment row already exists, so it's safe
+// to call on every startup.
+export async function seedAppointmentsIfEmpty() {
+  const { rows } = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM lead_appointments"
+  );
+  if (rows[0].n > 0) {
+    console.log("[seed] appointments exist, skipping");
+    return;
+  }
+  // Only seed appointments for leads that actually exist (the seed leads
+  // may have been deleted via reset; only backfill what's there).
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM leads WHERE id = ANY($1)",
+    [APPOINTMENTS.map((a) => a.lead_id)]
+  );
+  const existingIds = new Set(existing.map((r) => r.id));
+  let inserted = 0;
+  for (const a of APPOINTMENTS) {
+    if (!existingIds.has(a.lead_id)) continue;
+    await pool.query(
+      "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3)",
+      [a.lead_id, relDate(a.days_offset, a.hour), a.notes]
+    );
+    inserted++;
+  }
+  if (inserted > 0) console.log(`[seed] inserted ${inserted} sample appointments`);
 }
 
 export async function seedIfEmpty() {
