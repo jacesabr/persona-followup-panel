@@ -209,8 +209,12 @@ export default function CounsellorTasks() {
     );
   }
 
-  // Wider columns + larger text per the readability requirement.
-  const gridCols = "3rem 8rem 1fr 2.5fr 5rem";
+  // Column widths sized so the actual rendered button widths fit:
+  // - Priority col: 6.5rem to fit "PRIORITY" + star icon + padding
+  // - Date col: 7rem to fit "29 Apr 2026" tabular-nums
+  // - Student/Task: fr-flex
+  // - Actions: 5rem to fit two icon buttons
+  const gridCols = "6.5rem 7rem 1fr 2fr 5rem";
   const activeLeads = leads.filter((l) => !l.archived);
 
   return (

@@ -206,6 +206,78 @@ export async function seedAppointmentsIfEmpty() {
   if (inserted > 0) console.log(`[seed] inserted ${inserted} sample appointments`);
 }
 
+// Generic 4-session arc applied to any active lead that has zero
+// appointment rows. Mix of past-with-notes, a missed past, and one
+// upcoming so the History popup, calendar tile colors, and the
+// "Session Missed" warning all have something to render even for leads
+// the user creates manually.
+//
+// NOTE: this is demo behavior. Before going to real production, remove
+// the call site in server/index.js (or gate it behind an env flag) so
+// new real leads don't auto-grow a fake history.
+const GENERIC_HISTORY = [
+  {
+    days_offset: -30,
+    hour: 11,
+    notes:
+      "Initial consultation. Walked through goals, expectations, and timeline. Sent the intro packet by email; student to read before next session.",
+  },
+  {
+    days_offset: -14,
+    hour: 11,
+    notes: null, // missed — counsellor didn't log notes
+  },
+  {
+    days_offset: -7,
+    hour: 11,
+    notes:
+      "Follow-up session. Reviewed progress against the milestones we set, refined the next two weeks of action items, and clarified one open question on application strategy.",
+  },
+  { days_offset: 5, hour: 11, notes: null }, // upcoming
+];
+
+// Idempotent per-lead: fills only leads with exactly zero appointments,
+// so it never duplicates and never runs against a lead that already has
+// real or earlier-seeded history.
+export async function backfillLeadsWithDemoHistory() {
+  const { rows } = await pool.query(`
+    SELECT l.id, l.service_date FROM leads l
+    LEFT JOIN lead_appointments a ON a.lead_id = l.id
+    WHERE l.archived = FALSE
+    GROUP BY l.id, l.service_date
+    HAVING COUNT(a.id) = 0
+  `);
+  if (rows.length === 0) return;
+
+  let inserted = 0;
+  for (const lead of rows) {
+    for (const a of GENERIC_HISTORY) {
+      await pool.query(
+        "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3)",
+        [lead.id, relDate(a.days_offset, a.hour), a.notes]
+      );
+      inserted++;
+    }
+    // If the lead doesn't yet have an upcoming meeting on the sheet,
+    // mirror the generic future appt onto leads.service_date so the
+    // "Next follow" cell + green calendar tile both light up.
+    if (!lead.service_date) {
+      const futureAppt = GENERIC_HISTORY.find((a) => a.days_offset > 0);
+      if (futureAppt) {
+        await pool.query(
+          `UPDATE leads
+           SET service_date = $2, reminder_sent = FALSE, updated_at = NOW()
+           WHERE id = $1`,
+          [lead.id, relDate(futureAppt.days_offset, futureAppt.hour)]
+        );
+      }
+    }
+  }
+  console.log(
+    `[seed] backfilled ${inserted} demo appointments across ${rows.length} leads`
+  );
+}
+
 // Same idempotent backfill story for counsellor_tasks — added in a later
 // migration than the leads table, so existing DBs need a one-time seed.
 export async function seedTasksIfEmpty() {
