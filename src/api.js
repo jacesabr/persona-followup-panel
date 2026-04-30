@@ -49,6 +49,11 @@ export const api = {
     request("DELETE", `/api/leads/${leadId}/actionables/${id}`),
   extractActionables: (leadId) =>
     request("POST", `/api/leads/${leadId}/actionables/extract`),
+  // Appointment history (used by the simple panel calendar).
+  listAppointments: (leadId) =>
+    request("GET", `/api/leads/${leadId}/appointments`),
+  createAppointment: (leadId, body) =>
+    request("POST", `/api/leads/${leadId}/appointments`, body),
   uploadAudio: async (leadId, file) => {
     const fd = new FormData();
     fd.append("audio", file);

@@ -159,7 +159,7 @@ router.get("/", async (req, res, next) => {
 // POST /api/leads — create a new lead
 router.post("/", async (req, res, next) => {
   try {
-    const { name, contact, email, purpose, service_date, counsellor_id, notes } = req.body;
+    const { name, contact, email, purpose, service_date, counsellor_id, notes, inquiry_date, status: bodyStatus } = req.body;
     if (!name || !contact || !purpose) {
       return res.status(400).json({ error: "name, contact, and purpose are required" });
     }
@@ -169,8 +169,22 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: validationError });
     }
 
+    // inquiry_date is optional from the client. If provided it must be a
+    // YYYY-MM-DD string (DATE column), otherwise the DB default fills today.
+    if (inquiry_date !== undefined && inquiry_date !== null && inquiry_date !== "") {
+      if (!isString(inquiry_date) || !/^\d{4}-\d{2}-\d{2}$/.test(inquiry_date)) {
+        return res.status(400).json({ error: "inquiry_date must be YYYY-MM-DD" });
+      }
+    }
+    if (bodyStatus !== undefined && bodyStatus !== null && bodyStatus !== "") {
+      if (!["scheduled", "completed", "no_show", "unassigned"].includes(bodyStatus)) {
+        return res.status(400).json({ error: "invalid status" });
+      }
+    }
+
     const id = "L" + randomUUID().replace(/-/g, "").slice(0, 10);
-    const status = counsellor_id ? "scheduled" : "unassigned";
+    // If client supplied a status use it; otherwise derive from counsellor.
+    const status = bodyStatus || (counsellor_id ? "scheduled" : "unassigned");
 
     // Normalize whitespace at the boundary so " John " and "John" don't end up
     // as distinct leads in dedup/search. Email lowercased for the same reason.
@@ -178,11 +192,12 @@ router.post("/", async (req, res, next) => {
     const cleanPurpose = purpose.trim();
     const cleanEmail = email ? email.trim().toLowerCase() : null;
     const cleanNotes = notes ? notes.trim() : null;
+    const cleanInquiry = inquiry_date && inquiry_date !== "" ? inquiry_date : null;
 
     await pool.query(
-      `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id || null, status, cleanNotes]
+      `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, notes, inquiry_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE))`,
+      [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id || null, status, cleanNotes, cleanInquiry]
     );
     await pool.query(
       "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, $2, $3)",
@@ -748,6 +763,67 @@ router.delete("/:leadId/actionables/:id", async (req, res, next) => {
     );
 
     res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/leads/:id/appointments — full per-lead appointment history.
+// The simple panel uses this to draw past dates yellow on the calendar.
+router.get("/:id/appointments", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      "SELECT * FROM lead_appointments WHERE lead_id = $1 ORDER BY scheduled_for ASC",
+      [id]
+    );
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/leads/:id/appointments — schedule (or reschedule) an appointment.
+// Inserts a row in the history table AND mirrors the new date+notes into
+// leads.service_date / leads.notes so the cron reminder, admin panel, and
+// staff dashboard keep working unchanged. Resets reminder_sent so the 12hr
+// cron re-fires for the new slot.
+router.post("/:id/appointments", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { scheduled_for, notes } = req.body;
+    if (!scheduled_for || !isValidUtcIso(scheduled_for)) {
+      return res
+        .status(400)
+        .json({ error: "scheduled_for must be ISO 8601 with explicit timezone (Z or ±HH:MM)" });
+    }
+    if (notes !== undefined && notes !== null && notes !== "") {
+      if (!isString(notes) || notes.length > 2000) {
+        return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
+      }
+    }
+
+    const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [id]);
+    if (leadCheck.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+
+    const cleanNotes = notes ? notes.trim() : null;
+
+    const { rows } = await pool.query(
+      "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3) RETURNING *",
+      [id, scheduled_for, cleanNotes]
+    );
+
+    // Mirror onto leads so the rest of the system still sees one canonical
+    // "next appointment". reminder_sent reset so the cron fires fresh for the
+    // new slot — same reasoning as the PATCH endpoint above.
+    await pool.query(
+      `UPDATE leads
+       SET service_date = $2, notes = $3, reminder_sent = FALSE, updated_at = NOW()
+       WHERE id = $1`,
+      [id, scheduled_for, cleanNotes]
+    );
+
+    res.status(201).json(rows[0]);
   } catch (e) {
     next(e);
   }

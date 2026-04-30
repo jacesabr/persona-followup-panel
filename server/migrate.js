@@ -73,6 +73,21 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 -- 99% case once the archive grows. Bool indexes are fine but the partial
 -- form keeps the index small even with thousands of archived leads.
 CREATE INDEX IF NOT EXISTS idx_leads_active ON leads(service_date) WHERE archived = FALSE;
+
+-- Per-lead appointment history. Each row is one scheduled meeting; the
+-- simple panel inserts here on every reschedule so the calendar can render
+-- past dates (yellow) and the upcoming one (green) without losing context.
+-- leads.service_date stays as the denormalized "current upcoming" so the
+-- cron reminder + admin/staff legacy code keep working unchanged.
+CREATE TABLE IF NOT EXISTS lead_appointments (
+  id BIGSERIAL PRIMARY KEY,
+  lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  scheduled_for TIMESTAMPTZ NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_appointments_lead_id ON lead_appointments(lead_id);
+CREATE INDEX IF NOT EXISTS idx_lead_appointments_scheduled ON lead_appointments(lead_id, scheduled_for);
 `;
 
 export async function migrate() {
