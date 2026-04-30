@@ -84,7 +84,8 @@ export default function SimpleFollowup() {
     );
   }
 
-  const gridCols = "9rem 1.2fr 9rem 1.4fr 1.2fr 8rem 9.5rem 1fr";
+  // 6 columns: date · contact (stacked name/email/phone) · purpose · status · next follow · counsellor
+  const gridCols = "10rem 2fr 1.4fr 8rem 10rem 1fr";
 
   return (
     <>
@@ -103,13 +104,11 @@ export default function SimpleFollowup() {
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2.5 text-[12px] font-bold uppercase tracking-[0.18em] text-stone-800"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-3 text-[13px] font-bold uppercase tracking-[0.18em] text-stone-800"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span>Date of query</span>
-          <span>Name</span>
-          <span>Ph</span>
-          <span>Email</span>
+          <span>Name / Email / Ph</span>
           <span>Purpose</span>
           <span>Status</span>
           <span>Next follow</span>
@@ -123,23 +122,30 @@ export default function SimpleFollowup() {
           return (
             <div
               key={lead.id}
-              className="grid items-center gap-3 border-b border-stone-200 px-4 py-3 text-[13px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+              className="grid items-start gap-3 border-b border-stone-200 px-4 py-4 text-[16px] text-stone-800 last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
               <span className="text-stone-600">
                 {lead.inquiry_date ? formatDateInIst(lead.inquiry_date) : "—"}
               </span>
-              <span className="font-medium">{lead.name || "—"}</span>
-              <span className="tabular-nums text-stone-700">
-                {lead.contact || "—"}
-              </span>
-              <span className="truncate text-stone-700" title={lead.email || ""}>
-                {lead.email || "—"}
+              <span className="flex flex-col gap-0.5 leading-snug">
+                <span className="font-semibold text-stone-900">
+                  {lead.name || "—"}
+                </span>
+                <span
+                  className="truncate text-stone-700"
+                  title={lead.email || ""}
+                >
+                  {lead.email || "—"}
+                </span>
+                <span className="tabular-nums text-stone-700">
+                  {lead.contact || "—"}
+                </span>
               </span>
               <span className="truncate text-stone-700" title={lead.purpose || ""}>
                 {lead.purpose || "—"}
               </span>
-              <span className="text-[11px] uppercase tracking-[0.15em] text-stone-700">
+              <span className="text-[13px] uppercase tracking-[0.15em] text-stone-700">
                 {STATUS_LABEL[lead.status] || lead.status || "—"}
               </span>
               <span className="flex items-center gap-1.5">
@@ -148,10 +154,10 @@ export default function SimpleFollowup() {
                   value={dateValue}
                   disabled={isSaving}
                   onChange={(e) => onPickNextFollow(lead, e.target.value)}
-                  className="w-full cursor-pointer border border-stone-300 bg-white px-2 py-1 text-[12px] text-stone-800 outline-none hover:border-stone-500 focus:border-[#cc785c] disabled:opacity-50"
+                  className="w-full cursor-pointer border border-stone-300 bg-white px-2 py-1.5 text-[14px] text-stone-800 outline-none hover:border-stone-500 focus:border-[#cc785c] disabled:opacity-50"
                 />
                 {isSaving && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-stone-500" />
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-stone-500" />
                 )}
               </span>
               <span className="text-stone-700">
