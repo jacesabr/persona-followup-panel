@@ -194,7 +194,10 @@ export default function SimpleFollowup() {
   }
 
   // 7 cols: select · date-of-query · contact · purpose · status · next follow · counsellor
-  const gridCols = "2rem 7.5rem 1.6fr 1.2fr 6.5rem 8.5rem 1fr";
+  // Widths chosen so headers don't wrap with their content padding + letter-
+  // spacing; "Next follow" needs ~9.5rem to fit "Next follow" header AND a
+  // formatted date like "29 Apr 2026" without truncation.
+  const gridCols = "1.75rem 7rem 1.5fr 1.2fr 6.5rem 9.5rem 9rem";
 
   // Sort: most-urgent upcoming first, then increasingly distant future, then
   // past most-recent-first, then leads with no service_date last.
@@ -273,21 +276,21 @@ export default function SimpleFollowup() {
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span className="sr-only">Select</span>
-          <span>Query</span>
-          <span>Name / Email / Ph</span>
-          <span>Purpose</span>
-          <span>Status</span>
-          <span>Next follow</span>
-          <span>Counsellor</span>
+          <span className="whitespace-nowrap">Query</span>
+          <span className="whitespace-nowrap">Name / Email / Ph</span>
+          <span className="whitespace-nowrap">Purpose</span>
+          <span className="whitespace-nowrap">Status</span>
+          <span className="whitespace-nowrap">Next follow</span>
+          <span className="whitespace-nowrap">Counsellor</span>
         </div>
 
         {showNew && (
           <div
-            className="grid items-start gap-2 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-3 py-2 text-[14px] text-stone-800"
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-3 py-2 text-[14px] text-stone-800"
             style={{ gridTemplateColumns: gridCols }}
           >
             <span></span>
@@ -409,7 +412,7 @@ export default function SimpleFollowup() {
           return (
             <div
               key={lead.id}
-              className="grid items-start gap-2 border-b border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
               <span className="pt-0.5">
