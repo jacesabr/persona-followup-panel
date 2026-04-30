@@ -18,7 +18,7 @@ function todayIstYmd() {
 }
 
 const EMPTY_NEW = () => ({
-  leadId: "",
+  studentName: "",
   text: "",
   dueDate: todayIstYmd(),
 });
@@ -85,8 +85,8 @@ export default function CounsellorTasks() {
       return a.id - b.id;
     };
     const cmpStudent = (a, b) => {
-      const sa = (a.student_name || "").toLowerCase();
-      const sb = (b.student_name || "").toLowerCase();
+      const sa = (a.lead_name || a.student_name || "").toLowerCase();
+      const sb = (b.lead_name || b.student_name || "").toLowerCase();
       if (sa < sb) return -1;
       if (sa > sb) return 1;
       return cmpDate(a, b);
@@ -163,8 +163,9 @@ export default function CounsellorTasks() {
 
   const submitNew = async () => {
     const text = newTask.text.trim();
-    if (!newTask.leadId) {
-      setError("Pick a student.");
+    const studentName = newTask.studentName.trim();
+    if (!studentName) {
+      setError("Type a student name.");
       return;
     }
     if (!text) {
@@ -175,11 +176,17 @@ export default function CounsellorTasks() {
       setError("Pick a due date.");
       return;
     }
+    // If the typed name matches an existing active lead exactly, link by
+    // FK so the task cascades on lead delete; otherwise store as free text.
+    const matchedLead = leads.find(
+      (l) => !l.archived && l.name.trim().toLowerCase() === studentName.toLowerCase()
+    );
     setCreating(true);
     setError(null);
     try {
       const created = await api.createTask({
-        lead_id: newTask.leadId,
+        lead_id: matchedLead ? matchedLead.id : null,
+        student_name: matchedLead ? null : studentName,
         text,
         due_date: newTask.dueDate,
       });
@@ -215,7 +222,6 @@ export default function CounsellorTasks() {
   // - Student/Task: fr-flex
   // - Actions: 5rem to fit two icon buttons
   const gridCols = "6.5rem 7rem 1fr 2fr 5rem";
-  const activeLeads = leads.filter((l) => !l.archived);
 
   return (
     <>
@@ -289,21 +295,27 @@ export default function CounsellorTasks() {
               }
               className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
             />
-            <select
-              value={newTask.leadId}
+            <input
+              type="text"
+              list="task-students"
+              placeholder="Student name"
+              value={newTask.studentName}
               onChange={(e) =>
-                setNewTask((p) => ({ ...p, leadId: e.target.value }))
+                setNewTask((p) => ({ ...p, studentName: e.target.value }))
               }
               className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
               autoFocus
-            >
-              <option value="">Pick student…</option>
-              {activeLeads.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
+            />
+            {/* Datalist holds existing active lead names so autocomplete
+                offers them, but the user can type anything (e.g. a
+                student we haven't created a lead row for yet). */}
+            <datalist id="task-students">
+              {leads
+                .filter((l) => !l.archived)
+                .map((l) => (
+                  <option key={l.id} value={l.name} />
+                ))}
+            </datalist>
             <input
               type="text"
               placeholder="What needs to happen?"
@@ -385,7 +397,7 @@ export default function CounsellorTasks() {
                 {formatDateInIst(task.due_date)}
               </span>
               <span className="text-[15px] font-semibold text-stone-900">
-                {task.student_name || "—"}
+                {task.lead_name || task.student_name || "—"}
               </span>
               <span
                 className={`text-[15px] leading-snug ${
@@ -478,7 +490,7 @@ function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
                     {formatDateInIst(task.due_date)}
                   </span>
                   <span className="ml-2 font-semibold text-stone-900">
-                    {task.student_name || "—"}
+                    {task.lead_name || task.student_name || "—"}
                   </span>
                   <span className="ml-2 text-stone-700">— {task.text}</span>
                   {task.archived_at && (

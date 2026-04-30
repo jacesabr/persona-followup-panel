@@ -7,6 +7,16 @@ function isString(v) {
   return typeof v === "string";
 }
 
+// Single source of truth for the joined SELECT used after every mutation.
+// LEFT JOIN because tasks may carry a free-text student_name without a
+// lead FK; lead_name is the joined display name (null when unlinked).
+// Frontend resolves: lead_name || student_name || "—".
+const SELECT_JOINED = `
+  SELECT t.*, l.name AS lead_name, l.archived AS student_archived
+  FROM counsellor_tasks t
+  LEFT JOIN leads l ON l.id = t.lead_id
+`;
+
 // GET /api/tasks — flat list of every task with the student's name joined
 // in. The simple panel groups/sorts client-side (small N, single user).
 // Default hides archived tasks; ?include_archived=true returns both sets.
@@ -15,10 +25,7 @@ router.get("/", async (req, res, next) => {
     const includeArchived = req.query.include_archived === "true";
     const where = includeArchived ? "" : "WHERE t.archived = FALSE";
     const { rows } = await pool.query(
-      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-       FROM counsellor_tasks t
-       JOIN leads l ON l.id = t.lead_id
-       ${where}
+      `${SELECT_JOINED} ${where}
        ORDER BY t.priority DESC, t.due_date ASC, t.id ASC`
     );
     res.json(rows);
@@ -27,12 +34,27 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// POST /api/tasks — create a new task tied to a lead.
+// POST /api/tasks — create a new task. Either lead_id (FK to a real lead)
+// or student_name (free-text label) is required; if both are present
+// we keep both — lead_id wins for display fallback.
 router.post("/", async (req, res, next) => {
   try {
-    const { lead_id, text, due_date, priority } = req.body;
-    if (!isString(lead_id) || lead_id.length < 1 || lead_id.length > 50) {
-      return res.status(400).json({ error: "lead_id is required" });
+    const { lead_id, student_name, text, due_date, priority } = req.body;
+    if (
+      (lead_id === undefined || lead_id === null || lead_id === "") &&
+      (student_name === undefined || student_name === null || student_name === "")
+    ) {
+      return res.status(400).json({ error: "lead_id or student_name is required" });
+    }
+    if (lead_id !== undefined && lead_id !== null && lead_id !== "") {
+      if (!isString(lead_id) || lead_id.length > 50) {
+        return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
+      }
+    }
+    if (student_name !== undefined && student_name !== null && student_name !== "") {
+      if (!isString(student_name) || student_name.length > 200) {
+        return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
+      }
     }
     if (!isString(text) || text.trim().length < 1 || text.length > 1000) {
       return res.status(400).json({ error: "text must be 1–1000 chars" });
@@ -41,23 +63,25 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
     }
 
-    const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [lead_id]);
-    if (leadCheck.rows.length === 0) {
-      return res.status(404).json({ error: "lead not found" });
+    const cleanLeadId = lead_id || null;
+    const cleanStudentName =
+      student_name && student_name.trim() ? student_name.trim() : null;
+
+    if (cleanLeadId) {
+      const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [cleanLeadId]);
+      if (leadCheck.rows.length === 0) {
+        return res.status(404).json({ error: "lead not found" });
+      }
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO counsellor_tasks (lead_id, text, due_date, priority)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO counsellor_tasks (lead_id, student_name, text, due_date, priority)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [lead_id, text.trim(), due_date, !!priority]
+      [cleanLeadId, cleanStudentName, text.trim(), due_date, !!priority]
     );
-    // Re-fetch with the joined student_name so the client doesn't need a
-    // second roundtrip to render the row.
     const { rows: enriched } = await pool.query(
-      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id
-       WHERE t.id = $1`,
+      `${SELECT_JOINED} WHERE t.id = $1`,
       [rows[0].id]
     );
     res.status(201).json(enriched[0]);
@@ -66,11 +90,12 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// PATCH /api/tasks/:id — toggle priority/completed, edit text, or change date.
+// PATCH /api/tasks/:id — toggle priority/completed, edit text, change date,
+// or rename the free-text student.
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const allowed = ["text", "due_date", "priority", "completed"];
+    const allowed = ["text", "due_date", "priority", "completed", "student_name"];
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) {
       return res.status(400).json({ error: "no valid fields to update" });
@@ -85,11 +110,20 @@ router.patch("/:id", async (req, res, next) => {
         return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
       }
     }
+    if (req.body.student_name !== undefined && req.body.student_name !== null && req.body.student_name !== "") {
+      if (!isString(req.body.student_name) || req.body.student_name.length > 200) {
+        return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
+      }
+    }
 
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
       const v = req.body[f];
       if (f === "text" && typeof v === "string") return v.trim();
+      if (f === "student_name") {
+        if (typeof v !== "string") return null;
+        return v.trim() || null;
+      }
       if (f === "priority" || f === "completed") return !!v;
       return v;
     })];
@@ -102,9 +136,7 @@ router.patch("/:id", async (req, res, next) => {
     if (rows.length === 0) return res.status(404).json({ error: "task not found" });
 
     const { rows: enriched } = await pool.query(
-      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id
-       WHERE t.id = $1`,
+      `${SELECT_JOINED} WHERE t.id = $1`,
       [rows[0].id]
     );
     res.json(enriched[0]);
@@ -128,19 +160,10 @@ router.post("/:id/archive", async (req, res, next) => {
     if (rows.length === 0) {
       const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
-      // already archived — return current state with the joined name
-      const { rows: current } = await pool.query(
-        `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-         FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
-        [id]
-      );
+      const { rows: current } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
       return res.json(current[0]);
     }
-    const { rows: enriched } = await pool.query(
-      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
-      [id]
-    );
+    const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
     res.json(enriched[0]);
   } catch (e) {
     next(e);
@@ -160,18 +183,10 @@ router.post("/:id/unarchive", async (req, res, next) => {
     if (rows.length === 0) {
       const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
-      const { rows: current } = await pool.query(
-        `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-         FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
-        [id]
-      );
+      const { rows: current } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
       return res.json(current[0]);
     }
-    const { rows: enriched } = await pool.query(
-      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
-       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
-      [id]
-    );
+    const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
     res.json(enriched[0]);
   } catch (e) {
     next(e);

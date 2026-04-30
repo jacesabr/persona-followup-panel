@@ -120,6 +120,14 @@ CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_lead ON counsellor_tasks(lead_id
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_active ON counsellor_tasks(due_date) WHERE archived = FALSE;
+
+-- Free-text student name for tasks created via the simple panel where the
+-- counsellor types a name without picking from an existing lead. Mirrors
+-- the leads.counsellor_name pattern: lead_id (FK) wins for display when
+-- set, otherwise student_name renders as-is. lead_id therefore must be
+-- nullable for these free-text tasks.
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS student_name TEXT;
+ALTER TABLE counsellor_tasks ALTER COLUMN lead_id DROP NOT NULL;
 `;
 
 export async function migrate() {
