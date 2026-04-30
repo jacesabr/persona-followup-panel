@@ -49,7 +49,11 @@ function emptyNew() {
   };
 }
 
-export default function SimpleFollowup() {
+export default function SimpleFollowup({ role = "admin", scopedCounsellorId = null }) {
+  // Counsellor scope: when set, the lead sheet filters to leads where
+  // counsellor_id matches this id, and new leads created here auto-link
+  // to that counsellor (FK + name display in one shot).
+  const isScoped = role === "counsellor" && !!scopedCounsellorId;
   const [leads, setLeads] = useState([]);
   const [counsellors, setCounsellors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,18 +104,23 @@ export default function SimpleFollowup() {
       setError("Name, phone, and purpose are required.");
       return;
     }
-    // Free-text counsellor — no FK lookup, no auto-create. The cron's
-    // notification path requires a real counsellors row (counsellor_id), so
-    // simple-panel-created leads silently won't get reminders. That's the
-    // accepted trade-off for the lighter-weight workflow.
+    // Counsellor-scoped users auto-link the lead to themselves via the FK
+    // (so cron reminders fire and admin's view shows it under them).
+    // Admin's new-lead flow stays free-text: they may type a name that
+    // doesn't match a counsellors row, in which case it's stored as
+    // counsellor_name only — no reminders, accepted trade-off.
     const payload = {
       name,
       contact,
       email: newLead.email.trim() || null,
       purpose,
       inquiry_date: newLead.inquiryDate || null,
-      counsellor_name: newLead.counsellorName.trim() || null,
     };
+    if (isScoped) {
+      payload.counsellor_id = scopedCounsellorId;
+    } else {
+      payload.counsellor_name = newLead.counsellorName.trim() || null;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -223,11 +232,17 @@ export default function SimpleFollowup() {
   // "29 Apr 2026" without truncation. History is icon-only, narrow.
   const gridCols = "1.75rem 6.5rem 1.5fr 1.2fr 6rem 8rem 4.5rem 7rem";
 
+  // Counsellor scoping: hide leads not belonging to this counsellor.
+  // Admin (role=admin) sees everything.
+  const visibleLeads = isScoped
+    ? leads.filter((l) => l.counsellor_id === scopedCounsellorId)
+    : leads;
+
   // Split first: archived leads live in a separate collapsible section at
   // the bottom of the page; the main sheet is active leads only. Both sets
   // come from listLeads({ includeArchived: true }) on mount.
-  const activeLeads = leads.filter((l) => !l.archived);
-  const archivedLeads = leads
+  const activeLeads = visibleLeads.filter((l) => !l.archived);
+  const archivedLeads = visibleLeads
     .filter((l) => l.archived)
     .sort((a, b) => {
       const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
@@ -406,16 +421,24 @@ export default function SimpleFollowup() {
             {/* History column: nothing to view yet for an unsaved lead. */}
             <span></span>
             <span className="flex items-center gap-1">
-              <input
-                type="text"
-                list="simple-counsellors"
-                placeholder="Counsellor"
-                value={newLead.counsellorName}
-                onChange={(e) =>
-                  setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
-                }
-                className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
-              />
+              {isScoped ? (
+                /* Scoped users always assign new leads to themselves;
+                   the input would just be redundant. */
+                <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[12px] italic text-stone-500">
+                  you
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  list="simple-counsellors"
+                  placeholder="Counsellor"
+                  value={newLead.counsellorName}
+                  onChange={(e) =>
+                    setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
+                  }
+                  className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
+                />
+              )}
               <button
                 onClick={submitNew}
                 disabled={creating}

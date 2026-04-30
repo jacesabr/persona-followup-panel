@@ -1,11 +1,14 @@
 import pool from "./db.js";
 
+// Trial-mode credentials: username = id, password = id. Admin can change
+// either later via the legacy counsellor form (now mounted inside the
+// "Old admin view" collapsible).
 const COUNSELLORS = [
-  { id: "c1", name: "Anita Verma", whatsapp: "919811001001", email: "anita@persona.in" },
-  { id: "c2", name: "Rajiv Mehta", whatsapp: "919811001002", email: "rajiv@persona.in" },
-  { id: "c3", name: "Priya Singh", whatsapp: "919811001003", email: "priya@persona.in" },
-  { id: "c4", name: "Amit Kapoor", whatsapp: "919811001004", email: "amit@persona.in" },
-  { id: "c5", name: "Neha Sharma", whatsapp: "919811001005", email: "neha@persona.in" },
+  { id: "c1", name: "Anita Verma", whatsapp: "919811001001", email: "anita@persona.in", username: "c1", password: "c1" },
+  { id: "c2", name: "Rajiv Mehta", whatsapp: "919811001002", email: "rajiv@persona.in", username: "c2", password: "c2" },
+  { id: "c3", name: "Priya Singh", whatsapp: "919811001003", email: "priya@persona.in", username: "c3", password: "c3" },
+  { id: "c4", name: "Amit Kapoor", whatsapp: "919811001004", email: "amit@persona.in", username: "c4", password: "c4" },
+  { id: "c5", name: "Neha Sharma", whatsapp: "919811001005", email: "neha@persona.in", username: "c5", password: "c5" },
 ];
 
 // Seed dates are computed relative to whenever the server first seeds, so
@@ -129,12 +132,33 @@ const LEADS = [
 
 // Idempotent — runs every startup. Ensures the "Jace (test)" counsellor
 // exists so the Fill-test-data button on the form has a valid target.
+// Username/password are set on insert only; we never overwrite custom
+// values an admin may have changed.
 export async function ensureTestCounsellor() {
   await pool.query(
-    `INSERT INTO counsellors (id, name, whatsapp, email) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, whatsapp = EXCLUDED.whatsapp, email = EXCLUDED.email`,
-    ["ctest", "Jace (test)", "917973744625", "jace100233260@gmail.com"]
+    `INSERT INTO counsellors (id, name, whatsapp, email, username, password)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET
+       name = EXCLUDED.name,
+       whatsapp = EXCLUDED.whatsapp,
+       email = EXCLUDED.email`,
+    ["ctest", "Jace (test)", "917973744625", "jace100233260@gmail.com", "test", "test"]
   );
+}
+
+// Backfill credentials for any pre-existing counsellor row that's missing
+// them (legacy data from before the username/password columns existed).
+// Defaults to username=id, password=id so admin can immediately use the
+// trial creds and change them later.
+export async function backfillCounsellorCredsIfMissing() {
+  const { rowCount } = await pool.query(
+    `UPDATE counsellors
+     SET username = id, password = id
+     WHERE username IS NULL OR password IS NULL`
+  );
+  if (rowCount > 0) {
+    console.log(`[seed] backfilled credentials for ${rowCount} counsellor(s)`);
+  }
 }
 
 export async function seedLeads() {
@@ -242,8 +266,10 @@ export async function seedIfEmpty() {
 
   for (const c of COUNSELLORS) {
     await pool.query(
-      "INSERT INTO counsellors (id, name, whatsapp, email) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
-      [c.id, c.name, c.whatsapp, c.email]
+      `INSERT INTO counsellors (id, name, whatsapp, email, username, password)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO NOTHING`,
+      [c.id, c.name, c.whatsapp, c.email, c.username, c.password]
     );
   }
 

@@ -14,6 +14,7 @@ import {
   ensureTestCounsellor,
   seedAppointmentsIfEmpty,
   seedTasksIfEmpty,
+  backfillCounsellorCredsIfMissing,
 } from "./seed.js";
 import { startCron } from "./cron.js";
 
@@ -74,6 +75,9 @@ async function start() {
   await migrate();
   await seedIfEmpty();
   await ensureTestCounsellor();
+  // Make sure every counsellor row has trial-mode creds before the
+  // login form starts validating against them.
+  await backfillCounsellorCredsIfMissing();
   // Backfill demo appointment history + counsellor tasks for existing DBs
   // that had seed leads before those tables were introduced. Both no-op
   // once their respective table is non-empty.

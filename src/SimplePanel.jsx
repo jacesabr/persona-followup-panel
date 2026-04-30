@@ -3,13 +3,17 @@ import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 
 // Two-tab wrapper for the simple panel: "Followup" (the lead sheet) and
-// "Counsellor tasks" (the to-do list across students). State lives here so
-// switching tabs preserves each child's component-local state.
+// "Counsellor tasks" (the to-do list across students).
 //
 // Visual: small folder-style tabs at the top whose active member sits flush
-// against the horizontal divider below — i.e. the active tab's bottom edge
-// merges with the divider, the inactive tab is recessed below it.
-export default function SimplePanel() {
+// against the horizontal divider below.
+//
+// role: "admin" → unscoped, sees all leads + all tasks, can assign tasks
+//                 and pick the counsellor column.
+// role: "counsellor" → scoped to their own leads (lead.counsellor_id) and
+//                      their own tasks (task.assignee_id). New leads/tasks
+//                      auto-assign to themselves.
+export default function SimplePanel({ role = "admin", scopedCounsellorId = null }) {
   const [tab, setTab] = useState("followup");
 
   return (
@@ -30,17 +34,16 @@ export default function SimplePanel() {
         <div className="border-t border-stone-400" />
       </div>
 
-      {tab === "followup" ? <SimpleFollowup /> : <CounsellorTasks />}
+      {tab === "followup" ? (
+        <SimpleFollowup role={role} scopedCounsellorId={scopedCounsellorId} />
+      ) : (
+        <CounsellorTasks role={role} scopedCounsellorId={scopedCounsellorId} />
+      )}
     </>
   );
 }
 
 function FolderTab({ label, active, onClick }) {
-  // Active tab: full top + side borders, missing bottom border, sits one
-  // pixel below its container so its bottom edge overlaps the horizontal
-  // divider. Page-bg matches the cream so the tab "is" the page.
-  // Inactive tab: full border, slightly muted background, sits ABOVE the
-  // divider with its own bottom edge visible.
   if (active) {
     return (
       <button

@@ -128,6 +128,32 @@ CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_active ON counsellor_tasks(due_d
 -- nullable for these free-text tasks.
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS student_name TEXT;
 ALTER TABLE counsellor_tasks ALTER COLUMN lead_id DROP NOT NULL;
+
+-- Per-counsellor login credentials (trial-mode plaintext; not for real
+-- production deployment). UNIQUE username so logins resolve unambiguously.
+-- Both columns nullable during migration so existing rows survive; the
+-- seed backfills them with id-based defaults (c1/c1, c2/c2, ...) before
+-- the login flow goes live.
+ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS password TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_counsellors_username ON counsellors(username) WHERE username IS NOT NULL;
+
+-- Task assignee — who's responsible for doing the task. Independent from
+-- the lead's counsellor (admin can assign Pooja-related tasks to either
+-- counsellor X or Y). ON DELETE SET NULL so deleting a counsellor leaves
+-- their tasks orphaned (visible as "unassigned") rather than vanishing.
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_id TEXT
+  REFERENCES counsellors(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_assignee ON counsellor_tasks(assignee_id);
+
+-- Backfill assignee_id from the linked lead's counsellor_id so existing
+-- seed tasks have an assignee out of the box.
+UPDATE counsellor_tasks t
+SET assignee_id = l.counsellor_id
+FROM leads l
+WHERE t.lead_id = l.id
+  AND t.assignee_id IS NULL
+  AND l.counsellor_id IS NOT NULL;
 `;
 
 export async function migrate() {

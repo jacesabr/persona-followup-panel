@@ -3,15 +3,12 @@ import { LogOut, User, Lock } from "lucide-react";
 import LeadFollowup from "./LeadFollowup.jsx";
 import StaffDashboard from "./StaffDashboard.jsx";
 import SimplePanel from "./SimplePanel.jsx";
+import AdminPanel from "./AdminPanel.jsx";
 import { api } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "admin";
-const STAFF_USER = "staff";
-const STAFF_PASS = "staff";
-const SIMPLE_USER = "simple";
-const SIMPLE_PASS = "simple";
 const SESSION_KEY = "persona_session";
 
 function loadSession() {
@@ -32,13 +29,15 @@ function clearSession() {
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
-  // For admin only — when set, render the StaffDashboard "as" this counsellor.
+  // Admin-only "view as staff" impersonation lives only inside the legacy
+  // LeadFollowup panel (now mounted under the "Old admin view" dropdown).
   // Shape: { counsellorId }
   const [impersonating, setImpersonating] = useState(null);
   const [counsellors, setCounsellors] = useState([]);
 
-  // Refresh the counsellor roster whenever there's an active session — both
-  // the admin's view-as dropdown and the staff login's random pick need it.
+  // Refresh the counsellor roster whenever there's an active session — the
+  // admin's impersonation dropdown and the per-counsellor login pickers
+  // both depend on it.
   useEffect(() => {
     if (!session) return;
     api.listCounsellors().then(setCounsellors).catch(() => {});
@@ -50,25 +49,26 @@ export default function App() {
     setSession(s);
   };
 
-  const onSimpleAuth = () => {
-    const s = { role: "simple" };
-    saveSession(s);
-    setSession(s);
-  };
-
-  const onStaffAuth = async () => {
-    // Pick a random counsellor at login time. Stable for the session.
-    let pick = null;
+  // Per-counsellor login: validate the typed username/password against the
+  // counsellors table (trial mode — plaintext compare). Returns true on
+  // success so the login form can clear its error state.
+  const onCounsellorAuth = async (username, password) => {
     try {
       const list = await api.listCounsellors();
       setCounsellors(list);
-      if (list.length > 0) pick = list[Math.floor(Math.random() * list.length)];
+      const match = list.find(
+        (c) =>
+          (c.username || "").toLowerCase() === username.toLowerCase() &&
+          (c.password || "") === password
+      );
+      if (!match) return false;
+      const s = { role: "counsellor", counsellorId: match.id };
+      saveSession(s);
+      setSession(s);
+      return true;
     } catch {
-      // network error — still let them in, dashboard will surface the error
+      return false;
     }
-    const s = { role: "staff", counsellorId: pick?.id || null };
-    saveSession(s);
-    setSession(s);
   };
 
   const onSignOut = () => {
@@ -81,12 +81,12 @@ export default function App() {
     return (
       <Login
         onAdminAuth={onAdminAuth}
-        onStaffAuth={onStaffAuth}
-        onSimpleAuth={onSimpleAuth}
+        onCounsellorAuth={onCounsellorAuth}
       />
     );
 
-  // Admin viewing-as a staff member
+  // Admin viewing-as a staff member (only reachable from the legacy
+  // LeadFollowup panel inside the Old dropdown).
   if (session.role === "admin" && impersonating) {
     const staffName =
       counsellors.find((c) => c.id === impersonating.counsellorId)?.name || "—";
@@ -105,27 +105,19 @@ export default function App() {
   if (session.role === "admin") {
     return (
       <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
-        <LeadFollowup
+        <AdminPanel
           onPickStaff={(impersonationState) => setImpersonating(impersonationState)}
         />
       </Frame>
     );
   }
 
-  if (session.role === "simple") {
-    return (
-      <Frame onSignOut={onSignOut} viewLabel="Simple followup panel view">
-        <SimplePanel />
-      </Frame>
-    );
-  }
-
-  // session.role === "staff"
+  // session.role === "counsellor"
   return (
-    <Frame onSignOut={onSignOut} viewLabel="Counsellor followup dashboard view">
-      <StaffDashboard
-        counsellorId={session.counsellorId}
-        counsellors={counsellors}
+    <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
+      <SimplePanel
+        role="counsellor"
+        scopedCounsellorId={session.counsellorId}
       />
     </Frame>
   );
@@ -206,23 +198,23 @@ function BackToAdminBanner({ staffName, onExit }) {
 // ============================================================
 // Login
 // ============================================================
-function Login({ onAdminAuth, onStaffAuth, onSimpleAuth }) {
+function Login({ onAdminAuth, onCounsellorAuth }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    const u = user.trim().toLowerCase();
-    if (u === ADMIN_USER && pw === ADMIN_PASS) {
+    const u = user.trim();
+    if (u.toLowerCase() === ADMIN_USER && pw === ADMIN_PASS) {
       onAdminAuth();
-    } else if (u === STAFF_USER && pw === STAFF_PASS) {
-      onStaffAuth();
-    } else if (u === SIMPLE_USER && pw === SIMPLE_PASS) {
-      onSimpleAuth();
-    } else {
-      setErr(true);
+      return;
     }
+    setBusy(true);
+    const ok = await onCounsellorAuth(u, pw);
+    setBusy(false);
+    if (!ok) setErr(true);
   };
 
   return (
@@ -260,7 +252,7 @@ function Login({ onAdminAuth, onStaffAuth, onSimpleAuth }) {
               autoFocus
               autoComplete="username"
               className="flex-1 bg-transparent py-3 text-lg outline-none"
-              placeholder="admin, staff, or simple"
+              placeholder="admin or your counsellor username"
             />
           </div>
         </label>
@@ -293,13 +285,14 @@ function Login({ onAdminAuth, onStaffAuth, onSimpleAuth }) {
 
         <button
           type="submit"
-          className="mt-10 w-full border border-[#cc785c] bg-[#cc785c] px-6 py-4 text-sm uppercase tracking-[0.25em] text-white transition hover:bg-[#b86a4f]"
+          disabled={busy}
+          className="mt-10 w-full border border-[#cc785c] bg-[#cc785c] px-6 py-4 text-sm uppercase tracking-[0.25em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
         >
-          Enter →
+          {busy ? "Signing in…" : "Enter →"}
         </button>
 
         <p className="mt-6 text-center text-[11px] uppercase tracking-[0.2em] text-stone-500">
-          Trial mode · admin/admin · staff/staff · simple/simple
+          Trial mode · admin/admin · counsellors: c1/c1, c2/c2, … (set per row)
         </p>
       </form>
     </div>

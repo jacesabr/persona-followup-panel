@@ -21,17 +21,25 @@ const EMPTY_NEW = () => ({
   studentName: "",
   text: "",
   dueDate: todayIstYmd(),
+  assigneeId: "",
 });
 
-export default function CounsellorTasks() {
+export default function CounsellorTasks({ role = "admin", scopedCounsellorId = null }) {
+  // When scoped, hide other counsellors' tasks and auto-assign new tasks
+  // to this counsellor. Admin sees everything and picks the assignee.
+  const isScoped = role === "counsellor" && !!scopedCounsellorId;
   const [tasks, setTasks] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [counsellors, setCounsellors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   // sortBy: "date" (default) or "student". Within "student" we still sort
   // each student's group by date asc — the user's explicit ask: "sort
   // automatically by date even when sorted by student."
-  const [sortBy, setSortBy] = useState("date");
+  // Multi-select sort: array of keys in click order, primary first.
+  // Default is ["date"] so the list always opens with the most-urgent
+  // dates at the top.
+  const [sortBy, setSortBy] = useState(["date"]);
   const [showNew, setShowNew] = useState(false);
   const [newTask, setNewTask] = useState(EMPTY_NEW());
   const [creating, setCreating] = useState(false);
@@ -39,11 +47,16 @@ export default function CounsellorTasks() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listTasks({ includeArchived: true }), api.listLeads()])
-      .then(([t, l]) => {
+    Promise.all([
+      api.listTasks({ includeArchived: true }),
+      api.listLeads(),
+      api.listCounsellors(),
+    ])
+      .then(([t, l, c]) => {
         if (cancelled) return;
         setTasks(t);
         setLeads(l);
+        setCounsellors(c);
         setError(null);
       })
       .catch((e) => {
@@ -57,12 +70,19 @@ export default function CounsellorTasks() {
     };
   }, []);
 
+  // Counsellor scoping: hide tasks not assigned to this counsellor.
+  // Admin sees everything.
+  const visibleTasks = useMemo(() => {
+    if (!isScoped) return tasks;
+    return tasks.filter((t) => t.assignee_id === scopedCounsellorId);
+  }, [tasks, isScoped, scopedCounsellorId]);
+
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
   // selected sort key. Both sets come from listTasks({ includeArchived }).
   const { activeTasks, archivedTasks } = useMemo(() => {
-    const active = tasks.filter((t) => !t.archived);
-    const archived = tasks
+    const active = visibleTasks.filter((t) => !t.archived);
+    const archived = visibleTasks
       .filter((t) => t.archived)
       .sort((a, b) => {
         const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
@@ -70,35 +90,62 @@ export default function CounsellorTasks() {
         return bt - at; // most-recently-archived first
       });
     return { activeTasks: active, archivedTasks: archived };
-  }, [tasks]);
+  }, [visibleTasks]);
 
-  // Sorted view of active tasks.
-  //  - Date sort (default): priority pinned to top across all students,
-  //    then date ascending. Used to spot the most urgent items globally.
-  //  - Student sort: group by student name first so all of a student's
-  //    tasks clump together (priority items would otherwise scatter
-  //    across the list). Within each student's group, priority first,
-  //    then date ascending — local urgency stays visible.
+  // Sorted view of active tasks. sortBy is an array of keys in click
+  // order; the primary key is sortBy[0]. Priority position depends on
+  // whether any non-date key is active:
+  //  - Only "date" in chain → priority is OUTERMOST (top of list),
+  //    matching the "Priority button moves to top" rule.
+  //  - Any non-date key in chain → that key (or chain) groups first,
+  //    then priority within the group, then date as tiebreaker.
+  // Final stable tiebreaker: id, so equal-key rows keep insertion order.
   const sortedTasks = useMemo(() => {
-    const cmpDate = (a, b) => {
-      if (a.due_date < b.due_date) return -1;
-      if (a.due_date > b.due_date) return 1;
-      return a.id - b.id;
-    };
-    if (sortBy === "student") {
-      return [...activeTasks].sort((a, b) => {
+    const cmpKey = (a, b, key) => {
+      if (key === "date") {
+        const ad = (a.due_date || "").slice(0, 10);
+        const bd = (b.due_date || "").slice(0, 10);
+        return ad < bd ? -1 : ad > bd ? 1 : 0;
+      }
+      if (key === "student") {
         const sa = (a.lead_name || a.student_name || "").toLowerCase();
         const sb = (b.lead_name || b.student_name || "").toLowerCase();
-        if (sa !== sb) return sa < sb ? -1 : 1;
-        if (a.priority !== b.priority) return a.priority ? -1 : 1;
-        return cmpDate(a, b);
-      });
-    }
+        return sa < sb ? -1 : sa > sb ? 1 : 0;
+      }
+      if (key === "counsellor") {
+        const ca = (a.assignee_name || "").toLowerCase();
+        const cb = (b.assignee_name || "").toLowerCase();
+        return ca < cb ? -1 : ca > cb ? 1 : 0;
+      }
+      return 0;
+    };
+    const chain = sortBy.length > 0 ? sortBy : ["date"];
+    const explicitNonDate = chain.filter((k) => k !== "date");
     return [...activeTasks].sort((a, b) => {
+      if (explicitNonDate.length === 0) {
+        // pure date sort — priority pinned globally
+        if (a.priority !== b.priority) return a.priority ? -1 : 1;
+        return cmpKey(a, b, "date") || a.id - b.id;
+      }
+      for (const key of explicitNonDate) {
+        const c = cmpKey(a, b, key);
+        if (c !== 0) return c;
+      }
       if (a.priority !== b.priority) return a.priority ? -1 : 1;
-      return cmpDate(a, b);
+      return cmpKey(a, b, "date") || a.id - b.id;
     });
   }, [activeTasks, sortBy]);
+
+  const toggleSort = (key) => {
+    setSortBy((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [key, ...prev]; // newest click becomes primary
+    });
+  };
+  const sortPosition = (key) => {
+    const idx = sortBy.indexOf(key);
+    return idx >= 0 ? idx + 1 : null; // 1-indexed badge for active chips
+  };
 
   const todayYmd = todayIstYmd();
 
@@ -178,6 +225,14 @@ export default function CounsellorTasks() {
       setError("Pick a due date.");
       return;
     }
+    // Assignee resolution:
+    //   counsellor (scoped): always self.
+    //   admin: must pick a counsellor in the dropdown.
+    const assigneeId = isScoped ? scopedCounsellorId : (newTask.assigneeId || null);
+    if (!isScoped && !assigneeId) {
+      setError("Pick a counsellor to assign.");
+      return;
+    }
     // If the typed name matches an existing active lead exactly, link by
     // FK so the task cascades on lead delete; otherwise store as free text.
     const matchedLead = leads.find(
@@ -189,6 +244,7 @@ export default function CounsellorTasks() {
       const created = await api.createTask({
         lead_id: matchedLead ? matchedLead.id : null,
         student_name: matchedLead ? null : studentName,
+        assignee_id: assigneeId,
         text,
         due_date: newTask.dueDate,
       });
@@ -218,12 +274,12 @@ export default function CounsellorTasks() {
     );
   }
 
-  // Column widths sized so the actual rendered button widths fit:
-  // - Priority col: 6.5rem to fit "PRIORITY" + star icon + padding
-  // - Date col: 7rem to fit "29 Apr 2026" tabular-nums
-  // - Student/Task: fr-flex
-  // - Actions: 5rem to fit two icon buttons
-  const gridCols = "6.5rem 7rem 1fr 2fr 5rem";
+  // Column widths sized so the actual rendered button widths fit.
+  //   - counsellor (scoped): no Counsellor column, 5 cols
+  //   - admin:               extra Counsellor column between Task and Actions
+  const gridCols = isScoped
+    ? "6.5rem 7rem 1fr 2fr 5rem"
+    : "6.5rem 7rem 1fr 2fr 8rem 5rem";
 
   return (
     <>
@@ -241,14 +297,21 @@ export default function CounsellorTasks() {
           </span>
           <SortChip
             label="Date"
-            active={sortBy === "date"}
-            onClick={() => setSortBy("date")}
+            position={sortPosition("date")}
+            onClick={() => toggleSort("date")}
           />
           <SortChip
             label="Student"
-            active={sortBy === "student"}
-            onClick={() => setSortBy("student")}
+            position={sortPosition("student")}
+            onClick={() => toggleSort("student")}
           />
+          {!isScoped && (
+            <SortChip
+              label="Counsellor"
+              position={sortPosition("counsellor")}
+              onClick={() => toggleSort("counsellor")}
+            />
+          )}
         </div>
         <div>
           {!showNew && (
@@ -280,6 +343,7 @@ export default function CounsellorTasks() {
           <span className="whitespace-nowrap">Date</span>
           <span className="whitespace-nowrap">Student</span>
           <span className="whitespace-nowrap">Task</span>
+          {!isScoped && <span className="whitespace-nowrap">Counsellor</span>}
           <span className="whitespace-nowrap text-right">Actions</span>
         </div>
 
@@ -327,6 +391,25 @@ export default function CounsellorTasks() {
               }
               className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
             />
+            {!isScoped && (
+              /* Admin's task creation requires picking the responsible
+                 counsellor. Counsellors auto-assign to themselves so
+                 their form skips this column entirely. */
+              <select
+                value={newTask.assigneeId}
+                onChange={(e) =>
+                  setNewTask((p) => ({ ...p, assigneeId: e.target.value }))
+                }
+                className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+              >
+                <option value="">Pick counsellor…</option>
+                {counsellors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <span className="flex items-center justify-end gap-1.5">
               <button
                 onClick={submitNew}
@@ -408,6 +491,13 @@ export default function CounsellorTasks() {
               >
                 {task.text}
               </span>
+              {!isScoped && (
+                <span className="text-[14px] text-stone-700">
+                  {task.assignee_name || (
+                    <span className="italic text-stone-400">Unassigned</span>
+                  )}
+                </span>
+              )}
               <span className="flex items-center justify-end gap-1.5">
                 <button
                   onClick={() => toggleCompleted(task)}
@@ -522,17 +612,26 @@ function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
   );
 }
 
-function SortChip({ label, active, onClick }) {
+function SortChip({ label, position, onClick }) {
+  // Multi-select sort: chips can be on/off, and active chips show their
+  // position number (1 = primary, 2 = secondary, ...) so the user can
+  // tell at a glance which key dominates the sort.
+  const active = position != null;
   return (
     <button
       onClick={onClick}
       className={
         active
-          ? "border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-white"
+          ? "inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-white"
           : "border border-stone-300 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-700 hover:border-stone-500 hover:text-stone-900"
       }
     >
       {label}
+      {active && (
+        <span className="rounded-full bg-white/30 px-1.5 text-[10px] font-bold leading-tight">
+          {position}
+        </span>
+      )}
     </button>
   );
 }

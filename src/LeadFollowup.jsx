@@ -1344,18 +1344,26 @@ function NewCounsellorForm({ onCancel, onSave }) {
   const [countryIso, setCountryIso] = useState("IN");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const country =
     COUNTRIES.find((c) => c.iso === countryIso) ||
     COUNTRIES.find((c) => c.iso === "IN");
   const hasContact = !!phone || !!email;
-  const canSave = name.trim().length > 0 && hasContact;
+  const canSave =
+    name.trim().length > 0 &&
+    hasContact &&
+    username.trim().length > 0 &&
+    password.length > 0;
 
   const submit = () =>
     onSave({
       name,
       whatsapp: phone ? `${country.dial}${phone}` : null,
       email: email || null,
+      username: username.trim(),
+      password,
     });
 
   return (
@@ -1396,6 +1404,25 @@ function NewCounsellorForm({ onCancel, onSave }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="counsellor@example.com"
+            className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
+          />
+        </FormField>
+        <FormField label="Username *" hint="Used to log in to the simple panel">
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="e.g. anita"
+            autoComplete="off"
+            className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
+          />
+        </FormField>
+        <FormField label="Password *" hint="Trial-mode plaintext — share with the counsellor">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••"
+            autoComplete="new-password"
             className="w-full border-b border-stone-300 bg-transparent py-2 text-base outline-none focus:border-stone-600"
           />
         </FormField>
