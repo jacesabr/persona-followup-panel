@@ -72,29 +72,31 @@ export default function CounsellorTasks() {
     return { activeTasks: active, archivedTasks: archived };
   }, [tasks]);
 
-  // Sorted view of active tasks. Always priority-pinned items at the top,
-  // then either:
-  //  - by date ascending (default), or
-  //  - by student name (alphabetical), with each student's tasks ordered
-  //    by date ascending — i.e. student grouping never overrides
-  //    chronological order within a group.
+  // Sorted view of active tasks.
+  //  - Date sort (default): priority pinned to top across all students,
+  //    then date ascending. Used to spot the most urgent items globally.
+  //  - Student sort: group by student name first so all of a student's
+  //    tasks clump together (priority items would otherwise scatter
+  //    across the list). Within each student's group, priority first,
+  //    then date ascending — local urgency stays visible.
   const sortedTasks = useMemo(() => {
     const cmpDate = (a, b) => {
       if (a.due_date < b.due_date) return -1;
       if (a.due_date > b.due_date) return 1;
       return a.id - b.id;
     };
-    const cmpStudent = (a, b) => {
-      const sa = (a.lead_name || a.student_name || "").toLowerCase();
-      const sb = (b.lead_name || b.student_name || "").toLowerCase();
-      if (sa < sb) return -1;
-      if (sa > sb) return 1;
-      return cmpDate(a, b);
-    };
-    const cmp = sortBy === "student" ? cmpStudent : cmpDate;
+    if (sortBy === "student") {
+      return [...activeTasks].sort((a, b) => {
+        const sa = (a.lead_name || a.student_name || "").toLowerCase();
+        const sb = (b.lead_name || b.student_name || "").toLowerCase();
+        if (sa !== sb) return sa < sb ? -1 : 1;
+        if (a.priority !== b.priority) return a.priority ? -1 : 1;
+        return cmpDate(a, b);
+      });
+    }
     return [...activeTasks].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority ? -1 : 1;
-      return cmp(a, b);
+      return cmpDate(a, b);
     });
   }, [activeTasks, sortBy]);
 
