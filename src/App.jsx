@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { LogOut, User, Lock } from "lucide-react";
 import LeadFollowup from "./LeadFollowup.jsx";
 import StaffDashboard from "./StaffDashboard.jsx";
+import SimpleFollowup from "./SimpleFollowup.jsx";
 import { api } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
@@ -9,6 +10,8 @@ const ADMIN_USER = "admin";
 const ADMIN_PASS = "admin";
 const STAFF_USER = "staff";
 const STAFF_PASS = "staff";
+const SIMPLE_USER = "simple";
+const SIMPLE_PASS = "simple";
 const SESSION_KEY = "persona_session";
 
 function loadSession() {
@@ -47,6 +50,12 @@ export default function App() {
     setSession(s);
   };
 
+  const onSimpleAuth = () => {
+    const s = { role: "simple" };
+    saveSession(s);
+    setSession(s);
+  };
+
   const onStaffAuth = async () => {
     // Pick a random counsellor at login time. Stable for the session.
     let pick = null;
@@ -68,7 +77,14 @@ export default function App() {
     setImpersonating(null);
   };
 
-  if (!session) return <Login onAdminAuth={onAdminAuth} onStaffAuth={onStaffAuth} />;
+  if (!session)
+    return (
+      <Login
+        onAdminAuth={onAdminAuth}
+        onStaffAuth={onStaffAuth}
+        onSimpleAuth={onSimpleAuth}
+      />
+    );
 
   // Admin viewing-as a staff member
   if (session.role === "admin" && impersonating) {
@@ -92,6 +108,14 @@ export default function App() {
         <LeadFollowup
           onPickStaff={(impersonationState) => setImpersonating(impersonationState)}
         />
+      </Frame>
+    );
+  }
+
+  if (session.role === "simple") {
+    return (
+      <Frame onSignOut={onSignOut} viewLabel="Simple followup panel view">
+        <SimpleFollowup />
       </Frame>
     );
   }
@@ -182,7 +206,7 @@ function BackToAdminBanner({ staffName, onExit }) {
 // ============================================================
 // Login
 // ============================================================
-function Login({ onAdminAuth, onStaffAuth }) {
+function Login({ onAdminAuth, onStaffAuth, onSimpleAuth }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(false);
@@ -194,6 +218,8 @@ function Login({ onAdminAuth, onStaffAuth }) {
       onAdminAuth();
     } else if (u === STAFF_USER && pw === STAFF_PASS) {
       onStaffAuth();
+    } else if (u === SIMPLE_USER && pw === SIMPLE_PASS) {
+      onSimpleAuth();
     } else {
       setErr(true);
     }
@@ -234,7 +260,7 @@ function Login({ onAdminAuth, onStaffAuth }) {
               autoFocus
               autoComplete="username"
               className="flex-1 bg-transparent py-3 text-lg outline-none"
-              placeholder="admin or staff"
+              placeholder="admin, staff, or simple"
             />
           </div>
         </label>
@@ -273,7 +299,7 @@ function Login({ onAdminAuth, onStaffAuth }) {
         </button>
 
         <p className="mt-6 text-center text-[11px] uppercase tracking-[0.2em] text-stone-500">
-          Trial mode · admin/admin or staff/staff
+          Trial mode · admin/admin · staff/staff · simple/simple
         </p>
       </form>
     </div>
