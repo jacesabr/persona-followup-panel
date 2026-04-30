@@ -31,8 +31,32 @@ function saveKey(key, v) {
   }
   sessionStorage.setItem(key, JSON.stringify(v));
 }
-const loadSession = () => loadKey(SESSION_KEY);
-const loadImpersonating = () => loadKey(IMPERSONATE_KEY);
+// Validate the session shape on load. Old browsers may have leftover
+// sessions from before the auth rework — `{role: "staff", counsellorId}`
+// or `{role: "simple"}` — and those would otherwise fall through to the
+// counsellor branch in App.jsx without ever hitting /api/auth/login. That
+// would be an auth bypass: anyone with a stale tab gets dropped into a
+// counsellor view (or worse, the unscoped admin-like view) without
+// supplying credentials. Refuse anything that doesn't match the new shape.
+function loadSession() {
+  const raw = loadKey(SESSION_KEY);
+  if (!raw || typeof raw !== "object") return null;
+  if (raw.role === "admin") return { role: "admin" };
+  if (raw.role === "counsellor" && typeof raw.counsellorId === "string" && raw.counsellorId.length > 0) {
+    return { role: "counsellor", counsellorId: raw.counsellorId };
+  }
+  // Stale or malformed — wipe so the next render shows the login form.
+  saveKey(SESSION_KEY, null);
+  saveKey(IMPERSONATE_KEY, null);
+  return null;
+}
+function loadImpersonating() {
+  const raw = loadKey(IMPERSONATE_KEY);
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.counsellorId !== "string" || !raw.counsellorId) return null;
+  if (raw.view !== "simple" && raw.view !== "staff") return null;
+  return raw;
+}
 
 export default function App() {
   const [session, setSession] = useState(loadSession);

@@ -6,10 +6,18 @@ const router = express.Router();
 
 const isString = (v) => typeof v === "string";
 
-function validateCounsellorInput(body, { requireCreds = false } = {}) {
+// Validate any subset of counsellor fields. mode = "create" requires name,
+// at-least-one channel (whatsapp/email), username, and password. mode =
+// "patch" only validates the fields that ARE present, since admin may
+// reset just the password without touching anything else.
+function validateCounsellorInput(body, { mode = "create" } = {}) {
   const { name, whatsapp, email, username, password } = body;
-  if (!isString(name) || name.trim().length < 1 || name.length > 200) {
-    return "name must be a non-empty string up to 200 chars";
+  const isCreate = mode === "create";
+
+  if (isCreate || name !== undefined) {
+    if (!isString(name) || name.trim().length < 1 || name.length > 200) {
+      return "name must be a non-empty string up to 200 chars";
+    }
   }
   if (whatsapp !== undefined && whatsapp !== null && whatsapp !== "") {
     if (!isString(whatsapp) || !/^\d{8,15}$/.test(whatsapp)) {
@@ -21,29 +29,33 @@ function validateCounsellorInput(body, { requireCreds = false } = {}) {
       return "email must be a valid email address (max 320 chars)";
     }
   }
-  // Counsellor must be reachable on at least one channel; otherwise the
-  // notify path silently no-ops for them.
-  const hasWa = !!(whatsapp && whatsapp !== "");
-  const hasEmail = !!(email && email !== "");
-  if (!hasWa && !hasEmail) {
-    return "at least one of whatsapp or email is required";
+  // Counsellor must be reachable on at least one channel — but only
+  // enforced on create. On PATCH we'd need to merge with the existing
+  // row to know the effective state; the controller does that.
+  if (isCreate) {
+    const hasWa = !!(whatsapp && whatsapp !== "");
+    const hasEmail = !!(email && email !== "");
+    if (!hasWa && !hasEmail) {
+      return "at least one of whatsapp or email is required";
+    }
   }
-  // Login creds. Required on POST so a counsellor is always login-able;
-  // optional on PATCH (admin may only change name/contact).
-  if (requireCreds) {
-    if (!isString(username) || username.trim().length < 1 || username.length > 50) {
-      return "username must be a non-empty string up to 50 chars";
-    }
-    if (!isString(password) || password.length < 1 || password.length > 100) {
-      return "password must be a non-empty string up to 100 chars";
-    }
-  } else {
-    if (username !== undefined && username !== null && username !== "") {
+  if (isCreate || username !== undefined) {
+    if (isCreate) {
+      if (!isString(username) || username.trim().length < 1 || username.length > 50) {
+        return "username must be a non-empty string up to 50 chars";
+      }
+    } else if (username !== null && username !== "") {
       if (!isString(username) || username.length > 50) {
         return "username must be a string up to 50 chars";
       }
     }
-    if (password !== undefined && password !== null && password !== "") {
+  }
+  if (isCreate || password !== undefined) {
+    if (isCreate) {
+      if (!isString(password) || password.length < 1 || password.length > 100) {
+        return "password must be a non-empty string up to 100 chars";
+      }
+    } else if (password !== null && password !== "") {
       if (!isString(password) || password.length > 100) {
         return "password must be a string up to 100 chars";
       }
@@ -71,7 +83,7 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    const validationError = validateCounsellorInput(req.body, { requireCreds: true });
+    const validationError = validateCounsellorInput(req.body, { mode: "create" });
     if (validationError) return res.status(400).json({ error: validationError });
 
     const { name, whatsapp, email, username, password } = req.body;
@@ -114,18 +126,8 @@ router.patch("/:id", async (req, res, next) => {
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return res.status(400).json({ error: "no valid fields to update" });
 
-    const validationError = validateCounsellorInput(
-      // Merge with any unsupplied existing fields for the "at least one
-      // contact channel" check. Pull current row first.
-      req.body,
-      { requireCreds: false }
-    );
-    // We don't apply the validator wholesale because PATCH may only touch
-    // creds without name/contact present. Skip channel-presence enforcement
-    // here — it ran on the original POST.
-    if (validationError && !validationError.startsWith("at least one of")) {
-      return res.status(400).json({ error: validationError });
-    }
+    const validationError = validateCounsellorInput(req.body, { mode: "patch" });
+    if (validationError) return res.status(400).json({ error: validationError });
 
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
