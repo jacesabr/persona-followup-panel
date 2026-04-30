@@ -14,6 +14,7 @@ import {
   ensureTestCounsellor,
   seedAppointmentsIfEmpty,
   seedTasksIfEmpty,
+  backfillLeadsWithDemoHistory,
 } from "./seed.js";
 import { startCron } from "./cron.js";
 
@@ -79,6 +80,11 @@ async function start() {
   // once their respective table is non-empty.
   await seedAppointmentsIfEmpty();
   await seedTasksIfEmpty();
+  // Per-lead demo backfill: fills any active lead with zero appointments
+  // (covers leads the user created via the form that weren't in the
+  // original seed). Idempotent per-lead. Demo behavior — remove or gate
+  // before going to real production.
+  await backfillLeadsWithDemoHistory();
   startCron();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);
