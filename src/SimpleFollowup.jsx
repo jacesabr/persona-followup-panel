@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, X, Check, Archive, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  X,
+  Check,
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Undo2,
+} from "lucide-react";
 import { api } from "./api.js";
 import {
   formatDateInIst,
@@ -56,7 +66,7 @@ export default function SimpleFollowup() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listLeads(), api.listCounsellors()])
+    Promise.all([api.listLeads({ includeArchived: true }), api.listCounsellors()])
       .then(([l, c]) => {
         if (cancelled) return;
         setLeads(l);
@@ -138,28 +148,42 @@ export default function SimpleFollowup() {
     setBulkBusy(true);
     setError(null);
     // Promise.allSettled so a single failed archive doesn't leave the other
-    // 29 in a hidden-but-not-archived limbo. Drop only the IDs that
-    // definitely succeeded server-side; surface a count of failures.
+    // 29 in a hidden-but-not-archived limbo. Replace each succeeded lead in
+    // place with the server's updated row (archived: true) — the archived
+    // section below picks them up via the lead.archived filter.
     const results = await Promise.allSettled(
       ids.map((id) => api.archiveLead(id))
     );
-    const succeeded = new Set(
-      ids.filter((_, i) => results[i].status === "fulfilled")
-    );
+    const updatedById = new Map();
+    for (let i = 0; i < ids.length; i++) {
+      if (results[i].status === "fulfilled" && results[i].value) {
+        updatedById.set(ids[i], results[i].value);
+      }
+    }
     const firstError = results.find((r) => r.status === "rejected")?.reason;
-    setLeads((prev) => prev.filter((l) => !succeeded.has(l.id)));
+    setLeads((prev) => prev.map((l) => updatedById.get(l.id) || l));
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      for (const id of succeeded) next.delete(id);
+      for (const id of updatedById.keys()) next.delete(id);
       return next;
     });
-    if (succeeded.size < ids.length) {
-      const failedCount = ids.length - succeeded.size;
+    if (updatedById.size < ids.length) {
+      const failedCount = ids.length - updatedById.size;
       setError(
         `${failedCount} of ${ids.length} archives failed${firstError ? `: ${firstError.message}` : "."}`
       );
     }
     setBulkBusy(false);
+  };
+
+  const unarchiveLead = async (id) => {
+    setError(null);
+    try {
+      const updated = await api.unarchiveLead(id);
+      setLeads((prev) => prev.map((l) => (l.id === id ? updated : l)));
+    } catch (e) {
+      setError(e.message);
+    }
   };
 
   // Called when CalendarPopup confirms a new appointment. Mirror the new
@@ -199,10 +223,22 @@ export default function SimpleFollowup() {
   // formatted date like "29 Apr 2026" without truncation.
   const gridCols = "1.75rem 7rem 1.5fr 1.2fr 6.5rem 9.5rem 9rem";
 
+  // Split first: archived leads live in a separate collapsible section at
+  // the bottom of the page; the main sheet is active leads only. Both sets
+  // come from listLeads({ includeArchived: true }) on mount.
+  const activeLeads = leads.filter((l) => !l.archived);
+  const archivedLeads = leads
+    .filter((l) => l.archived)
+    .sort((a, b) => {
+      const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
+      const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
+      return bt - at; // most-recently-archived first
+    });
+
   // Sort: most-urgent upcoming first, then increasingly distant future, then
   // past most-recent-first, then leads with no service_date last.
   const now = Date.now();
-  const sortedLeads = [...leads].sort((a, b) => {
+  const sortedLeads = [...activeLeads].sort((a, b) => {
     const at = a.service_date ? new Date(a.service_date).getTime() : null;
     const bt = b.service_date ? new Date(b.service_date).getTime() : null;
     if (at == null && bt == null) return 0;
@@ -220,7 +256,7 @@ export default function SimpleFollowup() {
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Lead sheet</h2>
           <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
-            {leads.length} {leads.length === 1 ? "row" : "rows"}
+            {activeLeads.length} {activeLeads.length === 1 ? "row" : "rows"}
           </span>
         </div>
         {!showNew && (
@@ -468,6 +504,12 @@ export default function SimpleFollowup() {
         )}
       </div>
 
+      <ArchivedSection
+        leads={archivedLeads}
+        counsellors={counsellors}
+        onUnarchive={unarchiveLead}
+      />
+
       {calendarLead && (
         <CalendarPopup
           lead={calendarLead}
@@ -478,6 +520,75 @@ export default function SimpleFollowup() {
         />
       )}
     </>
+  );
+}
+
+// ============================================================
+// Archived section
+// ============================================================
+// Collapsible "Archived" panel below the main sheet. Hidden by default.
+// Shows each archived lead on a single compact line with name · purpose ·
+// counsellor · when-archived · Unarchive. Returning a lead to the active
+// sheet is a one-click action so the user can quickly recover from a
+// mis-archive without a refetch.
+function ArchivedSection({ leads, counsellors, onUnarchive }) {
+  const [open, setOpen] = useState(false);
+  if (leads.length === 0) return null;
+  const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
+  return (
+    <div className="mt-4 border border-stone-300 bg-stone-50">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-stone-700 hover:bg-stone-100"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          {open ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+          Archived ({leads.length})
+        </span>
+        <span className="text-[10px] font-normal normal-case tracking-normal text-stone-500">
+          {open ? "click to collapse" : "click to expand"}
+        </span>
+      </button>
+      {open && (
+        <ul className="divide-y divide-stone-200 border-t border-stone-200 bg-white">
+          {leads.map((lead) => (
+            <li
+              key={lead.id}
+              className="flex items-center justify-between gap-3 px-3 py-2 text-[13px] text-stone-700"
+            >
+              <div className="min-w-0 flex-1 truncate">
+                <span className="font-semibold text-stone-900">
+                  {lead.name || "—"}
+                </span>
+                {lead.purpose && (
+                  <span className="ml-2 text-stone-600">— {lead.purpose}</span>
+                )}
+                {lead.counsellor_id && (
+                  <span className="ml-2 text-[12px] text-stone-500">
+                    · {counsellorNameById.get(lead.counsellor_id) || "—"}
+                  </span>
+                )}
+                {lead.archived_at && (
+                  <span className="ml-2 text-[11px] text-stone-400">
+                    · archived {formatDateInIst(lead.archived_at)}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => onUnarchive(lead.id)}
+                className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+              >
+                <Undo2 className="h-3 w-3" /> Unarchive
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
