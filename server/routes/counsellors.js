@@ -52,9 +52,17 @@ function validateCounsellorInput(body, { requireCreds = false } = {}) {
   return null;
 }
 
+// Explicit column list to keep `password` out of the wire response.
+// The login flow goes through POST /api/auth/login instead; nothing on
+// the client should ever see another counsellor's password.
+const PUBLIC_COLUMNS =
+  "id, name, whatsapp, email, username, created_at";
+
 router.get("/", async (req, res, next) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM counsellors ORDER BY name ASC");
+    const { rows } = await pool.query(
+      `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`
+    );
     res.json(rows);
   } catch (e) {
     next(e);
@@ -71,12 +79,16 @@ router.post("/", async (req, res, next) => {
     const cleanName = name.trim();
     const cleanEmail = email ? email.trim().toLowerCase() : null;
     const cleanWa = whatsapp ? whatsapp : null;
-    const cleanUsername = username.trim();
+    // Lowercase usernames so login matching is case-insensitive at the DB
+    // level — avoids the case where "C1" and "c1" become two distinct
+    // accounts and the login form non-deterministically picks one.
+    const cleanUsername = username.trim().toLowerCase();
 
     try {
       const { rows } = await pool.query(
         `INSERT INTO counsellors (id, name, whatsapp, email, username, password)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING ${PUBLIC_COLUMNS}`,
         [id, cleanName, cleanWa, cleanEmail, cleanUsername, password]
       );
       res.status(201).json(rows[0]);
@@ -120,14 +132,15 @@ router.patch("/:id", async (req, res, next) => {
       const v = req.body[f];
       if (f === "name" && typeof v === "string") return v.trim();
       if (f === "email" && typeof v === "string") return v.trim().toLowerCase() || null;
-      if (f === "username" && typeof v === "string") return v.trim() || null;
+      // Lowercase usernames here too — same case-collision reason as POST.
+      if (f === "username" && typeof v === "string") return v.trim().toLowerCase() || null;
       if (f === "whatsapp") return v || null;
       return v;
     })];
 
     try {
       const { rows } = await pool.query(
-        `UPDATE counsellors SET ${set} WHERE id = $1 RETURNING *`,
+        `UPDATE counsellors SET ${set} WHERE id = $1 RETURNING ${PUBLIC_COLUMNS}`,
         values
       );
       if (rows.length === 0) return res.status(404).json({ error: "counsellor not found" });

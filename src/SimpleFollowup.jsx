@@ -171,11 +171,11 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     }
     const firstError = results.find((r) => r.status === "rejected")?.reason;
     setLeads((prev) => prev.map((l) => updatedById.get(l.id) || l));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      for (const id of updatedById.keys()) next.delete(id);
-      return next;
-    });
+    // Clear the entire selection after a bulk run. Leaving the failed
+    // rows ticked was visually ambiguous ("3 of 5 failed" plus still-
+    // checked rows looked like nothing happened); the error banner
+    // above already conveys what failed.
+    clearSelection();
     if (updatedById.size < ids.length) {
       const failedCount = ids.length - updatedById.size;
       setError(
@@ -428,16 +428,24 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   you
                 </span>
               ) : (
-                <input
-                  type="text"
-                  list="simple-counsellors"
-                  placeholder="Counsellor"
-                  value={newLead.counsellorName}
-                  onChange={(e) =>
-                    setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
-                  }
-                  className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
-                />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <input
+                    type="text"
+                    list="simple-counsellors"
+                    placeholder="Counsellor"
+                    value={newLead.counsellorName}
+                    onChange={(e) =>
+                      setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
+                    }
+                    className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
+                  />
+                  {/* Free-text names don't link to a counsellors row, so
+                      the cron's reminder query (status='scheduled' AND
+                      counsellor_id IS NOT NULL) silently skips them. */}
+                  <span className="text-[10px] italic text-stone-500">
+                    Free-text → no auto reminders
+                  </span>
+                </span>
               )}
               <button
                 onClick={submitNew}

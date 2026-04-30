@@ -76,7 +76,10 @@ export default function StaffDashboard({
     genRef.current += 1;
     const myGen = genRef.current;
     try {
-      const all = await api.listLeads();
+      // Server-side scope: only this counsellor's leads come over the
+      // wire (was previously fetching all leads and filtering client-
+      // side, which leaked other counsellors' data over the network).
+      const all = await api.listLeads({ counsellorId });
       if (myGen === genRef.current) {
         setLeads(all);
         setError(null);
@@ -86,7 +89,7 @@ export default function StaffDashboard({
     } finally {
       if (myGen === genRef.current) setLoading(false);
     }
-  }, []);
+  }, [counsellorId]);
 
   useEffect(() => {
     fetchAll();

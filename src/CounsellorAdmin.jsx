@@ -1,35 +1,34 @@
 import { useEffect, useState } from "react";
-import { Loader2, Plus, X, Check, Eye, EyeOff } from "lucide-react";
+import { Loader2, Plus, X, Check, KeyRound } from "lucide-react";
 import { api } from "./api.js";
 
-// Admin-only tab for managing counsellor accounts: list every counsellor
-// with their contact + login credentials, and inline-create a new one
-// with name / WhatsApp / email / username / password. Trial-mode plaintext
-// passwords (toggleable show/hide for convenience).
-export default function CounsellorAdmin() {
-  const [counsellors, setCounsellors] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+// Admin-only tab for managing counsellor accounts. Lists every counsellor
+// with their contact + username (passwords are NEVER returned to the
+// client — see server/routes/counsellors.js for the password-stripped
+// SELECT). Inline actions:
+//   + New counsellor — name / WhatsApp / email / username / password
+//   Reset password   — opens an inline input on a row; PATCH writes the
+//                      new value but the response still omits it.
+//
+// Counsellors prop is passed from AdminPanel (single source of truth for
+// the counsellor roster). onCounsellorsChanged refetches at the parent
+// level so newly created counsellors immediately appear in other tabs'
+// dropdowns (the Counsellor tasks assignee picker in particular).
+export default function CounsellorAdmin({
+  counsellors = [],
+  loading = false,
+  error: externalError = null,
+  onCounsellorsChanged,
+}) {
   const [showNew, setShowNew] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [revealRowId, setRevealRowId] = useState(null);
+  const [error, setError] = useState(null);
+  const [resetRowId, setResetRowId] = useState(null);
+  const [resetValue, setResetValue] = useState("");
   const [newC, setNewC] = useState(emptyNewCounsellor());
 
-  const refetch = () => {
-    setLoading(true);
-    api
-      .listCounsellors()
-      .then((rows) => {
-        setCounsellors(rows);
-        setError(null);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    refetch();
-  }, []);
+  // Surface either the parent-level fetch error or a local action error.
+  const displayError = error || externalError;
 
   const submitNew = async () => {
     const name = newC.name.trim();
@@ -49,20 +48,42 @@ export default function CounsellorAdmin() {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createCounsellor({
+      await api.createCounsellor({
         name,
         whatsapp: whatsapp || null,
         email: email || null,
         username,
         password,
       });
-      setCounsellors((prev) =>
-        [...prev, created].sort((a, b) =>
-          (a.name || "").localeCompare(b.name || "")
-        )
-      );
+      // Refetch the parent-level list so the assignee dropdown in the
+      // Counsellor tasks tab picks up the new counsellor without a reload.
+      onCounsellorsChanged && (await onCounsellorsChanged());
       setNewC(emptyNewCounsellor());
       setShowNew(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelReset = () => {
+    setResetRowId(null);
+    setResetValue("");
+    setError(null);
+  };
+
+  const submitReset = async (counsellorId) => {
+    if (!resetValue) {
+      setError("New password can't be blank.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateCounsellor(counsellorId, { password: resetValue });
+      onCounsellorsChanged && (await onCounsellorsChanged());
+      cancelReset();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -78,7 +99,7 @@ export default function CounsellorAdmin() {
     );
   }
 
-  const gridCols = "1.5fr 1fr 1.4fr 1fr 1fr";
+  const gridCols = "1.5fr 1fr 1.4fr 1fr 1.2fr";
 
   return (
     <>
@@ -104,9 +125,9 @@ export default function CounsellorAdmin() {
         )}
       </div>
 
-      {error && (
+      {displayError && (
         <div className="mb-3 border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-800">
-          {error}
+          {displayError}
         </div>
       )}
 
@@ -210,7 +231,7 @@ export default function CounsellorAdmin() {
         )}
 
         {counsellors.map((c) => {
-          const revealed = revealRowId === c.id;
+          const isResetting = resetRowId === c.id;
           return (
             <div
               key={c.id}
@@ -221,7 +242,10 @@ export default function CounsellorAdmin() {
               <span className="text-[13px] tabular-nums text-stone-700">
                 {c.whatsapp || "—"}
               </span>
-              <span className="truncate text-[13px] text-stone-700" title={c.email || ""}>
+              <span
+                className="truncate text-[13px] text-stone-700"
+                title={c.email || ""}
+              >
                 {c.email || "—"}
               </span>
               <span className="text-[13px] text-stone-700">
@@ -229,28 +253,58 @@ export default function CounsellorAdmin() {
                   <span className="italic text-stone-400">—</span>
                 )}
               </span>
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-[13px] text-stone-700">
-                  {revealed
-                    ? c.password || "—"
-                    : c.password
-                      ? "•".repeat(Math.min(8, c.password.length))
-                      : "—"}
-                </span>
-                {c.password && (
-                  <button
-                    onClick={() =>
-                      setRevealRowId(revealed ? null : c.id)
-                    }
-                    title={revealed ? "Hide password" : "Show password"}
-                    className="text-stone-500 hover:text-stone-900"
-                  >
-                    {revealed ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </button>
+              <span className="flex items-center gap-1.5">
+                {isResetting ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="New password"
+                      value={resetValue}
+                      onChange={(e) => setResetValue(e.target.value)}
+                      autoComplete="off"
+                      autoFocus
+                      className="min-w-0 flex-1 border border-stone-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-[#cc785c]"
+                    />
+                    <button
+                      onClick={() => submitReset(c.id)}
+                      disabled={busy}
+                      title="Save new password"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                    >
+                      {busy ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="h-3 w-3" />
+                      )}
+                    </button>
+                    <button
+                      onClick={cancelReset}
+                      disabled={busy}
+                      title="Cancel"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Passwords are no longer returned by the API for
+                        security; show a fixed mask + a Reset action. */}
+                    <span className="font-mono text-[13px] text-stone-400">
+                      ••••••
+                    </span>
+                    <button
+                      onClick={() => {
+                        setResetRowId(c.id);
+                        setResetValue("");
+                        setError(null);
+                      }}
+                      title="Reset password"
+                      className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                    >
+                      <KeyRound className="h-3 w-3" /> Reset
+                    </button>
+                  </>
                 )}
               </span>
             </div>

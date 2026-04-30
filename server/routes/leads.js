@@ -146,14 +146,22 @@ async function attachActivity(leads) {
 
 // GET /api/leads — leads with their activity. Hides archived rows by default
 // so the staff dashboard never surfaces archived leads to counsellors. Admin
-// passes ?include_archived=true to also receive the archived set.
+// passes ?include_archived=true to also receive the archived set. The
+// optional ?counsellor_id=… scopes the response server-side so a
+// counsellor's browser never receives other counsellors' leads.
 router.get("/", async (req, res, next) => {
   try {
     const includeArchived = req.query.include_archived === "true";
-    const sql = includeArchived
-      ? "SELECT * FROM leads ORDER BY service_date ASC NULLS LAST"
-      : "SELECT * FROM leads WHERE archived = FALSE ORDER BY service_date ASC NULLS LAST";
-    const { rows } = await pool.query(sql);
+    const counsellorId = req.query.counsellor_id || null;
+    const where = [];
+    const params = [];
+    if (!includeArchived) where.push("archived = FALSE");
+    if (counsellorId) {
+      params.push(counsellorId);
+      where.push(`counsellor_id = $${params.length}`);
+    }
+    const sql = `SELECT * FROM leads ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY service_date ASC NULLS LAST`;
+    const { rows } = await pool.query(sql, params);
     const enriched = await attachActivity(rows);
     res.json(enriched);
   } catch (e) {

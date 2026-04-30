@@ -8,6 +8,7 @@ import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import twilioStatusRouter from "./routes/twilio_status.js";
 import tasksRouter from "./routes/tasks.js";
+import authRouter from "./routes/auth.js";
 import { migrate } from "./migrate.js";
 import {
   seedIfEmpty,
@@ -49,11 +50,15 @@ app.use("/api/counsellors", (req, res, next) =>
 app.use("/api/tasks", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+// Login endpoint is rate-limited (POST). Don't want anyone brute-forcing
+// trial-mode plaintext creds via /api/auth/login.
+app.use("/api/auth", writeLimiter);
 
 app.use("/api/leads", leadsRouter);
 app.use("/api/counsellors", counsellorsRouter);
 app.use("/api/twilio", twilioStatusRouter);
 app.use("/api/tasks", tasksRouter);
+app.use("/api/auth", authRouter);
 
 // Static frontend (Vite build output)
 const distPath = path.join(__dirname, "..", "dist");

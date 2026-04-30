@@ -159,6 +159,17 @@ export async function backfillCounsellorCredsIfMissing() {
   if (rowCount > 0) {
     console.log(`[seed] backfilled credentials for ${rowCount} counsellor(s)`);
   }
+  // Also lowercase any existing mixed-case usernames so the login lookup
+  // (LOWER(username) = LOWER(...)) lands on a single deterministic row.
+  // Idempotent: rows already lowercase are unaffected.
+  const { rowCount: lowered } = await pool.query(
+    `UPDATE counsellors
+     SET username = LOWER(username)
+     WHERE username IS NOT NULL AND username <> LOWER(username)`
+  );
+  if (lowered > 0) {
+    console.log(`[seed] lowercased ${lowered} counsellor username(s)`);
+  }
 }
 
 export async function seedLeads() {

@@ -1,10 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
 
+const TAB_KEY = "persona_simple_tab";
+const NO_OP = () => {};
+
+function loadTab(role) {
+  if (typeof window === "undefined") return "followup";
+  try {
+    const t = sessionStorage.getItem(TAB_KEY);
+    if (t === "followup" || t === "tasks") return t;
+    if (t === "counsellors" && role === "admin") return t;
+  } catch {
+    /* ignore */
+  }
+  return "followup";
+}
+
 // Two-tab wrapper for the simple panel: "Followup" (the lead sheet) and
-// "Counsellor tasks" (the to-do list across students).
+// "Counsellor tasks" (the to-do list across students). Admin gets a third
+// "Counsellors" tab.
 //
 // Visual: small folder-style tabs at the top whose active member sits flush
 // against the horizontal divider below.
@@ -14,12 +30,32 @@ import CounsellorAdmin from "./CounsellorAdmin.jsx";
 // role: "counsellor" → scoped to their own leads (lead.counsellor_id) and
 //                      their own tasks (task.assignee_id). New leads/tasks
 //                      auto-assign to themselves.
+//
+// Tab choice persists in sessionStorage so a hard refresh OR an admin
+// impersonation switch (which unmounts the previous SimplePanel) lands
+// the user back on the same tab.
+//
+// counsellors/onCounsellorsChanged are admin-only props sourced from
+// AdminPanel. When omitted (counsellor view), CounsellorTasks falls back
+// to its own fetch and CounsellorAdmin isn't rendered at all.
 export default function SimplePanel({
   role = "admin",
   scopedCounsellorId = null,
-  onImpersonate,
+  onImpersonate = NO_OP,
+  counsellors = null,
+  counsellorsLoading = false,
+  counsellorsError = null,
+  onCounsellorsChanged,
 }) {
-  const [tab, setTab] = useState("followup");
+  const [tab, setTab] = useState(() => loadTab(role));
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(TAB_KEY, tab);
+    } catch {
+      /* ignore quota/private mode */
+    }
+  }, [tab]);
 
   return (
     <>
@@ -57,9 +93,17 @@ export default function SimplePanel({
           role={role}
           scopedCounsellorId={scopedCounsellorId}
           onImpersonate={onImpersonate}
+          counsellors={counsellors}
         />
       )}
-      {tab === "counsellors" && role === "admin" && <CounsellorAdmin />}
+      {tab === "counsellors" && role === "admin" && (
+        <CounsellorAdmin
+          counsellors={counsellors || []}
+          loading={counsellorsLoading}
+          error={counsellorsError}
+          onCounsellorsChanged={onCounsellorsChanged}
+        />
+      )}
     </>
   );
 }

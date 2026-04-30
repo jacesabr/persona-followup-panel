@@ -15,22 +15,37 @@ async function request(method, path, body) {
     } catch {
       detail = { error: res.statusText };
     }
-    throw new Error(detail.error || `HTTP ${res.status}`);
+    const err = new Error(detail.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();
 }
 
 export const api = {
+  // Per-counsellor login. Returns the matched counsellor (sans password)
+  // or throws an Error with .status = 401 on bad creds. Used by App.jsx
+  // to populate the active session.
+  login: (username, password) =>
+    request("POST", "/api/auth/login", { username, password }),
   // Default returns only active leads. Admin passes { includeArchived: true }
   // to also receive archived rows for the collapsible "Archived" section.
-  listLeads: ({ includeArchived = false } = {}) =>
-    request(
+  // counsellorId param scopes server-side so the wire response only
+  // carries that counsellor's leads (no client-side leakage).
+  listLeads: ({ includeArchived = false, counsellorId = null } = {}) => {
+    const qs = [];
+    if (includeArchived) qs.push("include_archived=true");
+    if (counsellorId) qs.push(`counsellor_id=${encodeURIComponent(counsellorId)}`);
+    return request(
       "GET",
-      `/api/leads${includeArchived ? "?include_archived=true" : ""}`
-    ),
+      `/api/leads${qs.length ? `?${qs.join("&")}` : ""}`
+    );
+  },
   listCounsellors: () => request("GET", "/api/counsellors"),
   createCounsellor: (data) => request("POST", "/api/counsellors", data),
+  updateCounsellor: (id, patch) =>
+    request("PATCH", `/api/counsellors/${id}`, patch),
   createLead: (data) => request("POST", "/api/leads", data),
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
   archiveLead: (id) => request("POST", `/api/leads/${id}/archive`),

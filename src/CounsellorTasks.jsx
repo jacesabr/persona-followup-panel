@@ -11,7 +11,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { api } from "./api.js";
-import { formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
+import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
 
 function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
@@ -24,17 +24,26 @@ const EMPTY_NEW = () => ({
   assigneeId: "",
 });
 
+const NO_OP = () => {};
+
 export default function CounsellorTasks({
   role = "admin",
   scopedCounsellorId = null,
-  onImpersonate,
+  onImpersonate = NO_OP,
+  // Optional shared roster from AdminPanel. When provided we skip the
+  // local listCounsellors() call so admin's "+ New counsellor" stays in
+  // sync with the assignee dropdown automatically.
+  counsellors: counsellorsProp = null,
 }) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
   // to this counsellor. Admin sees everything and picks the assignee.
   const isScoped = role === "counsellor" && !!scopedCounsellorId;
   const [tasks, setTasks] = useState([]);
   const [leads, setLeads] = useState([]);
-  const [counsellors, setCounsellors] = useState([]);
+  // Local counsellors cache only used when no shared roster prop was
+  // passed (i.e. counsellor view, where nobody mutates counsellors).
+  const [counsellorsLocal, setCounsellorsLocal] = useState([]);
+  const counsellors = counsellorsProp ?? counsellorsLocal;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   // sortBy: "date" (default) or "student". Within "student" we still sort
@@ -51,16 +60,21 @@ export default function CounsellorTasks({
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
+    // Skip the counsellors fetch when AdminPanel already supplies the
+    // shared roster — saves a round trip and keeps the assignee dropdown
+    // in sync with admin's "+ New counsellor" automatically.
+    const fetches = [
       api.listTasks({ includeArchived: true }),
       api.listLeads(),
-      api.listCounsellors(),
-    ])
-      .then(([t, l, c]) => {
+    ];
+    if (counsellorsProp == null) fetches.push(api.listCounsellors());
+    Promise.all(fetches)
+      .then((results) => {
         if (cancelled) return;
+        const [t, l, c] = results;
         setTasks(t);
         setLeads(l);
-        setCounsellors(c);
+        if (c) setCounsellorsLocal(c);
         setError(null);
       })
       .catch((e) => {
@@ -122,8 +136,8 @@ export default function CounsellorTasks({
   const sortedTasks = useMemo(() => {
     const cmpKey = (a, b, key) => {
       if (key === "date") {
-        const ad = (a.due_date || "").slice(0, 10);
-        const bd = (b.due_date || "").slice(0, 10);
+        const ad = dateOnlyYmd(a.due_date);
+        const bd = dateOnlyYmd(b.due_date);
         return ad < bd ? -1 : ad > bd ? 1 : 0;
       }
       if (key === "student") {
@@ -460,7 +474,7 @@ export default function CounsellorTasks({
           // the first 10 chars for string comparisons against todayYmd.
           // Pass the original ISO straight to formatDateInIst since it
           // already handles both shapes.
-          const dueYmd = (task.due_date || "").slice(0, 10);
+          const dueYmd = dateOnlyYmd(task.due_date);
           const overdue = !task.completed && dueYmd < todayYmd;
           const isToday = dueYmd === todayYmd;
           const isBusy = busyId === task.id;

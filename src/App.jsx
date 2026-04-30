@@ -8,35 +8,45 @@ import { api } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
 const ADMIN_USER = "admin";
+// Admin password is intentionally case-sensitive (matches counsellor
+// behavior — counsellor passwords are also compared as-is server-side).
+// Trial mode only.
 const ADMIN_PASS = "admin";
 const SESSION_KEY = "persona_session";
+const IMPERSONATE_KEY = "persona_impersonating";
 
-function loadSession() {
+function loadKey(key) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
-function saveSession(s) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+function saveKey(key, v) {
+  if (v == null) {
+    sessionStorage.removeItem(key);
+    return;
+  }
+  sessionStorage.setItem(key, JSON.stringify(v));
 }
-function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
-}
+const loadSession = () => loadKey(SESSION_KEY);
+const loadImpersonating = () => loadKey(IMPERSONATE_KEY);
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
-  // Admin-only "view as counsellor" impersonation. Triggered from two
-  // places, distinguished by the `view` field:
-  //   view: "staff"  → legacy StaffDashboard (set by LeadFollowup's
-  //                    "view as" picker inside the Old dropdown).
-  //   view: "simple" → SimplePanel scoped to that counsellor (set by
-  //                    clicking a counsellor name in the new task list).
+  // Admin-only "view as counsellor" impersonation. Persisted in
+  // sessionStorage so a hard refresh keeps the impersonation context
+  // (otherwise admin would silently bounce back to admin view).
   // Shape: { counsellorId, view }
-  const [impersonating, setImpersonating] = useState(null);
+  //   view: "staff"  → legacy StaffDashboard
+  //   view: "simple" → scoped SimplePanel
+  const [impersonating, setImpersonatingRaw] = useState(loadImpersonating);
+  const setImpersonating = (next) => {
+    saveKey(IMPERSONATE_KEY, next);
+    setImpersonatingRaw(next);
+  };
   const [counsellors, setCounsellors] = useState([]);
 
   // Refresh the counsellor roster whenever there's an active session — the
@@ -49,36 +59,33 @@ export default function App() {
 
   const onAdminAuth = () => {
     const s = { role: "admin" };
-    saveSession(s);
+    saveKey(SESSION_KEY, s);
     setSession(s);
   };
 
-  // Per-counsellor login: validate the typed username/password against the
-  // counsellors table (trial mode — plaintext compare). Returns true on
-  // success so the login form can clear its error state.
+  // Per-counsellor login: hand creds to the server and let it validate.
+  // Distinguishes auth failure (401 → "wrong creds") from network/server
+  // failure (other → "server error") so the form can show the right
+  // message instead of always saying "incorrect password" when the API
+  // is just unreachable.
   const onCounsellorAuth = async (username, password) => {
     try {
-      const list = await api.listCounsellors();
-      setCounsellors(list);
-      const match = list.find(
-        (c) =>
-          (c.username || "").toLowerCase() === username.toLowerCase() &&
-          (c.password || "") === password
-      );
-      if (!match) return false;
-      const s = { role: "counsellor", counsellorId: match.id };
-      saveSession(s);
+      const c = await api.login(username, password);
+      const s = { role: "counsellor", counsellorId: c.id };
+      saveKey(SESSION_KEY, s);
       setSession(s);
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (e) {
+      if (e && e.status === 401) return { ok: false, kind: "auth" };
+      return { ok: false, kind: "network", message: e?.message || "Couldn't reach the server" };
     }
   };
 
   const onSignOut = () => {
-    clearSession();
+    saveKey(SESSION_KEY, null);
+    saveKey(IMPERSONATE_KEY, null);
     setSession(null);
-    setImpersonating(null);
+    setImpersonatingRaw(null);
   };
 
   if (!session)
@@ -224,8 +231,11 @@ function BackToAdminBanner({ staffName, onExit }) {
 function Login({ onAdminAuth, onCounsellorAuth }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
-  const [err, setErr] = useState(false);
+  // err is null when no error, or { kind: "auth"|"network", message? }.
+  const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  const clearErr = () => setErr(null);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -235,9 +245,9 @@ function Login({ onAdminAuth, onCounsellorAuth }) {
       return;
     }
     setBusy(true);
-    const ok = await onCounsellorAuth(u, pw);
+    const result = await onCounsellorAuth(u, pw);
     setBusy(false);
-    if (!ok) setErr(true);
+    if (!result.ok) setErr(result);
   };
 
   return (
@@ -270,7 +280,7 @@ function Login({ onAdminAuth, onCounsellorAuth }) {
               value={user}
               onChange={(e) => {
                 setUser(e.target.value);
-                setErr(false);
+                clearErr();
               }}
               autoFocus
               autoComplete="username"
@@ -291,7 +301,7 @@ function Login({ onAdminAuth, onCounsellorAuth }) {
               value={pw}
               onChange={(e) => {
                 setPw(e.target.value);
-                setErr(false);
+                clearErr();
               }}
               autoComplete="current-password"
               className="flex-1 bg-transparent py-3 text-lg outline-none"
@@ -302,7 +312,9 @@ function Login({ onAdminAuth, onCounsellorAuth }) {
 
         {err && (
           <p className="mt-4 text-xs text-red-700">
-            Incorrect username or password.
+            {err.kind === "network"
+              ? `Couldn't reach the server${err.message ? ` (${err.message})` : ""}.`
+              : "Incorrect username or password."}
           </p>
         )}
 
