@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, X, Check, Archive, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "./api.js";
 import {
@@ -19,21 +19,26 @@ const STATUS_OPTIONS = Object.keys(STATUS_LABEL);
 // When the calendar form needs a time-of-day to combine with a picked date.
 const DEFAULT_TIME_IST = "10:00";
 
-const EMPTY_NEW = {
-  name: "",
-  email: "",
-  contact: "",
-  purpose: "",
-  inquiryDate: todayIstYmd(),
-  status: "unassigned",
-  serviceDate: "",
-  counsellorId: "",
-};
-
 // Today's date in IST as "YYYY-MM-DD". Used as the default for inquiry_date
 // when adding a new lead so the picker pre-fills with today.
 function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
+}
+
+// Factory not constant — todayIstYmd() must be evaluated at the moment the
+// user opens the new-lead row, not at module load. Otherwise the panel
+// staying open across midnight pre-fills "yesterday".
+function emptyNew() {
+  return {
+    name: "",
+    email: "",
+    contact: "",
+    purpose: "",
+    inquiryDate: todayIstYmd(),
+    status: "unassigned",
+    serviceDate: "",
+    counsellorId: "",
+  };
 }
 
 export default function SimpleFollowup() {
@@ -42,7 +47,7 @@ export default function SimpleFollowup() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showNew, setShowNew] = useState(false);
-  const [newLead, setNewLead] = useState(EMPTY_NEW);
+  const [newLead, setNewLead] = useState(emptyNew());
   const [creating, setCreating] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -73,7 +78,7 @@ export default function SimpleFollowup() {
 
   const cancelNew = () => {
     setShowNew(false);
-    setNewLead(EMPTY_NEW);
+    setNewLead(emptyNew());
     setError(null);
   };
 
@@ -102,7 +107,7 @@ export default function SimpleFollowup() {
     try {
       const created = await api.createLead(payload);
       setLeads((prev) => [created, ...prev]);
-      setNewLead(EMPTY_NEW);
+      setNewLead(emptyNew());
       setShowNew(false);
     } catch (e) {
       setError(e.message);
@@ -217,7 +222,13 @@ export default function SimpleFollowup() {
         </div>
         {!showNew && (
           <button
-            onClick={() => setShowNew(true)}
+            onClick={() => {
+              // Refresh the new-lead form state every time the row opens so
+              // inquiryDate reflects the *current* IST day even if the user
+              // left the page open across midnight.
+              setNewLead(emptyNew());
+              setShowNew(true);
+            }}
             className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f]"
           >
             <Plus className="h-3 w-3" /> New
@@ -391,18 +402,14 @@ export default function SimpleFollowup() {
         )}
 
         {sortedLeads.map((lead) => {
-          const sd = lead.service_date ? new Date(lead.service_date).getTime() : null;
-          const rowBg =
-            sd == null
-              ? "bg-white hover:bg-stone-50"
-              : sd < now
-                ? "bg-yellow-50 hover:bg-yellow-100"
-                : "bg-green-50 hover:bg-green-100";
           const isSelected = selectedIds.has(lead.id);
+          // Past/future row tinting was removed by request — the calendar
+          // popup still color-codes individual days. Keeping the sheet
+          // monochrome reads cleaner with only a handful of leads.
           return (
             <div
               key={lead.id}
-              className={`grid items-start gap-2 border-b border-stone-200 px-3 py-2 text-[14px] text-stone-800 last:border-b-0 ${rowBg}`}
+              className="grid items-start gap-2 border-b border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
               <span className="pt-0.5">
@@ -494,7 +501,10 @@ function CalendarPopup({ lead, onClose, onCreated }) {
   const [notes, setNotes] = useState("");
   const [time, setTime] = useState(DEFAULT_TIME_IST);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
+  // Two error slots so a fetch failure at the top of the modal doesn't
+  // collide with a validation error attached to the form action.
+  const [loadErr, setLoadErr] = useState(null);
+  const [submitErr, setSubmitErr] = useState(null);
 
   // Fetch the lead's appointment history once, when the popup opens.
   useEffect(() => {
@@ -506,7 +516,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
         if (!cancelled) setAppointments(rows);
       })
       .catch((e) => {
-        if (!cancelled) setErr(e.message);
+        if (!cancelled) setLoadErr(e.message);
       })
       .finally(() => {
         if (!cancelled) setLoadingAppts(false);
@@ -590,11 +600,13 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     setSelectedYmd(null);
     setNotes("");
     setTime(DEFAULT_TIME_IST);
-    setErr(null);
+    setSubmitErr(null);
   };
 
   const onPickDay = (ymd) => {
-    if (!ymd) return;
+    // No-op when the user clicks the already-selected day — preserves any
+    // notes they were typing instead of silently clearing the form.
+    if (!ymd || ymd === selectedYmd) return;
     // Don't pre-fill from existing appointments — the form is for adding a
     // new one. The existing entries for this day are listed above the form
     // (see render below); reading them is separate from authoring a fresh
@@ -602,7 +614,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     setSelectedYmd(ymd);
     setTime(DEFAULT_TIME_IST);
     setNotes("");
-    setErr(null);
+    setSubmitErr(null);
   };
 
   const isPast = (ymd) => ymd < todayYmd;
@@ -611,18 +623,18 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     if (!selectedYmd) return;
     const iso = localInputToUtcIso(`${selectedYmd}T${time}`);
     if (!iso) {
-      setErr("Invalid date/time.");
+      setSubmitErr("Invalid date/time.");
       return;
     }
     // Full-datetime past check: the YMD-only check let users book today at
     // a time that already passed. Use the actual instant against now so
     // "today 8:00" gets rejected when it's already 10:00.
     if (new Date(iso).getTime() < Date.now()) {
-      setErr("Pick a date/time in the future.");
+      setSubmitErr("Pick a date/time in the future.");
       return;
     }
     setBusy(true);
-    setErr(null);
+    setSubmitErr(null);
     try {
       const created = await api.createAppointment(lead.id, {
         scheduled_for: iso,
@@ -632,25 +644,45 @@ function CalendarPopup({ lead, onClose, onCreated }) {
       onCreated(iso);
       onClose();
     } catch (e) {
-      setErr(e.message);
+      setSubmitErr(e.message);
       setBusy(false);
     }
   };
 
-  // Real (non-synthetic) appointments for the selected day, used both for
-  // the read-only list above the form and to know whether to show "no
-  // appointment" copy on past days.
+  // Appointments for the selected day, including synthetic fallback rows.
+  // The synthetic row carries notes:null (set in apptByYmd above), so it
+  // safely shows in the list as "scheduled time — no notes" — matching the
+  // tile color the user just clicked. Without including it, a yellow past
+  // tile rendered "No appointment on this day" which contradicted the
+  // visual. Real entries are always rendered first because of the asc sort.
   const selectedDayAppts = useMemo(() => {
     if (!selectedYmd) return [];
-    return (apptByYmd.get(selectedYmd) || []).filter((a) => !a.synthetic);
+    return apptByYmd.get(selectedYmd) || [];
   }, [apptByYmd, selectedYmd]);
   const selectedIsPast = selectedYmd && isPast(selectedYmd);
+
+  // Stable refs so the keydown effect can register exactly once and still
+  // see fresh `busy` / `onClose` values. With deps:[busy, onClose] the
+  // effect re-ran on every parent re-render (onClose is a fresh arrow each
+  // time), churning the body-overflow style and reattaching listeners.
+  const stateRef = useRef({});
+  stateRef.current = { busy, onClose };
+
+  // Discard guard for typed notes: backdrop click + X button + month-nav all
+  // share this. Escape skips the prompt — pressing Escape is an explicit
+  // "I want to bail" gesture; asking for confirmation would feel hostile.
+  const tryClose = () => {
+    if (notes.trim() && !window.confirm("Discard typed notes?")) return;
+    onClose();
+  };
 
   // Modal a11y: Escape closes; body scroll locked while open. The cleanup
   // restores scroll even if the parent unmounts us (e.g. lead removed).
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !stateRef.current.busy) {
+        stateRef.current.onClose();
+      }
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -659,13 +691,13 @@ function CalendarPopup({ lead, onClose, onCreated }) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [busy, onClose]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
       <div
         className="absolute inset-0 bg-stone-900/30"
-        onClick={busy ? undefined : onClose}
+        onClick={busy ? undefined : tryClose}
       />
       <div className="relative z-10 w-full max-w-sm border border-stone-300 bg-white shadow-xl">
         <header className="flex items-start justify-between border-b border-stone-200 px-4 py-2.5">
@@ -676,7 +708,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <p className="text-[12px] text-stone-600">{lead.purpose}</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={tryClose}
             disabled={busy}
             className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
             aria-label="Close"
@@ -684,6 +716,16 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <X className="h-4 w-4" />
           </button>
         </header>
+
+        {/* Modal-level error banner for fetch failures. Without this, an
+            error from listAppointments showed an empty calendar grid with
+            no explanation. Submit-time errors are shown inside the form
+            below (closer to the action that produced them). */}
+        {loadErr && (
+          <div className="border-b border-red-300 bg-red-50 px-4 py-1.5 text-[12px] text-red-800">
+            {loadErr}
+          </div>
+        )}
 
         <div className="px-4 py-3">
           <div className="mb-2 flex items-center justify-between">
@@ -808,8 +850,8 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                   placeholder="Notes / details for this appointment…"
                   className="w-full resize-none border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c]"
                 />
-                {err && (
-                  <p className="mt-1.5 text-[12px] text-red-700">{err}</p>
+                {submitErr && (
+                  <p className="mt-1.5 text-[12px] text-red-700">{submitErr}</p>
                 )}
                 <div className="mt-2 flex items-center justify-end gap-2">
                   <button
@@ -817,7 +859,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                       setSelectedYmd(null);
                       setNotes("");
                       setTime(DEFAULT_TIME_IST);
-                      setErr(null);
+                      setSubmitErr(null);
                     }}
                     disabled={busy}
                     className="text-[11px] uppercase tracking-[0.18em] text-stone-600 hover:text-stone-900 disabled:opacity-50"

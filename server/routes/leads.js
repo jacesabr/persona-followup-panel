@@ -793,6 +793,15 @@ router.get("/:id/appointments", async (req, res, next) => {
 // Wrapped in a transaction so a partial failure (e.g. INSERT succeeds but
 // UPDATE fails) never leaves leads.service_date out of sync with the
 // appointment row.
+//
+// Accepted behavior — status is NOT auto-promoted: if a lead is currently
+// 'completed' / 'no_show' / 'unassigned' and someone reschedules via the
+// simple panel, the cron's reminder query (status='scheduled' AND
+// counsellor_id IS NOT NULL) will silently skip the new slot. Counsellor
+// won't get a 12hr reminder; the meeting will likely be missed unless they
+// remember on their own. This was an explicit product decision — the
+// alternative (auto-revive a completed lead) is more dangerous than a
+// missed reminder. To re-arm reminders, edit status via admin first.
 router.post("/:id/appointments", async (req, res, next) => {
   try {
     const { id } = req.params;
