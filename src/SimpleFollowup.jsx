@@ -3,6 +3,7 @@ import { Loader2, Plus, X, Check, Archive, ChevronLeft, ChevronRight } from "luc
 import { api } from "./api.js";
 import {
   formatDateInIst,
+  formatTimeInIst,
   localInputToUtcIso,
   utcIsoToIstInput,
 } from "../lib/time.js";
@@ -131,25 +132,41 @@ export default function SimpleFollowup() {
       return;
     setBulkBusy(true);
     setError(null);
-    try {
-      await Promise.all(ids.map((id) => api.archiveLead(id)));
-      setLeads((prev) => prev.filter((l) => !selectedIds.has(l.id)));
-      clearSelection();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBulkBusy(false);
+    // Promise.allSettled so a single failed archive doesn't leave the other
+    // 29 in a hidden-but-not-archived limbo. Drop only the IDs that
+    // definitely succeeded server-side; surface a count of failures.
+    const results = await Promise.allSettled(
+      ids.map((id) => api.archiveLead(id))
+    );
+    const succeeded = new Set(
+      ids.filter((_, i) => results[i].status === "fulfilled")
+    );
+    const firstError = results.find((r) => r.status === "rejected")?.reason;
+    setLeads((prev) => prev.filter((l) => !succeeded.has(l.id)));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of succeeded) next.delete(id);
+      return next;
+    });
+    if (succeeded.size < ids.length) {
+      const failedCount = ids.length - succeeded.size;
+      setError(
+        `${failedCount} of ${ids.length} archives failed${firstError ? `: ${firstError.message}` : "."}`
+      );
     }
+    setBulkBusy(false);
   };
 
   // Called when CalendarPopup confirms a new appointment. Mirror the new
-  // service_date+notes onto the lead row in our local state so the sheet
-  // updates without a refetch.
-  const onAppointmentCreated = (leadId, scheduledFor, notes) => {
+  // service_date onto the lead row so the sheet's tint + Next-follow cell
+  // update without a refetch. lead.notes is intentionally untouched —
+  // appointment notes live in lead_appointments only (general lead notes
+  // and per-appointment notes are different concepts).
+  const onAppointmentCreated = (leadId, scheduledFor) => {
     setLeads((prev) =>
       prev.map((l) =>
         l.id === leadId
-          ? { ...l, service_date: scheduledFor, notes, reminder_sent: false }
+          ? { ...l, service_date: scheduledFor, reminder_sent: false }
           : l
       )
     );
@@ -248,7 +265,7 @@ export default function SimpleFollowup() {
           className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-stone-700"
           style={{ gridTemplateColumns: gridCols }}
         >
-          <span></span>
+          <span className="sr-only">Select</span>
           <span>Query</span>
           <span>Name / Email / Ph</span>
           <span>Purpose</span>
@@ -425,9 +442,7 @@ export default function SimpleFollowup() {
                 title="Open calendar"
                 className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1 text-left text-[13px] text-stone-800 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
               >
-                {lead.service_date
-                  ? formatDateInIst(lead.service_date, { hour: undefined, minute: undefined })
-                  : "Set…"}
+                {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
               <span className="text-[13px] text-stone-700">
                 {counsellorNameById.get(lead.counsellor_id) || "—"}
@@ -447,8 +462,8 @@ export default function SimpleFollowup() {
         <CalendarPopup
           lead={calendarLead}
           onClose={() => setCalendarLead(null)}
-          onCreated={(scheduledFor, notes) => {
-            onAppointmentCreated(calendarLead.id, scheduledFor, notes);
+          onCreated={(scheduledFor) => {
+            onAppointmentCreated(calendarLead.id, scheduledFor);
           }}
         />
       )}
@@ -501,30 +516,40 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     };
   }, [lead.id]);
 
-  // Build a map: ymd -> appointment row (latest wins if there are dupes for
-  // the same calendar day — rare in practice). The lead's current
-  // service_date is always considered, even if not yet in the appointments
-  // table (e.g. a lead created via admin without going through this panel).
+  // Build a map: ymd -> Appointment[] sorted by scheduled_for ascending so
+  // multiple appointments on the same calendar day all show up — earlier
+  // versions silently dropped duplicates with Map.set overwrite. The lead's
+  // current service_date gets a synthetic fallback entry so legacy leads
+  // (created before this table existed) still tint their day on the
+  // calendar; synthetic entries are flagged so the UI can hide them from
+  // the per-day list (lead.notes is *general* lead context, not per-day).
   const apptByYmd = useMemo(() => {
     const map = new Map();
     for (const a of appointments) {
       const ymd = utcIsoToIstInput(a.scheduled_for).slice(0, 10);
-      map.set(ymd, a);
+      if (!map.has(ymd)) map.set(ymd, []);
+      map.get(ymd).push(a);
+    }
+    for (const arr of map.values()) {
+      arr.sort(
+        (x, y) => new Date(x.scheduled_for).getTime() - new Date(y.scheduled_for).getTime()
+      );
     }
     if (lead.service_date) {
       const ymd = utcIsoToIstInput(lead.service_date).slice(0, 10);
-      // Only add the lead's own service_date if no appointment row covers it
-      // — the appointments table is the source of truth when both exist.
       if (!map.has(ymd)) {
-        map.set(ymd, {
-          id: "lead",
-          scheduled_for: lead.service_date,
-          notes: lead.notes || null,
-        });
+        map.set(ymd, [
+          {
+            id: "synthetic",
+            scheduled_for: lead.service_date,
+            notes: null,
+            synthetic: true,
+          },
+        ]);
       }
     }
     return map;
-  }, [appointments, lead.service_date, lead.notes]);
+  }, [appointments, lead.service_date]);
 
   const todayYmd = todayIstYmd();
 
@@ -550,6 +575,12 @@ function CalendarPopup({ lead, onClose, onCreated }) {
   ).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 
   const navMonth = (delta) => {
+    // If the user has typed notes for the current selection, switching months
+    // would clear the form (selectedYmd resets) and silently lose their
+    // input. Confirm before discarding so it's never a surprise.
+    if (notes.trim() && !window.confirm("Discard typed notes and change month?")) {
+      return;
+    }
     setViewMonth(({ y, m }) => {
       const next = m + delta;
       if (next < 1) return { y: y - 1, m: 12 };
@@ -557,20 +588,20 @@ function CalendarPopup({ lead, onClose, onCreated }) {
       return { y, m: next };
     });
     setSelectedYmd(null);
+    setNotes("");
+    setTime(DEFAULT_TIME_IST);
+    setErr(null);
   };
 
   const onPickDay = (ymd) => {
     if (!ymd) return;
+    // Don't pre-fill from existing appointments — the form is for adding a
+    // new one. The existing entries for this day are listed above the form
+    // (see render below); reading them is separate from authoring a fresh
+    // appointment, so re-using their notes by default would just confuse.
     setSelectedYmd(ymd);
-    const existing = apptByYmd.get(ymd);
-    if (existing) {
-      const ist = utcIsoToIstInput(existing.scheduled_for);
-      setTime(ist ? ist.slice(11) : DEFAULT_TIME_IST);
-      setNotes(existing.notes || "");
-    } else {
-      setTime(DEFAULT_TIME_IST);
-      setNotes("");
-    }
+    setTime(DEFAULT_TIME_IST);
+    setNotes("");
     setErr(null);
   };
 
@@ -578,10 +609,16 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 
   const confirm = async () => {
     if (!selectedYmd) return;
-    if (isPast(selectedYmd)) return; // safety: button is hidden anyway
     const iso = localInputToUtcIso(`${selectedYmd}T${time}`);
     if (!iso) {
       setErr("Invalid date/time.");
+      return;
+    }
+    // Full-datetime past check: the YMD-only check let users book today at
+    // a time that already passed. Use the actual instant against now so
+    // "today 8:00" gets rejected when it's already 10:00.
+    if (new Date(iso).getTime() < Date.now()) {
+      setErr("Pick a date/time in the future.");
       return;
     }
     setBusy(true);
@@ -592,7 +629,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
         notes: notes.trim() || null,
       });
       setAppointments((prev) => [...prev, created]);
-      onCreated(iso, notes.trim() || null);
+      onCreated(iso);
       onClose();
     } catch (e) {
       setErr(e.message);
@@ -600,8 +637,29 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     }
   };
 
-  const selectedAppt = selectedYmd ? apptByYmd.get(selectedYmd) : null;
+  // Real (non-synthetic) appointments for the selected day, used both for
+  // the read-only list above the form and to know whether to show "no
+  // appointment" copy on past days.
+  const selectedDayAppts = useMemo(() => {
+    if (!selectedYmd) return [];
+    return (apptByYmd.get(selectedYmd) || []).filter((a) => !a.synthetic);
+  }, [apptByYmd, selectedYmd]);
   const selectedIsPast = selectedYmd && isPast(selectedYmd);
+
+  // Modal a11y: Escape closes; body scroll locked while open. The cleanup
+  // restores scroll even if the parent unmounts us (e.g. lead removed).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [busy, onClose]);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
@@ -648,8 +706,8 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-[0.1em] text-stone-500">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-[0.08em] text-stone-500">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d, i) => (
               <span key={i} className="py-0.5">{d}</span>
             ))}
           </div>
@@ -662,22 +720,29 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <div className="mt-1 grid grid-cols-7 gap-0.5">
               {cells.map((c, i) => {
                 if (!c) return <span key={i} className="aspect-square" />;
-                const appt = apptByYmd.get(c.ymd);
+                const hasAppt = (apptByYmd.get(c.ymd) || []).length > 0;
                 const past = isPast(c.ymd);
                 const isToday = c.ymd === todayYmd;
                 const isSel = c.ymd === selectedYmd;
                 let bg = "bg-white hover:bg-stone-100";
-                if (appt && past) bg = "bg-yellow-200 hover:bg-yellow-300";
-                else if (appt && !past) bg = "bg-green-200 hover:bg-green-300";
+                if (hasAppt && past) bg = "bg-yellow-200 hover:bg-yellow-300";
+                else if (hasAppt && !past) bg = "bg-green-200 hover:bg-green-300";
                 if (isSel) bg += " ring-2 ring-[#cc785c]";
+                // When the tile has its own bg color (yellow/green), the bold
+                // orange "today" text fights with the tile color; switch to a
+                // ring-inset for today on colored tiles instead.
+                let todayClass = "";
+                if (isToday) {
+                  todayClass = hasAppt
+                    ? "ring-1 ring-inset ring-[#cc785c]"
+                    : "font-bold text-[#cc785c]";
+                }
                 return (
                   <button
                     key={i}
                     onClick={() => onPickDay(c.ymd)}
                     disabled={busy}
-                    className={`aspect-square text-[12px] tabular-nums outline-none ${bg} ${
-                      isToday ? "font-bold text-[#cc785c]" : "text-stone-800"
-                    } disabled:opacity-50`}
+                    className={`aspect-square text-[12px] tabular-nums text-stone-800 outline-none ${bg} ${todayClass} disabled:opacity-50`}
                   >
                     {c.d}
                   </button>
@@ -691,28 +756,43 @@ function CalendarPopup({ lead, onClose, onCreated }) {
           <div className="border-t border-stone-200 px-4 py-3">
             <p className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-stone-600">
               {formatDateInIst(`${selectedYmd}T00:00:00Z`)}
-              {selectedIsPast ? " · past" : selectedAppt ? " · scheduled" : ""}
+              {selectedIsPast
+                ? " · past"
+                : selectedDayAppts.length > 0
+                  ? ` · ${selectedDayAppts.length} scheduled`
+                  : ""}
             </p>
 
-            {selectedIsPast ? (
-              <div className="text-[13px] leading-snug text-stone-700">
-                {selectedAppt
-                  ? selectedAppt.notes || (
-                      <span className="italic text-stone-500">
-                        No notes were entered for this day.
-                      </span>
-                    )
-                  : (
-                    <span className="italic text-stone-500">
-                      No appointment on this day.
+            {selectedDayAppts.length > 0 && (
+              <ul className="mb-2 space-y-1 border-l-2 border-stone-200 pl-2 text-[12px] leading-snug text-stone-700">
+                {selectedDayAppts.map((a) => (
+                  <li key={a.id}>
+                    <span className="tabular-nums text-stone-600">
+                      {formatTimeInIst(a.scheduled_for)}
                     </span>
-                  )}
-              </div>
+                    {a.notes ? (
+                      <span className="ml-2">— {a.notes}</span>
+                    ) : (
+                      <span className="ml-2 italic text-stone-400">
+                        — no notes
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {selectedIsPast ? (
+              selectedDayAppts.length === 0 && (
+                <p className="text-[13px] italic text-stone-500">
+                  No appointment on this day.
+                </p>
+              )
             ) : (
               <>
                 <div className="mb-2 flex items-center gap-2">
                   <label className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
-                    Time
+                    Time (IST)
                   </label>
                   <input
                     type="time"
@@ -733,7 +813,12 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                 )}
                 <div className="mt-2 flex items-center justify-end gap-2">
                   <button
-                    onClick={() => setSelectedYmd(null)}
+                    onClick={() => {
+                      setSelectedYmd(null);
+                      setNotes("");
+                      setTime(DEFAULT_TIME_IST);
+                      setErr(null);
+                    }}
                     disabled={busy}
                     className="text-[11px] uppercase tracking-[0.18em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
                   >

@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS lead_appointments (
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_lead_appointments_lead_id ON lead_appointments(lead_id);
+-- Composite index covers both (lead_id) and (lead_id, scheduled_for) lookups
+-- since lead_id is the leftmost column. No separate lead_id-only index needed.
 CREATE INDEX IF NOT EXISTS idx_lead_appointments_scheduled ON lead_appointments(lead_id, scheduled_for);
 `;
 

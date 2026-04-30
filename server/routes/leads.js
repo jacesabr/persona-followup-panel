@@ -784,10 +784,15 @@ router.get("/:id/appointments", async (req, res, next) => {
 });
 
 // POST /api/leads/:id/appointments — schedule (or reschedule) an appointment.
-// Inserts a row in the history table AND mirrors the new date+notes into
-// leads.service_date / leads.notes so the cron reminder, admin panel, and
-// staff dashboard keep working unchanged. Resets reminder_sent so the 12hr
-// cron re-fires for the new slot.
+// Inserts a row in the history table AND mirrors the date onto
+// leads.service_date so the cron reminder + admin/staff legacy code keep
+// working unchanged. Notes stay in lead_appointments only — leads.notes is
+// the general per-lead annotation and must not get clobbered by per-day
+// appointment notes (which would otherwise wipe admin-side context).
+//
+// Wrapped in a transaction so a partial failure (e.g. INSERT succeeds but
+// UPDATE fails) never leaves leads.service_date out of sync with the
+// appointment row.
 router.post("/:id/appointments", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -796,6 +801,12 @@ router.post("/:id/appointments", async (req, res, next) => {
       return res
         .status(400)
         .json({ error: "scheduled_for must be ISO 8601 with explicit timezone (Z or ±HH:MM)" });
+    }
+    // Reject past timestamps server-side as well as in the UI — anyone
+    // hitting the API directly shouldn't be able to "schedule" something
+    // that's already happened.
+    if (new Date(scheduled_for).getTime() < Date.now()) {
+      return res.status(400).json({ error: "scheduled_for must be in the future" });
     }
     if (notes !== undefined && notes !== null && notes !== "") {
       if (!isString(notes) || notes.length > 2000) {
@@ -808,22 +819,35 @@ router.post("/:id/appointments", async (req, res, next) => {
 
     const cleanNotes = notes ? notes.trim() : null;
 
-    const { rows } = await pool.query(
-      "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3) RETURNING *",
-      [id, scheduled_for, cleanNotes]
-    );
-
-    // Mirror onto leads so the rest of the system still sees one canonical
-    // "next appointment". reminder_sent reset so the cron fires fresh for the
-    // new slot — same reasoning as the PATCH endpoint above.
-    await pool.query(
-      `UPDATE leads
-       SET service_date = $2, notes = $3, reminder_sent = FALSE, updated_at = NOW()
-       WHERE id = $1`,
-      [id, scheduled_for, cleanNotes]
-    );
-
-    res.status(201).json(rows[0]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3) RETURNING *",
+        [id, scheduled_for, cleanNotes]
+      );
+      await client.query(
+        `UPDATE leads
+         SET service_date = $2, reminder_sent = FALSE, updated_at = NOW()
+         WHERE id = $1`,
+        [id, scheduled_for]
+      );
+      // Audit trail: admin's activity timeline must reflect simple-panel
+      // edits. Truncate the notes preview so a 2000-char note doesn't bloat
+      // the activity row.
+      const preview = cleanNotes ? ` — ${cleanNotes.slice(0, 200)}` : "";
+      await client.query(
+        "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'appointment', $2)",
+        [id, `Appointment scheduled for ${scheduled_for}${preview}`]
+      );
+      await client.query("COMMIT");
+      res.status(201).json(rows[0]);
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (e) {
     next(e);
   }
