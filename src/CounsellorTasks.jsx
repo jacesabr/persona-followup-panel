@@ -24,7 +24,11 @@ const EMPTY_NEW = () => ({
   assigneeId: "",
 });
 
-export default function CounsellorTasks({ role = "admin", scopedCounsellorId = null }) {
+export default function CounsellorTasks({
+  role = "admin",
+  scopedCounsellorId = null,
+  onImpersonate,
+}) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
   // to this counsellor. Admin sees everything and picks the assignee.
   const isScoped = role === "counsellor" && !!scopedCounsellorId;
@@ -70,12 +74,27 @@ export default function CounsellorTasks({ role = "admin", scopedCounsellorId = n
     };
   }, []);
 
-  // Counsellor scoping: hide tasks not assigned to this counsellor.
-  // Admin sees everything.
+  // Counsellor scoping. Admin sees everything; counsellors see a task if
+  // EITHER:
+  //   (1) it's directly assigned to them via assignee_id, OR
+  //   (2) it's about a student whose lead.counsellor_id is them.
+  // The OR-of-two-conditions ensures tasks stay integrated even when the
+  // assignee is missing/mismatched (e.g. admin created a Neha-student
+  // task without setting assignee, or assignee+lead-counsellor diverge
+  // for some reason).
   const visibleTasks = useMemo(() => {
     if (!isScoped) return tasks;
-    return tasks.filter((t) => t.assignee_id === scopedCounsellorId);
-  }, [tasks, isScoped, scopedCounsellorId]);
+    const myLeadIds = new Set(
+      leads
+        .filter((l) => l.counsellor_id === scopedCounsellorId)
+        .map((l) => l.id)
+    );
+    return tasks.filter(
+      (t) =>
+        t.assignee_id === scopedCounsellorId ||
+        (t.lead_id && myLeadIds.has(t.lead_id))
+    );
+  }, [tasks, leads, isScoped, scopedCounsellorId]);
 
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
@@ -493,7 +512,20 @@ export default function CounsellorTasks({ role = "admin", scopedCounsellorId = n
               </span>
               {!isScoped && (
                 <span className="text-[14px] text-stone-700">
-                  {task.assignee_name || (
+                  {task.assignee_id && task.assignee_name && onImpersonate ? (
+                    /* Click the counsellor name to "view as" them — opens
+                       their scoped SimplePanel via the impersonation flow.
+                       Underline + accent color signals it's clickable. */
+                    <button
+                      onClick={() => onImpersonate(task.assignee_id)}
+                      title={`View as ${task.assignee_name}`}
+                      className="underline decoration-dotted underline-offset-2 hover:text-[#cc785c]"
+                    >
+                      {task.assignee_name}
+                    </button>
+                  ) : task.assignee_name ? (
+                    task.assignee_name
+                  ) : (
                     <span className="italic text-stone-400">Unassigned</span>
                   )}
                 </span>

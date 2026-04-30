@@ -29,9 +29,13 @@ function clearSession() {
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
-  // Admin-only "view as staff" impersonation lives only inside the legacy
-  // LeadFollowup panel (now mounted under the "Old admin view" dropdown).
-  // Shape: { counsellorId }
+  // Admin-only "view as counsellor" impersonation. Triggered from two
+  // places, distinguished by the `view` field:
+  //   view: "staff"  → legacy StaffDashboard (set by LeadFollowup's
+  //                    "view as" picker inside the Old dropdown).
+  //   view: "simple" → SimplePanel scoped to that counsellor (set by
+  //                    clicking a counsellor name in the new task list).
+  // Shape: { counsellorId, view }
   const [impersonating, setImpersonating] = useState(null);
   const [counsellors, setCounsellors] = useState([]);
 
@@ -85,19 +89,31 @@ export default function App() {
       />
     );
 
-  // Admin viewing-as a staff member (only reachable from the legacy
-  // LeadFollowup panel inside the Old dropdown).
+  // Admin viewing-as a counsellor. View defaults to "simple" (the new
+  // scoped SimplePanel) unless the caller explicitly opted into the
+  // legacy StaffDashboard (only the Old dropdown's "view as" does that).
   if (session.role === "admin" && impersonating) {
     const staffName =
       counsellors.find((c) => c.id === impersonating.counsellorId)?.name || "—";
+    const isStaffView = impersonating.view === "staff";
     return (
-      <Frame onSignOut={onSignOut} viewLabel="Counsellor followup dashboard view">
+      <Frame
+        onSignOut={onSignOut}
+        viewLabel={isStaffView ? "Counsellor followup dashboard view" : "Counsellor view"}
+      >
         <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
-        <StaffDashboard
-          counsellorId={impersonating.counsellorId}
-          counsellors={counsellors}
-          isImpersonation
-        />
+        {isStaffView ? (
+          <StaffDashboard
+            counsellorId={impersonating.counsellorId}
+            counsellors={counsellors}
+            isImpersonation
+          />
+        ) : (
+          <SimplePanel
+            role="counsellor"
+            scopedCounsellorId={impersonating.counsellorId}
+          />
+        )}
       </Frame>
     );
   }
@@ -106,7 +122,14 @@ export default function App() {
     return (
       <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
         <AdminPanel
-          onPickStaff={(impersonationState) => setImpersonating(impersonationState)}
+          onPickStaff={(impersonationState) =>
+            // Legacy "view as" from LeadFollowup → StaffDashboard.
+            setImpersonating({ ...impersonationState, view: "staff" })
+          }
+          onImpersonate={(counsellorId) =>
+            // New path: clicking a counsellor name in the task list.
+            setImpersonating({ counsellorId, view: "simple" })
+          }
         />
       </Frame>
     );

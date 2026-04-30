@@ -1,6 +1,7 @@
 import { useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
+import CounsellorAdmin from "./CounsellorAdmin.jsx";
 
 // Two-tab wrapper for the simple panel: "Followup" (the lead sheet) and
 // "Counsellor tasks" (the to-do list across students).
@@ -13,7 +14,11 @@ import CounsellorTasks from "./CounsellorTasks.jsx";
 // role: "counsellor" → scoped to their own leads (lead.counsellor_id) and
 //                      their own tasks (task.assignee_id). New leads/tasks
 //                      auto-assign to themselves.
-export default function SimplePanel({ role = "admin", scopedCounsellorId = null }) {
+export default function SimplePanel({
+  role = "admin",
+  scopedCounsellorId = null,
+  onImpersonate,
+}) {
   const [tab, setTab] = useState("followup");
 
   return (
@@ -30,15 +35,31 @@ export default function SimplePanel({ role = "admin", scopedCounsellorId = null 
             active={tab === "tasks"}
             onClick={() => setTab("tasks")}
           />
+          {role === "admin" && (
+            /* Admin-only tab: list every counsellor + create new ones
+               (with username/password) without diving into the Old
+               admin view. Counsellors don't see this tab. */
+            <FolderTab
+              label="Counsellors"
+              active={tab === "counsellors"}
+              onClick={() => setTab("counsellors")}
+            />
+          )}
         </div>
         <div className="border-t border-stone-400" />
       </div>
 
-      {tab === "followup" ? (
+      {tab === "followup" && (
         <SimpleFollowup role={role} scopedCounsellorId={scopedCounsellorId} />
-      ) : (
-        <CounsellorTasks role={role} scopedCounsellorId={scopedCounsellorId} />
       )}
+      {tab === "tasks" && (
+        <CounsellorTasks
+          role={role}
+          scopedCounsellorId={scopedCounsellorId}
+          onImpersonate={onImpersonate}
+        />
+      )}
+      {tab === "counsellors" && role === "admin" && <CounsellorAdmin />}
     </>
   );
 }

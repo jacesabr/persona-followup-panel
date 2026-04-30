@@ -13,12 +13,12 @@ import LeadFollowup from "./LeadFollowup.jsx";
 // "view-as" impersonation flow (still part of the legacy panel) keeps
 // working — App.jsx uses it to render the StaffDashboard with the
 // "Back to admin" banner.
-export default function AdminPanel({ onPickStaff }) {
+export default function AdminPanel({ onPickStaff, onImpersonate }) {
   const [oldOpen, setOldOpen] = useState(false);
 
   return (
     <>
-      <SimplePanel role="admin" />
+      <SimplePanel role="admin" onImpersonate={onImpersonate} />
 
       <div className="mt-8 border border-stone-300 bg-stone-50">
         <button
