@@ -9,6 +9,8 @@ import {
   ChevronRight,
   ChevronDown,
   Undo2,
+  History,
+  Pencil,
 } from "lucide-react";
 import { api } from "./api.js";
 import {
@@ -24,8 +26,6 @@ const STATUS_LABEL = {
   completed: "Completed",
   no_show: "No-show",
 };
-const STATUS_OPTIONS = Object.keys(STATUS_LABEL);
-
 // When the calendar form needs a time-of-day to combine with a picked date.
 const DEFAULT_TIME_IST = "10:00";
 
@@ -45,9 +45,7 @@ function emptyNew() {
     contact: "",
     purpose: "",
     inquiryDate: todayIstYmd(),
-    status: "unassigned",
-    serviceDate: "",
-    counsellorId: "",
+    counsellorName: "",
   };
 }
 
@@ -63,6 +61,8 @@ export default function SimpleFollowup() {
   const [bulkBusy, setBulkBusy] = useState(false);
   // The lead whose calendar popup is currently open (null = closed).
   const [calendarLead, setCalendarLead] = useState(null);
+  // The lead whose history popup is currently open (null = closed).
+  const [historyLead, setHistoryLead] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,17 +100,17 @@ export default function SimpleFollowup() {
       setError("Name, phone, and purpose are required.");
       return;
     }
+    // Free-text counsellor — no FK lookup, no auto-create. The cron's
+    // notification path requires a real counsellors row (counsellor_id), so
+    // simple-panel-created leads silently won't get reminders. That's the
+    // accepted trade-off for the lighter-weight workflow.
     const payload = {
       name,
       contact,
       email: newLead.email.trim() || null,
       purpose,
       inquiry_date: newLead.inquiryDate || null,
-      status: newLead.status,
-      service_date: newLead.serviceDate
-        ? localInputToUtcIso(`${newLead.serviceDate}T${DEFAULT_TIME_IST}`)
-        : null,
-      counsellor_id: newLead.counsellorId || null,
+      counsellor_name: newLead.counsellorName.trim() || null,
     };
     setCreating(true);
     setError(null);
@@ -217,11 +217,11 @@ export default function SimpleFollowup() {
     );
   }
 
-  // 7 cols: select · date-of-query · contact · purpose · status · next follow · counsellor
+  // 8 cols: select · date-of-query · contact · purpose · status · next follow · history · counsellor
   // Widths chosen so headers don't wrap with their content padding + letter-
-  // spacing; "Next follow" needs ~9.5rem to fit "Next follow" header AND a
-  // formatted date like "29 Apr 2026" without truncation.
-  const gridCols = "1.75rem 7rem 1.5fr 1.2fr 6.5rem 9.5rem 9rem";
+  // spacing; "Next follow" needs ~8rem to fit a formatted date like
+  // "29 Apr 2026" without truncation. History is icon-only, narrow.
+  const gridCols = "1.75rem 6.5rem 1.5fr 1.2fr 6rem 8rem 4.5rem 7rem";
 
   // Split first: archived leads live in a separate collapsible section at
   // the bottom of the page; the main sheet is active leads only. Both sets
@@ -321,12 +321,19 @@ export default function SimpleFollowup() {
               every header one column to the left. Each row's checkbox
               already carries its own aria-label, so we don't need a
               header label for screen readers. */}
+          {/* Empty span (not sr-only) holds the grid cell for the
+              checkbox column. sr-only uses position:absolute, which makes
+              CSS Grid skip it during auto-placement — that was shifting
+              every header one column to the left. Each row's checkbox
+              already carries its own aria-label, so we don't need a
+              header label for screen readers. */}
           <span aria-hidden="true"></span>
           <span className="whitespace-nowrap">Query</span>
           <span className="whitespace-nowrap">Name / Email / Ph</span>
           <span className="whitespace-nowrap">Purpose</span>
           <span className="whitespace-nowrap">Status</span>
           <span className="whitespace-nowrap">Next follow</span>
+          <span className="whitespace-nowrap">History</span>
           <span className="whitespace-nowrap">Counsellor</span>
         </div>
 
@@ -335,6 +342,11 @@ export default function SimpleFollowup() {
             className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-3 py-2 text-[14px] text-stone-800"
             style={{ gridTemplateColumns: gridCols }}
           >
+            {/* Status, Next-follow are no longer collected at lead-creation.
+                Status defaults to 'unassigned' server-side; the upcoming
+                appointment is set later via the calendar popup. The
+                resulting form is just: query date, contact, purpose, and
+                counsellor (free text). */}
             <span></span>
             <input
               type="date"
@@ -386,42 +398,24 @@ export default function SimpleFollowup() {
               }
               className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
             />
-            <select
-              value={newLead.status}
-              onChange={(e) =>
-                setNewLead((p) => ({ ...p, status: e.target.value }))
-              }
-              className="border border-stone-300 bg-white px-1.5 py-1 text-[12px] outline-none focus:border-[#cc785c]"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={newLead.serviceDate}
-              onChange={(e) =>
-                setNewLead((p) => ({ ...p, serviceDate: e.target.value }))
-              }
-              className="border border-stone-300 bg-white px-1.5 py-1 text-[12px] outline-none focus:border-[#cc785c]"
-            />
+            {/* Status + Next-follow columns: empty placeholders so the
+                grid cells still exist for layout symmetry with rendered
+                rows above/below. */}
+            <span className="text-[11px] italic text-stone-400">auto</span>
+            <span className="text-[11px] italic text-stone-400">later</span>
+            {/* History column: nothing to view yet for an unsaved lead. */}
+            <span></span>
             <span className="flex items-center gap-1">
-              <select
-                value={newLead.counsellorId}
+              <input
+                type="text"
+                list="simple-counsellors"
+                placeholder="Counsellor"
+                value={newLead.counsellorName}
                 onChange={(e) =>
-                  setNewLead((p) => ({ ...p, counsellorId: e.target.value }))
+                  setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
                 }
-                className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] outline-none focus:border-[#cc785c]"
-              >
-                <option value="">—</option>
-                {counsellors.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
+              />
               <button
                 onClick={submitNew}
                 disabled={creating}
@@ -443,6 +437,13 @@ export default function SimpleFollowup() {
                 <X className="h-3 w-3" />
               </button>
             </span>
+            {/* Datalist holds existing counsellor names so common entries
+                auto-suggest as the user types — but anything goes. */}
+            <datalist id="simple-counsellors">
+              {counsellors.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
           </div>
         )}
 
@@ -496,8 +497,17 @@ export default function SimpleFollowup() {
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
+              <button
+                onClick={() => setHistoryLead(lead)}
+                title="View appointment history"
+                className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[11px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+              >
+                <History className="h-3.5 w-3.5" /> View
+              </button>
               <span className="text-[13px] text-stone-700">
-                {counsellorNameById.get(lead.counsellor_id) || "—"}
+                {counsellorNameById.get(lead.counsellor_id) ||
+                  lead.counsellor_name ||
+                  "—"}
               </span>
             </div>
           );
@@ -523,6 +533,13 @@ export default function SimpleFollowup() {
           onCreated={(scheduledFor) => {
             onAppointmentCreated(calendarLead.id, scheduledFor);
           }}
+        />
+      )}
+
+      {historyLead && (
+        <HistoryPopup
+          lead={historyLead}
+          onClose={() => setHistoryLead(null)}
         />
       )}
     </>
@@ -573,9 +590,11 @@ function ArchivedSection({ leads, counsellors, onUnarchive }) {
                 {lead.purpose && (
                   <span className="ml-2 text-stone-600">— {lead.purpose}</span>
                 )}
-                {lead.counsellor_id && (
+                {(lead.counsellor_id || lead.counsellor_name) && (
                   <span className="ml-2 text-[12px] text-stone-500">
-                    · {counsellorNameById.get(lead.counsellor_id) || "—"}
+                    ·{" "}
+                    {counsellorNameById.get(lead.counsellor_id) ||
+                      lead.counsellor_name}
                   </span>
                 )}
                 {lead.archived_at && (
@@ -595,6 +614,283 @@ function ArchivedSection({ leads, counsellors, onUnarchive }) {
         </ul>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// History popup
+// ============================================================
+// Modal with a flat chronological list of every appointment (past +
+// upcoming) for one lead. Each row shows the time + notes + an Edit
+// button; clicking Edit reveals an inline textarea so the counsellor can
+// fill in details for a session that just happened (or fix an upcoming
+// one). Past sessions are typically empty until the meeting actually
+// occurs and someone records what was discussed.
+function HistoryPopup({ lead, onClose }) {
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [savingId, setSavingId] = useState(null);
+  const [saveErr, setSaveErr] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .listAppointments(lead.id)
+      .then((rows) => {
+        if (!cancelled) setAppointments(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lead.id]);
+
+  // Stable refs so the keydown effect can register exactly once.
+  const stateRef = useRef({});
+  stateRef.current = { onClose, hasUnsaved: editingId != null };
+
+  // Don't auto-close on unsaved edits — user might be typing notes.
+  const tryClose = () => {
+    if (
+      stateRef.current.hasUnsaved &&
+      !window.confirm("Discard the note you're editing?")
+    )
+      return;
+    onClose();
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") stateRef.current.onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const startEdit = (appt) => {
+    setEditingId(appt.id);
+    setEditText(appt.notes || "");
+    setSaveErr(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+    setSaveErr(null);
+  };
+
+  const saveEdit = async () => {
+    if (editingId == null) return;
+    setSavingId(editingId);
+    setSaveErr(null);
+    try {
+      const updated = await api.updateAppointment(lead.id, editingId, {
+        notes: editText.trim() || null,
+      });
+      setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      setEditingId(null);
+      setEditText("");
+    } catch (e) {
+      setSaveErr(e.message);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // Split into upcoming + past for clarity. Upcoming: soonest first; past:
+  // most-recent first so the latest meeting reads at the top of its block.
+  const now = Date.now();
+  const upcoming = appointments
+    .filter((a) => new Date(a.scheduled_for).getTime() >= now)
+    .sort(
+      (x, y) => new Date(x.scheduled_for).getTime() - new Date(y.scheduled_for).getTime()
+    );
+  const past = appointments
+    .filter((a) => new Date(a.scheduled_for).getTime() < now)
+    .sort(
+      (x, y) => new Date(y.scheduled_for).getTime() - new Date(x.scheduled_for).getTime()
+    );
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div
+        className="absolute inset-0 bg-stone-900/30"
+        onClick={savingId ? undefined : tryClose}
+      />
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col border border-stone-300 bg-white shadow-xl">
+        <header className="flex items-start justify-between border-b border-stone-200 px-4 py-2.5">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-[#cc785c]">
+              Appointment history
+            </p>
+            <h3 className="mt-0.5 text-base font-semibold tracking-tight text-stone-900">
+              {lead.name}
+            </h3>
+            <p className="text-[12px] text-stone-600">{lead.purpose}</p>
+          </div>
+          <button
+            onClick={tryClose}
+            disabled={!!savingId}
+            className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        {loadErr && (
+          <div className="border-b border-red-300 bg-red-50 px-4 py-1.5 text-[12px] text-red-800">
+            {loadErr}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-stone-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </div>
+          ) : appointments.length === 0 ? (
+            <p className="py-8 text-center text-[13px] italic text-stone-500">
+              No appointments yet. Open the calendar to schedule one.
+            </p>
+          ) : (
+            <>
+              {upcoming.length > 0 && (
+                <Section title="Upcoming">
+                  {upcoming.map((a) => (
+                    <HistoryRow
+                      key={a.id}
+                      appt={a}
+                      isEditing={editingId === a.id}
+                      isSaving={savingId === a.id}
+                      editText={editText}
+                      onEditTextChange={setEditText}
+                      onStartEdit={() => startEdit(a)}
+                      onCancel={cancelEdit}
+                      onSave={saveEdit}
+                      saveErr={saveErr}
+                    />
+                  ))}
+                </Section>
+              )}
+              {past.length > 0 && (
+                <Section title="Past">
+                  {past.map((a) => (
+                    <HistoryRow
+                      key={a.id}
+                      appt={a}
+                      isEditing={editingId === a.id}
+                      isSaving={savingId === a.id}
+                      editText={editText}
+                      onEditTextChange={setEditText}
+                      onStartEdit={() => startEdit(a)}
+                      onCancel={cancelEdit}
+                      onSave={saveEdit}
+                      saveErr={saveErr}
+                    />
+                  ))}
+                </Section>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <div>
+      <p className="border-b border-stone-200 bg-stone-50 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-600">
+        {title}
+      </p>
+      <ul className="divide-y divide-stone-100">{children}</ul>
+    </div>
+  );
+}
+
+function HistoryRow({
+  appt,
+  isEditing,
+  isSaving,
+  editText,
+  onEditTextChange,
+  onStartEdit,
+  onCancel,
+  onSave,
+  saveErr,
+}) {
+  return (
+    <li className="px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-semibold tabular-nums text-stone-900">
+          {formatDateInIst(appt.scheduled_for)}
+          <span className="ml-2 font-normal text-stone-500">
+            {formatTimeInIst(appt.scheduled_for)}
+          </span>
+        </span>
+        {!isEditing && (
+          <button
+            onClick={onStartEdit}
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+          >
+            <Pencil className="h-3 w-3" /> Edit
+          </button>
+        )}
+      </div>
+      {isEditing ? (
+        <div className="mt-1.5">
+          <textarea
+            value={editText}
+            onChange={(e) => onEditTextChange(e.target.value)}
+            rows={3}
+            placeholder="What was discussed, or what to prepare…"
+            className="w-full resize-none border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c]"
+            autoFocus
+          />
+          {saveErr && (
+            <p className="mt-1 text-[12px] text-red-700">{saveErr}</p>
+          )}
+          <div className="mt-1.5 flex items-center justify-end gap-2">
+            <button
+              onClick={onCancel}
+              disabled={isSaving}
+              className="text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSave}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+            >
+              {isSaving && <Loader2 className="h-3 w-3 animate-spin" />} Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-0.5 text-[13px] leading-snug text-stone-700">
+          {appt.notes || (
+            <span className="italic text-stone-400">No notes yet.</span>
+          )}
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -620,6 +916,10 @@ function CalendarPopup({ lead, onClose, onCreated }) {
   const [selectedYmd, setSelectedYmd] = useState(null);
   const [notes, setNotes] = useState("");
   const [time, setTime] = useState(DEFAULT_TIME_IST);
+  // When set, the form is editing notes on an existing appointment via
+  // PATCH /:apptId rather than creating a new one. Time is locked in edit
+  // mode (rescheduling would mean creating a new appointment row).
+  const [editingApptId, setEditingApptId] = useState(null);
   const [busy, setBusy] = useState(false);
   // Two error slots so a fetch failure at the top of the modal doesn't
   // collide with a validation error attached to the form action.
@@ -718,6 +1018,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
       return { y, m: next };
     });
     setSelectedYmd(null);
+    setEditingApptId(null);
     setNotes("");
     setTime(DEFAULT_TIME_IST);
     setSubmitErr(null);
@@ -727,20 +1028,55 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     // No-op when the user clicks the already-selected day — preserves any
     // notes they were typing instead of silently clearing the form.
     if (!ymd || ymd === selectedYmd) return;
-    // Don't pre-fill from existing appointments — the form is for adding a
-    // new one. The existing entries for this day are listed above the form
-    // (see render below); reading them is separate from authoring a fresh
-    // appointment, so re-using their notes by default would just confuse.
     setSelectedYmd(ymd);
-    setTime(DEFAULT_TIME_IST);
-    setNotes("");
     setSubmitErr(null);
+
+    // If the day already has a real appointment, default to editing the
+    // latest one's notes. This is the "fill in details after the session"
+    // path: counsellor opens the calendar on the day a meeting just
+    // happened, clicks the tile, types what was discussed, hits Save.
+    // For days with multiple appointments, the History popup is the place
+    // to pick a specific earlier one.
+    const real = (apptByYmd.get(ymd) || []).filter((a) => !a.synthetic);
+    if (real.length > 0) {
+      const latest = real[real.length - 1];
+      setEditingApptId(latest.id);
+      setNotes(latest.notes || "");
+      const ist = utcIsoToIstInput(latest.scheduled_for);
+      setTime(ist ? ist.slice(11) : DEFAULT_TIME_IST);
+    } else {
+      setEditingApptId(null);
+      setNotes("");
+      setTime(DEFAULT_TIME_IST);
+    }
   };
 
   const isPast = (ymd) => ymd < todayYmd;
 
   const confirm = async () => {
     if (!selectedYmd) return;
+
+    // Edit mode — PATCH the existing appointment's notes. Time is locked
+    // (rescheduling = create new), so we don't recompute the iso.
+    if (editingApptId) {
+      setBusy(true);
+      setSubmitErr(null);
+      try {
+        const updated = await api.updateAppointment(lead.id, editingApptId, {
+          notes: notes.trim() || null,
+        });
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === updated.id ? updated : a))
+        );
+        onClose();
+      } catch (e) {
+        setSubmitErr(e.message);
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Create mode — full date+time validation.
     const iso = localInputToUtcIso(`${selectedYmd}T${time}`);
     if (!iso) {
       setSubmitErr("Invalid date/time.");
@@ -944,7 +1280,12 @@ function CalendarPopup({ lead, onClose, onCreated }) {
               </ul>
             )}
 
-            {selectedIsPast ? (
+            {/* Form modes:
+                - editingApptId set: editing notes on an existing appt (any
+                  day, past or future). Time field hidden — locked.
+                - empty future day: create-new form with time + notes.
+                - empty past day: read-only "no appointment" copy. */}
+            {!editingApptId && selectedIsPast ? (
               selectedDayAppts.length === 0 && (
                 <p className="text-[13px] italic text-stone-500">
                   No appointment on this day.
@@ -952,22 +1293,28 @@ function CalendarPopup({ lead, onClose, onCreated }) {
               )
             ) : (
               <>
-                <div className="mb-2 flex items-center gap-2">
-                  <label className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
-                    Time (IST)
-                  </label>
-                  <input
-                    type="time"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    className="border border-stone-300 bg-white px-1.5 py-0.5 text-[12px] outline-none focus:border-[#cc785c]"
-                  />
-                </div>
+                {!editingApptId && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <label className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                      Time (IST)
+                    </label>
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="border border-stone-300 bg-white px-1.5 py-0.5 text-[12px] outline-none focus:border-[#cc785c]"
+                    />
+                  </div>
+                )}
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={3}
-                  placeholder="Notes / details for this appointment…"
+                  placeholder={
+                    editingApptId
+                      ? "What was discussed, or what to prepare…"
+                      : "Notes / details for this appointment…"
+                  }
                   className="w-full resize-none border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c]"
                 />
                 {submitErr && (
@@ -977,6 +1324,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                   <button
                     onClick={() => {
                       setSelectedYmd(null);
+                      setEditingApptId(null);
                       setNotes("");
                       setTime(DEFAULT_TIME_IST);
                       setSubmitErr(null);
@@ -992,7 +1340,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                     className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
                   >
                     {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-                    Confirm
+                    {editingApptId ? "Save" : "Confirm"}
                   </button>
                 </div>
               </>

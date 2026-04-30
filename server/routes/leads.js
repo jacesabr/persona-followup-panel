@@ -106,6 +106,11 @@ function validatePatchFields(body) {
       return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
   }
+  if (body.counsellor_name !== undefined && body.counsellor_name !== null && body.counsellor_name !== "") {
+    if (!isString(body.counsellor_name) || body.counsellor_name.length > 200) {
+      return "counsellor_name must be a string up to 200 chars";
+    }
+  }
   return null;
 }
 
@@ -159,7 +164,7 @@ router.get("/", async (req, res, next) => {
 // POST /api/leads — create a new lead
 router.post("/", async (req, res, next) => {
   try {
-    const { name, contact, email, purpose, service_date, counsellor_id, notes, inquiry_date, status: bodyStatus } = req.body;
+    const { name, contact, email, purpose, service_date, counsellor_id, counsellor_name, notes, inquiry_date, status: bodyStatus } = req.body;
     if (!name || !contact || !purpose) {
       return res.status(400).json({ error: "name, contact, and purpose are required" });
     }
@@ -181,6 +186,15 @@ router.post("/", async (req, res, next) => {
         return res.status(400).json({ error: "invalid status" });
       }
     }
+    // counsellor_name: free-text field used by the simple panel where
+    // counsellors don't need a notification-capable counsellors row. Cap at
+    // 200 chars to keep parity with counsellors.name. Empty string is
+    // normalized to null so the column doesn't accumulate "" rows.
+    if (counsellor_name !== undefined && counsellor_name !== null && counsellor_name !== "") {
+      if (!isString(counsellor_name) || counsellor_name.length > 200) {
+        return res.status(400).json({ error: "counsellor_name must be a string up to 200 chars" });
+      }
+    }
 
     const id = "L" + randomUUID().replace(/-/g, "").slice(0, 10);
     // If client supplied a status use it; otherwise derive from counsellor.
@@ -193,11 +207,12 @@ router.post("/", async (req, res, next) => {
     const cleanEmail = email ? email.trim().toLowerCase() : null;
     const cleanNotes = notes ? notes.trim() : null;
     const cleanInquiry = inquiry_date && inquiry_date !== "" ? inquiry_date : null;
+    const cleanCounsellorName = counsellor_name && counsellor_name.trim() ? counsellor_name.trim() : null;
 
     await pool.query(
-      `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, notes, inquiry_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE))`,
-      [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id || null, status, cleanNotes, cleanInquiry]
+      `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, notes, inquiry_date, counsellor_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE), $11)`,
+      [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id || null, status, cleanNotes, cleanInquiry, cleanCounsellorName]
     );
     await pool.query(
       "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, $2, $3)",
@@ -232,7 +247,7 @@ router.post("/", async (req, res, next) => {
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const allowed = ["counsellor_id", "status", "notes", "purpose", "service_date"];
+    const allowed = ["counsellor_id", "counsellor_name", "status", "notes", "purpose", "service_date"];
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return res.status(400).json({ error: "no valid fields to update" });
 
@@ -857,6 +872,44 @@ router.post("/:id/appointments", async (req, res, next) => {
     } finally {
       client.release();
     }
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PATCH /api/leads/:leadId/appointments/:apptId — edit a single appointment.
+// Currently only `notes` is mutable; the scheduled time is locked once the
+// row exists (rescheduling = creating a new appointment). This is the
+// "fill in details after the session" path: counsellor opens the calendar,
+// clicks the day of a meeting that just happened, and writes what was
+// discussed.
+router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
+  try {
+    const { leadId, apptId } = req.params;
+    const { notes } = req.body;
+    if (notes !== undefined && notes !== null && notes !== "") {
+      if (!isString(notes) || notes.length > 2000) {
+        return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
+      }
+    }
+    const cleanNotes = notes && notes.trim() ? notes.trim() : null;
+
+    const { rows } = await pool.query(
+      `UPDATE lead_appointments
+       SET notes = $3
+       WHERE id = $1 AND lead_id = $2
+       RETURNING *`,
+      [apptId, leadId, cleanNotes]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "appointment not found" });
+    }
+    const preview = cleanNotes ? ` — ${cleanNotes.slice(0, 200)}` : " — (cleared)";
+    await pool.query(
+      "INSERT INTO lead_activity (lead_id, type, text) VALUES ($1, 'appointment', $2)",
+      [leadId, `Appointment notes updated${preview}`]
+    );
+    res.json(rows[0]);
   } catch (e) {
     next(e);
   }

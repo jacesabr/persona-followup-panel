@@ -74,6 +74,13 @@ ALTER TABLE leads ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 -- form keeps the index small even with thousands of archived leads.
 CREATE INDEX IF NOT EXISTS idx_leads_active ON leads(service_date) WHERE archived = FALSE;
 
+-- Free-text counsellor name for the simple panel. The simple flow lets
+-- counsellors type any name without needing a row in the counsellors
+-- table (no whatsapp/email required). Display falls back: counsellor_id
+-- (FK lookup) wins when set, otherwise counsellor_name renders as-is.
+-- Admin/staff flows still use counsellor_id for notification routing.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS counsellor_name TEXT;
+
 -- Per-lead appointment history. Each row is one scheduled meeting; the
 -- simple panel inserts here on every reschedule so the calendar can render
 -- past dates (yellow) and the upcoming one (green) without losing context.

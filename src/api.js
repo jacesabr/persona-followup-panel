@@ -54,6 +54,8 @@ export const api = {
     request("GET", `/api/leads/${leadId}/appointments`),
   createAppointment: (leadId, body) =>
     request("POST", `/api/leads/${leadId}/appointments`, body),
+  updateAppointment: (leadId, apptId, body) =>
+    request("PATCH", `/api/leads/${leadId}/appointments/${apptId}`, body),
   uploadAudio: async (leadId, file) => {
     const fd = new FormData();
     fd.append("audio", file);
