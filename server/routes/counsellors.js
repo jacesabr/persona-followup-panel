@@ -66,9 +66,12 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
 
 // Explicit column list to keep `password` out of the wire response.
 // The login flow goes through POST /api/auth/login instead; nothing on
-// the client should ever see another counsellor's password.
-const PUBLIC_COLUMNS =
+// the client should ever see another counsellor's password. Exported
+// so server/routes/auth.js can reuse the same allow-list — preventing
+// drift where one endpoint leaks a column the other hides.
+export const COUNSELLOR_PUBLIC_COLUMNS =
   "id, name, whatsapp, email, username, created_at";
+const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
 router.get("/", async (req, res, next) => {
   try {

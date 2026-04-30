@@ -3,6 +3,17 @@ import { fireReminderNotifications } from "./notify/dispatch.js";
 
 // Polled check — fires each lead's reminder ONCE (gated by reminder_sent flag).
 // 5 min is plenty for human-scale appointments and keeps DB load low.
+//
+// Silent-skip rules to be aware of (these exclude leads from the query):
+//   - status != 'scheduled'  →  completed / no_show / unassigned leads
+//                              don't get reminders even if rescheduled.
+//                              Re-arm by setting status back to 'scheduled'.
+//   - counsellor_id IS NULL  →  free-text-counsellor leads (created via
+//                              the simple panel with a typed name) are
+//                              skipped — no FK row means no notify target.
+//   - archived = TRUE        →  archived leads never trigger.
+// Each of these is intentional but easy to forget; surface in the UI
+// where it matters (the new-lead form already has an italic hint).
 const CHECK_INTERVAL_MS = 5 * 60_000;
 
 async function checkReminders() {

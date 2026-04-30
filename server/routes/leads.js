@@ -396,9 +396,17 @@ router.post("/:id/unarchive", async (req, res, next) => {
   }
 });
 
-// POST /api/leads/reset — wipe all leads + activity, then reseed
+// POST /api/leads/reset — wipe all lead-shaped data, then reseed.
+// Tables with ON DELETE CASCADE on leads.id (lead_appointments,
+// lead_activity, lead_actionables, lead-linked counsellor_tasks)
+// would clear via the leads delete alone, but counsellor_tasks
+// rows with lead_id = NULL (free-text student) wouldn't — they'd
+// survive the "reset" and still show up after reseed. Explicit
+// deletes here keep the operation truly atomic.
 router.post("/reset", async (req, res, next) => {
   try {
+    await pool.query("DELETE FROM counsellor_tasks");
+    await pool.query("DELETE FROM lead_appointments");
     await pool.query("DELETE FROM lead_actionables");
     await pool.query("DELETE FROM lead_activity");
     await pool.query("DELETE FROM leads");

@@ -1,11 +1,13 @@
 import express from "express";
 import pool from "../db.js";
+import { COUNSELLOR_PUBLIC_COLUMNS } from "./counsellors.js";
 
 const router = express.Router();
 
-// Same allowlist used by counsellors.js — keeps the password column out
-// of every wire response, including this one.
-const PUBLIC_COLUMNS = "id, name, whatsapp, email, username, created_at";
+// Single source of truth for the public-safe column list. If this
+// drifts from the same constant in counsellors.js, one endpoint will
+// leak data the other hides — the import keeps them in lockstep.
+const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
 // POST /api/auth/login — trial-mode plaintext credential check. Returns
 // the counsellor row (sans password) on success, 401 on failure. The
