@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { LogOut, User, Lock } from "lucide-react";
 import LeadFollowup from "./LeadFollowup.jsx";
 import StaffDashboard from "./StaffDashboard.jsx";
-import SimpleFollowup from "./SimpleFollowup.jsx";
+import SimplePanel from "./SimplePanel.jsx";
 import { api } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
@@ -115,7 +115,7 @@ export default function App() {
   if (session.role === "simple") {
     return (
       <Frame onSignOut={onSignOut} viewLabel="Simple followup panel view">
-        <SimpleFollowup />
+        <SimplePanel />
       </Frame>
     );
   }

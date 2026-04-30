@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS lead_appointments (
 -- Composite index covers both (lead_id) and (lead_id, scheduled_for) lookups
 -- since lead_id is the leftmost column. No separate lead_id-only index needed.
 CREATE INDEX IF NOT EXISTS idx_lead_appointments_scheduled ON lead_appointments(lead_id, scheduled_for);
+
+-- Counsellor task list — separate from per-lead actionables. The simple
+-- panel shows a flat list of "tasks for students" grouped or sorted by
+-- due date / student. priority=TRUE pins a task to the top regardless of
+-- date so urgent items can jump the queue without rewriting their date.
+CREATE TABLE IF NOT EXISTS counsellor_tasks (
+  id BIGSERIAL PRIMARY KEY,
+  lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  due_date DATE NOT NULL,
+  priority BOOLEAN NOT NULL DEFAULT FALSE,
+  completed BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_due ON counsellor_tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_lead ON counsellor_tasks(lead_id);
 `;
 
 export async function migrate() {

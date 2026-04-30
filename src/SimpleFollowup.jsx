@@ -731,16 +731,16 @@ function HistoryPopup({ lead, onClose }) {
         className="absolute inset-0 bg-stone-900/30"
         onClick={savingId ? undefined : tryClose}
       />
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col border border-stone-300 bg-white shadow-xl">
-        <header className="flex items-start justify-between border-b border-stone-200 px-4 py-2.5">
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col border border-stone-300 bg-white shadow-xl">
+        <header className="flex items-start justify-between border-b border-stone-200 px-5 py-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-[#cc785c]">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
               Appointment history
             </p>
-            <h3 className="mt-0.5 text-base font-semibold tracking-tight text-stone-900">
+            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-stone-900">
               {lead.name}
             </h3>
-            <p className="text-[12px] text-stone-600">{lead.purpose}</p>
+            <p className="text-[14px] text-stone-600">{lead.purpose}</p>
           </div>
           <button
             onClick={tryClose}
@@ -748,12 +748,12 @@ function HistoryPopup({ lead, onClose }) {
             className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
             aria-label="Close"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </header>
 
         {loadErr && (
-          <div className="border-b border-red-300 bg-red-50 px-4 py-1.5 text-[12px] text-red-800">
+          <div className="border-b border-red-300 bg-red-50 px-5 py-2 text-[14px] text-red-800">
             {loadErr}
           </div>
         )}
@@ -764,7 +764,7 @@ function HistoryPopup({ lead, onClose }) {
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
           ) : appointments.length === 0 ? (
-            <p className="py-8 text-center text-[13px] italic text-stone-500">
+            <p className="py-10 text-center text-[15px] italic text-stone-500">
               No appointments yet. Open the calendar to schedule one.
             </p>
           ) : (
@@ -816,7 +816,7 @@ function HistoryPopup({ lead, onClose }) {
 function Section({ title, children }) {
   return (
     <div>
-      <p className="border-b border-stone-200 bg-stone-50 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-600">
+      <p className="border-b border-stone-200 bg-stone-50 px-5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] text-stone-600">
         {title}
       </p>
       <ul className="divide-y divide-stone-100">{children}</ul>
@@ -835,10 +835,16 @@ function HistoryRow({
   onSave,
   saveErr,
 }) {
+  // Past sessions where the counsellor never wrote notes get a loud red
+  // "Session Missed" warning instead of the gentle "no notes yet" copy —
+  // makes overdue documentation impossible to miss when scrolling history.
+  const isPast = new Date(appt.scheduled_for).getTime() < Date.now();
+  const sessionMissed = isPast && !appt.notes;
+
   return (
-    <li className="px-4 py-2.5">
+    <li className="px-5 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-semibold tabular-nums text-stone-900">
+        <span className="text-[16px] font-semibold tabular-nums text-stone-900">
           {formatDateInIst(appt.scheduled_for)}
           <span className="ml-2 font-normal text-stone-500">
             {formatTimeInIst(appt.scheduled_for)}
@@ -847,46 +853,52 @@ function HistoryRow({
         {!isEditing && (
           <button
             onClick={onStartEdit}
-            className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
           >
-            <Pencil className="h-3 w-3" /> Edit
+            <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
         )}
       </div>
       {isEditing ? (
-        <div className="mt-1.5">
+        <div className="mt-2">
           <textarea
             value={editText}
             onChange={(e) => onEditTextChange(e.target.value)}
-            rows={3}
+            rows={4}
             placeholder="What was discussed, or what to prepare…"
-            className="w-full resize-none border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c]"
+            className="w-full resize-none border border-stone-300 bg-white px-2.5 py-2 text-[15px] outline-none focus:border-[#cc785c]"
             autoFocus
           />
           {saveErr && (
-            <p className="mt-1 text-[12px] text-red-700">{saveErr}</p>
+            <p className="mt-1 text-[14px] text-red-700">{saveErr}</p>
           )}
-          <div className="mt-1.5 flex items-center justify-end gap-2">
+          <div className="mt-2 flex items-center justify-end gap-2">
             <button
               onClick={onCancel}
               disabled={isSaving}
-              className="text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+              className="text-[11px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={onSave}
               disabled={isSaving}
-              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[10px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
             >
-              {isSaving && <Loader2 className="h-3 w-3 animate-spin" />} Save
+              {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
             </button>
           </div>
         </div>
+      ) : sessionMissed ? (
+        <p className="mt-1 text-[18px] font-bold uppercase tracking-wide text-red-600">
+          Session Missed: No Session Notes Created
+        </p>
       ) : (
-        <p className="mt-0.5 text-[13px] leading-snug text-stone-700">
+        <p className="mt-1 text-[15px] leading-relaxed text-stone-700">
           {appt.notes || (
-            <span className="italic text-stone-400">No notes yet.</span>
+            <span className="italic text-stone-400">
+              No notes yet — upcoming session.
+            </span>
           )}
         </p>
       )}

@@ -7,8 +7,14 @@ import pool from "./db.js";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import twilioStatusRouter from "./routes/twilio_status.js";
+import tasksRouter from "./routes/tasks.js";
 import { migrate } from "./migrate.js";
-import { seedIfEmpty, ensureTestCounsellor, seedAppointmentsIfEmpty } from "./seed.js";
+import {
+  seedIfEmpty,
+  ensureTestCounsellor,
+  seedAppointmentsIfEmpty,
+  seedTasksIfEmpty,
+} from "./seed.js";
 import { startCron } from "./cron.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,10 +45,14 @@ app.use("/api/leads", (req, res, next) =>
 app.use("/api/counsellors", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/tasks", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 
 app.use("/api/leads", leadsRouter);
 app.use("/api/counsellors", counsellorsRouter);
 app.use("/api/twilio", twilioStatusRouter);
+app.use("/api/tasks", tasksRouter);
 
 // Static frontend (Vite build output)
 const distPath = path.join(__dirname, "..", "dist");
@@ -64,9 +74,11 @@ async function start() {
   await migrate();
   await seedIfEmpty();
   await ensureTestCounsellor();
-  // Backfill demo appointment history for existing DBs that had seed leads
-  // before lead_appointments was introduced. No-op once the table is non-empty.
+  // Backfill demo appointment history + counsellor tasks for existing DBs
+  // that had seed leads before those tables were introduced. Both no-op
+  // once their respective table is non-empty.
   await seedAppointmentsIfEmpty();
+  await seedTasksIfEmpty();
   startCron();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);

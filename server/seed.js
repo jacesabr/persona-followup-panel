@@ -26,47 +26,78 @@ function relInquiry(daysAgo) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+// Returns a YYYY-MM-DD string offset from today (DATE column, no time).
+function relYmd(daysOffset) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
-// Sample appointment history for the demo leads. Mix of past + upcoming,
-// with some past notes filled in and one left empty to demo the
-// "fill in details after the session" workflow. The upcoming row matches
-// each lead's service_date so the calendar's green tile maps to a real
-// row (instead of the synthetic fallback that legacy data uses).
+// Sample appointment history. Each lead gets a multi-session arc: a couple
+// of detailed past sessions (notes filled in), a couple of past sessions
+// with empty notes (so the "Session Missed: No Session Notes Created"
+// warning has somewhere to render), and one upcoming row matching the
+// lead's service_date.
 const APPOINTMENTS = [
-  // Simran Bhatia — STK aptitude test prep journey
-  {
-    lead_id: "L001",
-    days_offset: -14,
-    hour: 10,
-    notes:
-      "Initial assessment. Strong analytical skills, weaker on verbal reasoning. Target: 720+ on STK. Sent practice set 1 by email.",
-  },
-  {
-    lead_id: "L001",
-    days_offset: -7,
-    hour: 10,
-    notes: null, // session happened, counsellor hasn't logged it yet
-  },
-  {
-    lead_id: "L001",
-    days_offset: 7,
-    hour: 10,
-    notes: null, // upcoming, matches existing service_date
-  },
-  // Aarav Khanna — career counselling
-  {
-    lead_id: "L002",
-    days_offset: -10,
-    hour: 15,
-    notes:
-      "Career interest survey results. Top three: Economics, CS, Public Policy. Walked through pros and cons of each track for someone with strong math + writing.",
-  },
-  {
-    lead_id: "L002",
-    days_offset: 2,
-    hour: 15,
-    notes: null, // upcoming, matches existing service_date
-  },
+  // ── Simran Bhatia (L001) — STK aptitude test prep journey ────────────
+  { lead_id: "L001", days_offset: -28, hour: 10,
+    notes: "Intake call with parents. Class 12 board exams in March; aptitude test target window: late February. Recommended weekly cadence." },
+  { lead_id: "L001", days_offset: -21, hour: 10,
+    notes: "Diagnostic assessment. 690 baseline. Strongest: data analysis + math. Weakest: verbal reasoning passages. Sent practice set 1." },
+  { lead_id: "L001", days_offset: -14, hour: 10,
+    notes: "Reviewed practice set 1 — improved to 715. Walked through 4 types of inference questions. Homework: 50 verbal questions per day." },
+  { lead_id: "L001", days_offset: -7, hour: 10,
+    notes: null }, // empty — counsellor forgot to log
+  { lead_id: "L001", days_offset: -3, hour: 10,
+    notes: null }, // empty — recent session, notes pending
+  { lead_id: "L001", days_offset: 7, hour: 10,
+    notes: null }, // upcoming, matches existing service_date
+
+  // ── Aarav Khanna (L002) — career counselling ────────────────────────
+  { lead_id: "L002", days_offset: -25, hour: 15,
+    notes: "First counselling session. Confused between engineering and economics. Parents lean engineering; student lean policy/economics. Suggested values exercise before next session." },
+  { lead_id: "L002", days_offset: -18, hour: 15,
+    notes: "Values exercise debrief. Top values: autonomy, intellectual rigor, social impact. Recommended exploring economics + public policy programs." },
+  { lead_id: "L002", days_offset: -11, hour: 15,
+    notes: "Career interest survey results. Top three: Economics, CS, Public Policy. Walked through pros/cons of each track for someone with strong math + writing." },
+  { lead_id: "L002", days_offset: -4, hour: 15,
+    notes: null }, // empty
+  { lead_id: "L002", days_offset: 2, hour: 15,
+    notes: null }, // upcoming
+
+  // ── Pooja Malhotra (L003) — SOP review for Cornell ───────────────────
+  { lead_id: "L003", days_offset: -20, hour: 11,
+    notes: "Initial SOP review for Cornell MEng. Thesis is buried in paragraph 3 — needs to lead with it. Discussed faculty fit: Lipson, Davis, Sengupta." },
+  { lead_id: "L003", days_offset: -13, hour: 11,
+    notes: "Second draft review. Strong opening now, but the projects section reads as a resume dump. Suggested narrative arc framed around one defining project." },
+  { lead_id: "L003", days_offset: -6, hour: 11,
+    notes: null }, // empty — past, no notes
+  { lead_id: "L003", days_offset: 1, hour: 11,
+    notes: null }, // upcoming
+
+  // ── Vivaan Sethi (L004) — university shortlisting ────────────────────
+  { lead_id: "L004", days_offset: -15, hour: 16,
+    notes: "Family discovery call. Class 11, exploring. Parents want STEM; student curious about design + engineering hybrids. Suggested looking at programs like Olin and IIT Madras IDDD." },
+  { lead_id: "L004", days_offset: -8, hour: 16,
+    notes: null }, // empty
+  { lead_id: "L004", days_offset: -2, hour: 16,
+    notes: "Walked through five candidate schools. Student liked Olin and Manipal IIIT. Sent comparison sheet by email; will revisit after parents review." },
+  { lead_id: "L004", days_offset: 4, hour: 16,
+    notes: null }, // upcoming
+];
+
+// Sample counsellor tasks across the seed leads. Mix of dates spanning
+// past-due (overdue), today, this week, and a couple priority-pinned
+// items so the priority toggle has visible effect out of the box.
+const TASKS = [
+  { lead_id: "L001", days_offset: -2, text: "Send STK practice set 2 by email", priority: false },
+  { lead_id: "L001", days_offset: 1,  text: "Mock test review call",             priority: true  },
+  { lead_id: "L002", days_offset: 0,  text: "Share Economics vs CS comparison doc", priority: false },
+  { lead_id: "L002", days_offset: 4,  text: "Confirm parents' availability for next session", priority: false },
+  { lead_id: "L003", days_offset: -1, text: "Mark up SOP draft, return with comments", priority: true  },
+  { lead_id: "L003", days_offset: 3,  text: "Compile Cornell faculty interest list", priority: false },
+  { lead_id: "L004", days_offset: 5,  text: "Send university shortlist questionnaire", priority: false },
 ];
 
 const LEADS = [
@@ -134,6 +165,14 @@ export async function seedLeads() {
       [a.lead_id, relDate(a.days_offset, a.hour), a.notes]
     );
   }
+
+  // Sample counsellor tasks. Same cascade story.
+  for (const t of TASKS) {
+    await pool.query(
+      "INSERT INTO counsellor_tasks (lead_id, text, due_date, priority) VALUES ($1, $2, $3, $4)",
+      [t.lead_id, t.text, relYmd(t.days_offset), t.priority]
+    );
+  }
 }
 
 // Backfill appointments for an existing DB that already has the seed leads
@@ -165,6 +204,33 @@ export async function seedAppointmentsIfEmpty() {
     inserted++;
   }
   if (inserted > 0) console.log(`[seed] inserted ${inserted} sample appointments`);
+}
+
+// Same idempotent backfill story for counsellor_tasks — added in a later
+// migration than the leads table, so existing DBs need a one-time seed.
+export async function seedTasksIfEmpty() {
+  const { rows } = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM counsellor_tasks"
+  );
+  if (rows[0].n > 0) {
+    console.log("[seed] tasks exist, skipping");
+    return;
+  }
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM leads WHERE id = ANY($1)",
+    [TASKS.map((t) => t.lead_id)]
+  );
+  const existingIds = new Set(existing.map((r) => r.id));
+  let inserted = 0;
+  for (const t of TASKS) {
+    if (!existingIds.has(t.lead_id)) continue;
+    await pool.query(
+      "INSERT INTO counsellor_tasks (lead_id, text, due_date, priority) VALUES ($1, $2, $3, $4)",
+      [t.lead_id, t.text, relYmd(t.days_offset), t.priority]
+    );
+    inserted++;
+  }
+  if (inserted > 0) console.log(`[seed] inserted ${inserted} sample tasks`);
 }
 
 export async function seedIfEmpty() {
