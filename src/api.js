@@ -56,11 +56,17 @@ export const api = {
     request("POST", `/api/leads/${leadId}/appointments`, body),
   updateAppointment: (leadId, apptId, body) =>
     request("PATCH", `/api/leads/${leadId}/appointments/${apptId}`, body),
-  // Counsellor task list (separate from per-lead actionables).
-  listTasks: () => request("GET", "/api/tasks"),
+  // Counsellor task list (separate from per-lead actionables). Default
+  // hides archived; pass includeArchived to retrieve both sets.
+  listTasks: ({ includeArchived = false } = {}) =>
+    request(
+      "GET",
+      `/api/tasks${includeArchived ? "?include_archived=true" : ""}`
+    ),
   createTask: (data) => request("POST", "/api/tasks", data),
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
-  deleteTask: (id) => request("DELETE", `/api/tasks/${id}`),
+  archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),
+  unarchiveTask: (id) => request("POST", `/api/tasks/${id}/unarchive`),
   uploadAudio: async (leadId, file) => {
     const fd = new FormData();
     fd.append("audio", file);

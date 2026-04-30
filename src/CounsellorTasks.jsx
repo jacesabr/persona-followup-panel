@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, X, Check, Star, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  X,
+  Check,
+  Star,
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Undo2,
+} from "lucide-react";
 import { api } from "./api.js";
 import { formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
 
@@ -29,7 +39,7 @@ export default function CounsellorTasks() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listTasks(), api.listLeads()])
+    Promise.all([api.listTasks({ includeArchived: true }), api.listLeads()])
       .then(([t, l]) => {
         if (cancelled) return;
         setTasks(t);
@@ -47,7 +57,23 @@ export default function CounsellorTasks() {
     };
   }, []);
 
-  // Sorted view. Always priority-pinned items at the top, then either:
+  // Split active vs archived. Archived rows live in a collapsible section
+  // at the bottom; the main list is active-only, sorted/grouped by the
+  // selected sort key. Both sets come from listTasks({ includeArchived }).
+  const { activeTasks, archivedTasks } = useMemo(() => {
+    const active = tasks.filter((t) => !t.archived);
+    const archived = tasks
+      .filter((t) => t.archived)
+      .sort((a, b) => {
+        const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
+        const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
+        return bt - at; // most-recently-archived first
+      });
+    return { activeTasks: active, archivedTasks: archived };
+  }, [tasks]);
+
+  // Sorted view of active tasks. Always priority-pinned items at the top,
+  // then either:
   //  - by date ascending (default), or
   //  - by student name (alphabetical), with each student's tasks ordered
   //    by date ascending — i.e. student grouping never overrides
@@ -66,11 +92,11 @@ export default function CounsellorTasks() {
       return cmpDate(a, b);
     };
     const cmp = sortBy === "student" ? cmpStudent : cmpDate;
-    return [...tasks].sort((a, b) => {
+    return [...activeTasks].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority ? -1 : 1;
       return cmp(a, b);
     });
-  }, [tasks, sortBy]);
+  }, [activeTasks, sortBy]);
 
   const todayYmd = todayIstYmd();
 
@@ -100,13 +126,28 @@ export default function CounsellorTasks() {
     }
   };
 
-  const removeTask = async (task) => {
-    if (!window.confirm(`Delete this task: "${task.text}"?`)) return;
+  // Soft-delete: the task moves to the Archived section instead of
+  // disappearing entirely, mirroring the lead-archive flow on the
+  // Followup tab. Recoverable via Unarchive.
+  const archiveTask = async (task) => {
     setBusyId(task.id);
     setError(null);
     try {
-      await api.deleteTask(task.id);
-      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+      const updated = await api.archiveTask(task.id);
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const unarchiveTask = async (task) => {
+    setBusyId(task.id);
+    setError(null);
+    try {
+      const updated = await api.unarchiveTask(task.id);
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -174,14 +215,15 @@ export default function CounsellorTasks() {
 
   return (
     <>
-      <div className="mb-4 flex items-baseline justify-between border-b border-stone-300 pb-2">
+      <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
+        {/* Left: title + count. Middle: sort chips. Right: + New task. */}
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Counsellor tasks</h2>
           <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
-            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+            {activeTasks.length} {activeTasks.length === 1 ? "task" : "tasks"}
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
             Sort by:
           </span>
@@ -195,6 +237,8 @@ export default function CounsellorTasks() {
             active={sortBy === "student"}
             onClick={() => setSortBy("student")}
           />
+        </div>
+        <div>
           {!showNew && (
             <button
               onClick={() => {
@@ -291,8 +335,14 @@ export default function CounsellorTasks() {
         )}
 
         {sortedTasks.map((task) => {
-          const overdue = !task.completed && task.due_date < todayYmd;
-          const isToday = task.due_date === todayYmd;
+          // Postgres DATE columns deserialize as a full ISO timestamp
+          // (e.g. "2026-04-29T00:00:00.000Z"), not "YYYY-MM-DD" — slice
+          // the first 10 chars for string comparisons against todayYmd.
+          // Pass the original ISO straight to formatDateInIst since it
+          // already handles both shapes.
+          const dueYmd = (task.due_date || "").slice(0, 10);
+          const overdue = !task.completed && dueYmd < todayYmd;
+          const isToday = dueYmd === todayYmd;
           const isBusy = busyId === task.id;
           return (
             <div
@@ -328,7 +378,7 @@ export default function CounsellorTasks() {
                       : "text-stone-700"
                 }`}
               >
-                {formatDateInIst(`${task.due_date}T00:00:00Z`)}
+                {formatDateInIst(task.due_date)}
               </span>
               <span className="text-[15px] font-semibold text-stone-900">
                 {task.student_name || "—"}
@@ -358,12 +408,12 @@ export default function CounsellorTasks() {
                   )}
                 </button>
                 <button
-                  onClick={() => removeTask(task)}
+                  onClick={() => archiveTask(task)}
                   disabled={isBusy}
-                  title="Delete task"
-                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-red-400 hover:text-red-600 disabled:opacity-50"
+                  title="Archive task"
+                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Archive className="h-3.5 w-3.5" />
                 </button>
               </span>
             </div>
@@ -376,7 +426,81 @@ export default function CounsellorTasks() {
           </p>
         )}
       </div>
+
+      <ArchivedTasksSection
+        tasks={archivedTasks}
+        onUnarchive={unarchiveTask}
+        busyId={busyId}
+      />
     </>
+  );
+}
+
+// Collapsible "Archived" panel mirroring the lead-archive pattern: hidden
+// by default, click to expand. Each archived task shows its date, student,
+// task body, and an Unarchive button to restore it to the active list.
+function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
+  const [open, setOpen] = useState(false);
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mt-4 border border-stone-300 bg-stone-50">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-stone-700 hover:bg-stone-100"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          {open ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+          Archived ({tasks.length})
+        </span>
+        <span className="text-[10px] font-normal normal-case tracking-normal text-stone-500">
+          {open ? "click to collapse" : "click to expand"}
+        </span>
+      </button>
+      {open && (
+        <ul className="divide-y divide-stone-200 border-t border-stone-200 bg-white">
+          {tasks.map((task) => {
+            const isBusy = busyId === task.id;
+            return (
+              <li
+                key={task.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 text-[14px] text-stone-700"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="tabular-nums text-[13px] text-stone-500">
+                    {formatDateInIst(task.due_date)}
+                  </span>
+                  <span className="ml-2 font-semibold text-stone-900">
+                    {task.student_name || "—"}
+                  </span>
+                  <span className="ml-2 text-stone-700">— {task.text}</span>
+                  {task.archived_at && (
+                    <span className="ml-2 text-[11px] text-stone-400">
+                      · archived {formatDateInIst(task.archived_at)}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onUnarchive(task)}
+                  disabled={isBusy}
+                  className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900 disabled:opacity-50"
+                >
+                  {isBusy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Undo2 className="h-3 w-3" />
+                  )}
+                  Unarchive
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS counsellor_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_due ON counsellor_tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_lead ON counsellor_tasks(lead_id);
+
+-- Tasks support the same soft-delete pattern as leads: archived rows stay
+-- in the DB (so history is recoverable) but disappear from the main list
+-- behind a collapsed "Archived" section.
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_active ON counsellor_tasks(due_date) WHERE archived = FALSE;
 `;
 
 export async function migrate() {

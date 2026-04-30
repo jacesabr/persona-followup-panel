@@ -9,12 +9,16 @@ function isString(v) {
 
 // GET /api/tasks — flat list of every task with the student's name joined
 // in. The simple panel groups/sorts client-side (small N, single user).
+// Default hides archived tasks; ?include_archived=true returns both sets.
 router.get("/", async (req, res, next) => {
   try {
+    const includeArchived = req.query.include_archived === "true";
+    const where = includeArchived ? "" : "WHERE t.archived = FALSE";
     const { rows } = await pool.query(
       `SELECT t.*, l.name AS student_name, l.archived AS student_archived
        FROM counsellor_tasks t
        JOIN leads l ON l.id = t.lead_id
+       ${where}
        ORDER BY t.priority DESC, t.due_date ASC, t.id ASC`
     );
     res.json(rows);
@@ -109,6 +113,73 @@ router.patch("/:id", async (req, res, next) => {
   }
 });
 
+// POST /api/tasks/:id/archive — soft-delete: hide from active list but
+// keep the row recoverable via the Archived section.
+router.post("/:id/archive", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE counsellor_tasks
+       SET archived = TRUE, archived_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND archived = FALSE
+       RETURNING *`,
+      [id]
+    );
+    if (rows.length === 0) {
+      const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
+      if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
+      // already archived — return current state with the joined name
+      const { rows: current } = await pool.query(
+        `SELECT t.*, l.name AS student_name, l.archived AS student_archived
+         FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
+        [id]
+      );
+      return res.json(current[0]);
+    }
+    const { rows: enriched } = await pool.query(
+      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
+       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
+      [id]
+    );
+    res.json(enriched[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/:id/unarchive", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE counsellor_tasks
+       SET archived = FALSE, archived_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND archived = TRUE
+       RETURNING *`,
+      [id]
+    );
+    if (rows.length === 0) {
+      const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
+      if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
+      const { rows: current } = await pool.query(
+        `SELECT t.*, l.name AS student_name, l.archived AS student_archived
+         FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
+        [id]
+      );
+      return res.json(current[0]);
+    }
+    const { rows: enriched } = await pool.query(
+      `SELECT t.*, l.name AS student_name, l.archived AS student_archived
+       FROM counsellor_tasks t JOIN leads l ON l.id = t.lead_id WHERE t.id = $1`,
+      [id]
+    );
+    res.json(enriched[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE retained for completeness — not currently surfaced in the UI; the
+// canonical "remove" path is /archive.
 router.delete("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
