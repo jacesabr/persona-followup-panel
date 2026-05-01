@@ -77,6 +77,24 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_last_seen ON sessions(last_seen_at);
 
+-- One-time wipe of demo data accumulated during the trial-mode era.
+-- Marker table makes this idempotent: it runs exactly once (first boot
+-- after this migration ships), then the IF NOT EXISTS short-circuits
+-- forever. Real client data added afterwards is safe.
+DO $persona_wipe$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_tables
+    WHERE schemaname = 'public' AND tablename = '_persona_post_demo_wipe'
+  ) THEN
+    CREATE TABLE _persona_post_demo_wipe (done_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+    TRUNCATE TABLE sessions, counsellor_tasks, lead_appointments, leads, counsellors RESTART IDENTITY CASCADE;
+    INSERT INTO _persona_post_demo_wipe DEFAULT VALUES;
+    RAISE NOTICE 'persona: wiped demo data (one-shot, marker inserted)';
+  END IF;
+END
+$persona_wipe$;
+
 -- Legacy cleanup: drop tables and columns from the WhatsApp/email/
 -- transcript era. Safe on fresh DBs (IF EXISTS) and on upgraded ones.
 DROP TABLE IF EXISTS lead_activity CASCADE;
