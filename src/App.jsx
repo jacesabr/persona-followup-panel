@@ -76,8 +76,7 @@ export default function App() {
   }, []);
 
   // Refresh the counsellor roster whenever there's an active session — the
-  // admin's impersonation banner needs the name and the legacy "view as"
-  // dropdown depends on it.
+  // admin's impersonation banner reads the counsellor name from this list.
   useEffect(() => {
     if (!session || session === "loading") return;
     api.listCounsellors().then(setCounsellors).catch(() => {});

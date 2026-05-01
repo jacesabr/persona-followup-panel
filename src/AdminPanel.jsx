@@ -3,12 +3,10 @@ import SimplePanel from "./SimplePanel.jsx";
 import { api } from "./api.js";
 
 // Admin's landing page. The SimplePanel (Followup + Counsellor tasks +
-// Counsellors tabs) is the entire admin surface — the legacy
-// LeadFollowup / Old-admin-view dropdown was retired along with the
-// WhatsApp/email/transcript pipelines.
+// Counsellors tabs) is the entire admin surface.
 //
-// Counsellors roster is owned here (not refetched per child tab) so that:
-//   1. The Counsellor tasks tab's assignee dropdown stays current when
+// Counsellors roster is owned here (not refetched per child tab) so:
+//   1. The Counsellor-tasks tab's assignee dropdown stays current when
 //      admin creates a new counsellor in the Counsellors tab.
 //   2. We avoid three concurrent listCounsellors() calls every time
 //      admin switches tabs.

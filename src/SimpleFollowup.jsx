@@ -105,10 +105,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       return;
     }
     // Counsellor-scoped users auto-link the lead to themselves via the FK
-    // (so cron reminders fire and admin's view shows it under them).
-    // Admin's new-lead flow stays free-text: they may type a name that
-    // doesn't match a counsellors row, in which case it's stored as
-    // counsellor_name only — no reminders, accepted trade-off.
+    // so admin's view shows it under them. Admin's flow stays free-text:
+    // they may type a name that doesn't match an existing counsellors
+    // row, in which case it's stored as counsellor_name only.
     const payload = {
       name,
       contact,
@@ -195,17 +194,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     }
   };
 
-  // Called when CalendarPopup confirms a new appointment. Mirror the new
-  // service_date onto the lead row so the sheet's tint + Next-follow cell
-  // update without a refetch. lead.notes is intentionally untouched —
-  // appointment notes live in lead_appointments only (general lead notes
-  // and per-appointment notes are different concepts).
+  // Mirror the new service_date onto the lead row after CalendarPopup
+  // confirms an appointment, so the sheet's "Next follow" cell + the
+  // calendar tile color update without a refetch.
   const onAppointmentCreated = (leadId, scheduledFor) => {
     setLeads((prev) =>
       prev.map((l) =>
-        l.id === leadId
-          ? { ...l, service_date: scheduledFor, reminder_sent: false }
-          : l
+        l.id === leadId ? { ...l, service_date: scheduledFor } : l
       )
     );
   };
@@ -428,24 +423,16 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   you
                 </span>
               ) : (
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <input
-                    type="text"
-                    list="simple-counsellors"
-                    placeholder="Counsellor"
-                    value={newLead.counsellorName}
-                    onChange={(e) =>
-                      setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
-                    }
-                    className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
-                  />
-                  {/* Free-text names don't link to a counsellors row, so
-                      the cron's reminder query (status='scheduled' AND
-                      counsellor_id IS NOT NULL) silently skips them. */}
-                  <span className="text-[10px] italic text-stone-500">
-                    Free-text → no auto reminders
-                  </span>
-                </span>
+                <input
+                  type="text"
+                  list="simple-counsellors"
+                  placeholder="Counsellor"
+                  value={newLead.counsellorName}
+                  onChange={(e) =>
+                    setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
+                  }
+                  className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
+                />
               )}
               <button
                 onClick={submitNew}
@@ -968,13 +955,12 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     };
   }, [lead.id]);
 
-  // Build a map: ymd -> Appointment[] sorted by scheduled_for ascending so
-  // multiple appointments on the same calendar day all show up — earlier
-  // versions silently dropped duplicates with Map.set overwrite. The lead's
-  // current service_date gets a synthetic fallback entry so legacy leads
-  // (created before this table existed) still tint their day on the
-  // calendar; synthetic entries are flagged so the UI can hide them from
-  // the per-day list (lead.notes is *general* lead context, not per-day).
+  // Build a map: ymd -> Appointment[] sorted by scheduled_for ascending,
+  // so multiple appointments on the same calendar day all show up. The
+  // lead's current service_date gets a synthetic fallback entry so leads
+  // that haven't yet been booked through this calendar still tint their
+  // upcoming day; synthetic entries are flagged so the UI can mark them
+  // distinctly when needed.
   const apptByYmd = useMemo(() => {
     const map = new Map();
     for (const a of appointments) {

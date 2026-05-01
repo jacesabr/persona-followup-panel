@@ -227,17 +227,4 @@ router.post("/:id/unarchive", async (req, res, next) => {
   }
 });
 
-// DELETE retained for completeness — not currently surfaced in the UI; the
-// canonical "remove" path is /archive.
-router.delete("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { rowCount } = await pool.query("DELETE FROM counsellor_tasks WHERE id = $1", [id]);
-    if (rowCount === 0) return res.status(404).json({ error: "task not found" });
-    res.status(204).end();
-  } catch (e) {
-    next(e);
-  }
-});
-
 export default router;
