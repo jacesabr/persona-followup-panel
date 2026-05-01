@@ -8,26 +8,15 @@ import pool from "./db.js";
 import { requireAuth } from "./middleware/auth.js";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
-import twilioStatusRouter from "./routes/twilio_status.js";
 import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
 import { migrate } from "./migrate.js";
-import {
-  seedIfEmpty,
-  ensureTestCounsellor,
-  seedAppointmentsIfEmpty,
-  seedTasksIfEmpty,
-  backfillCounsellorCredsIfMissing,
-} from "./seed.js";
-import { startCron } from "./cron.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "1mb" }));
-// Cookie parsing must come before any route that reads cookies (auth
-// middleware + /api/auth/* handlers).
 app.use(cookieParser());
 
 app.get("/api/health", async (req, res) => {
@@ -55,20 +44,13 @@ app.use("/api/counsellors", (req, res, next) =>
 app.use("/api/tasks", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
-// Login endpoint is rate-limited (POST). Don't want anyone brute-forcing
-// trial-mode plaintext creds via /api/auth/login.
 app.use("/api/auth", writeLimiter);
 
-// Auth gate: every data route requires a valid session cookie. Twilio's
-// status webhook is signed (different trust model) and the auth router
-// handles its own login/logout/me endpoints, so they stay public.
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/counsellors", requireAuth, counsellorsRouter);
-app.use("/api/twilio", twilioStatusRouter);
 app.use("/api/tasks", requireAuth, tasksRouter);
 app.use("/api/auth", authRouter);
 
-// Static frontend (Vite build output)
 const distPath = path.join(__dirname, "..", "dist");
 app.use(express.static(distPath));
 app.get("*", (req, res) => {
@@ -76,7 +58,6 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
 });
 
-// Centralized error handler
 app.use((err, req, res, next) => {
   console.error("[error]", err);
   res.status(500).json({ error: err.message || "internal error" });
@@ -85,18 +66,13 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 
 async function start() {
+  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
+    console.error(
+      "[startup] ADMIN_USERNAME and ADMIN_PASSWORD must be set in env. Refusing to start."
+    );
+    process.exit(1);
+  }
   await migrate();
-  await seedIfEmpty();
-  await ensureTestCounsellor();
-  // Make sure every counsellor row has trial-mode creds before the
-  // login form starts validating against them.
-  await backfillCounsellorCredsIfMissing();
-  // Backfill demo appointment history + counsellor tasks for existing DBs
-  // that had seed leads before those tables were introduced. Both no-op
-  // once their respective table is non-empty.
-  await seedAppointmentsIfEmpty();
-  await seedTasksIfEmpty();
-  startCron();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);
   });

@@ -61,20 +61,6 @@ export const api = {
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
   archiveLead: (id) => request("POST", `/api/leads/${id}/archive`),
   unarchiveLead: (id) => request("POST", `/api/leads/${id}/unarchive`),
-  resetLeads: () => request("POST", "/api/leads/reset"),
-  // Staff workflow
-  markViewed: (leadId, counsellorId) =>
-    request("POST", `/api/leads/${leadId}/view`, { counsellor_id: counsellorId }),
-  logCall: (leadId, body) =>
-    request("POST", `/api/leads/${leadId}/call`, body),
-  addActionable: (leadId, text) =>
-    request("POST", `/api/leads/${leadId}/actionables`, { text }),
-  updateActionable: (leadId, id, patch) =>
-    request("PATCH", `/api/leads/${leadId}/actionables/${id}`, patch),
-  deleteActionable: (leadId, id) =>
-    request("DELETE", `/api/leads/${leadId}/actionables/${id}`),
-  extractActionables: (leadId) =>
-    request("POST", `/api/leads/${leadId}/actionables/extract`),
   // Appointment history (used by the simple panel calendar).
   listAppointments: (leadId) =>
     request("GET", `/api/leads/${leadId}/appointments`),
@@ -93,18 +79,4 @@ export const api = {
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
   archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),
   unarchiveTask: (id) => request("POST", `/api/tasks/${id}/unarchive`),
-  uploadAudio: async (leadId, file) => {
-    const fd = new FormData();
-    fd.append("audio", file);
-    const res = await fetch(`/api/leads/${leadId}/transcript/audio`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      let detail;
-      try { detail = await res.json(); } catch { detail = { error: res.statusText }; }
-      throw new Error(detail.error || `HTTP ${res.status}`);
-    }
-    return res.json();
-  },
 };

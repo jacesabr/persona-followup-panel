@@ -16,39 +16,13 @@ services:
       # validation) never get interpreted in some surprising local zone.
       - key: TZ
         value: UTC
-      - key: TWILIO_ACCOUNT_SID
+      # Admin login credentials. Server refuses to start without these.
+      # Set per-environment in the Render dashboard so the values don't
+      # live in source. Rotate by changing the dashboard value and
+      # triggering a redeploy — no code change needed.
+      - key: ADMIN_USERNAME
         sync: false
-      - key: TWILIO_API_KEY_SID
-        sync: false
-      - key: TWILIO_API_KEY_SECRET
-        sync: false
-      - key: TWILIO_WHATSAPP_FROM
-        sync: false
-      - key: SENDGRID_API_KEY
-        sync: false
-      - key: SENDGRID_FROM
-        sync: false
-      - key: TEST_RECIPIENT_EMAIL
-        sync: false
-      - key: TEST_RECIPIENT_WHATSAPP
-        sync: false
-      # Optional Twilio webhook signature validation. Set together with
-      # PUBLIC_BASE_URL so validateRequest can match the signed URL.
-      - key: TWILIO_AUTH_TOKEN
-        sync: false
-      # Public base URL used for Twilio status callbacks + signature validation.
-      # Set to the Render service URL (https://<service>.onrender.com).
-      - key: PUBLIC_BASE_URL
-        sync: false
-      # Google Gemini API key for the staff_advanced auto-extract-actionables
-      # flow (gemini-2.5-flash). Optional — without it, the button errors
-      # cleanly and other features still work. Free tier covers ~1500 req/day.
-      - key: GEMINI_API_KEY
-        sync: false
-      # OpenAI API key for staff_advanced audio-upload transcription
-      # (Whisper any-language → English). Optional — without it, the upload
-      # button errors cleanly. ~$0.006/min, no free tier.
-      - key: OPENAI_API_KEY
+      - key: ADMIN_PASSWORD
         sync: false
       - key: DATABASE_URL
         fromDatabase:

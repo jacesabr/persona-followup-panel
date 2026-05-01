@@ -11,11 +11,12 @@ import {
 
 const router = express.Router();
 
-// Trial-mode hardcoded admin creds. The counsellor table holds per-row
-// usernames/passwords; admin is its own kind without a row. Move to env
-// var when this leaves trial.
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "admin";
+// Admin credentials live in env vars only — server refuses to start
+// (server/index.js) when ADMIN_USERNAME / ADMIN_PASSWORD are unset, so
+// reading them once at module load is safe. Rotate by changing env +
+// restarting; nothing in source.
+const ADMIN_USER = process.env.ADMIN_USERNAME.toLowerCase();
+const ADMIN_PASS = process.env.ADMIN_PASSWORD;
 
 // POST /api/auth/login — single endpoint that resolves admin vs counsellor
 // based on the typed username. On success, INSERTs a session row, sets the
