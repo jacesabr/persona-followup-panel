@@ -65,3 +65,13 @@ export function clearSessionCookie(res) {
     path: "/",
   });
 }
+
+// requireAdmin — gate routes that should be admin-only (creating /
+// editing counsellor accounts, etc). Must be chained AFTER requireAuth
+// so req.user is populated.
+export function requireAdmin(req, res, next) {
+  if (req.user?.kind !== "admin") {
+    return res.status(403).json({ error: "admin only" });
+  }
+  next();
+}

@@ -7,6 +7,33 @@ function isString(v) {
   return typeof v === "string";
 }
 
+// Per-task ownership gate. Admin always passes; counsellors only on
+// tasks they're either directly assigned to (assignee_id = self) OR
+// pinned to a student whose lead.counsellor_id is them. Mirrors the
+// client-side visibility filter so wire and UI agree.
+//
+// 404 (not 403) for non-owners so a poker can't probe ID space.
+async function checkTaskAccess(req, res, taskId) {
+  const { rows } = await pool.query(
+    `SELECT t.assignee_id, l.counsellor_id AS lead_counsellor_id
+     FROM counsellor_tasks t
+     LEFT JOIN leads l ON l.id = t.lead_id
+     WHERE t.id = $1`,
+    [taskId]
+  );
+  if (rows.length === 0) {
+    res.status(404).json({ error: "task not found" });
+    return false;
+  }
+  if (req.user?.kind === "admin") return true;
+  const me = req.user?.counsellorId;
+  if (rows[0].assignee_id !== me && rows[0].lead_counsellor_id !== me) {
+    res.status(404).json({ error: "task not found" });
+    return false;
+  }
+  return true;
+}
+
 // Single source of truth for the joined SELECT used after every mutation.
 // LEFT JOIN both leads and counsellors because tasks may have a free-text
 // student_name (no lead FK) and may also be unassigned. Frontend resolves
@@ -22,16 +49,29 @@ const SELECT_JOINED = `
   LEFT JOIN counsellors c ON c.id = t.assignee_id
 `;
 
-// GET /api/tasks — flat list of every task with the student's name joined
-// in. The simple panel groups/sorts client-side (small N, single user).
-// Default hides archived tasks; ?include_archived=true returns both sets.
+// GET /api/tasks — admin sees the flat list of every task. Counsellors
+// see only tasks they own (assignee_id = self OR lead.counsellor_id =
+// self). Server-side scoping prevents another counsellor's tasks
+// leaking via devtools — without it, the client filter alone meant the
+// raw network response carried tasks from across the firm.
+//
+// Default hides archived; ?include_archived=true returns both sets.
 router.get("/", async (req, res, next) => {
   try {
     const includeArchived = req.query.include_archived === "true";
-    const where = includeArchived ? "" : "WHERE t.archived = FALSE";
+    const conds = [];
+    const params = [];
+    if (!includeArchived) conds.push("t.archived = FALSE");
+    if (req.user?.kind === "counsellor") {
+      params.push(req.user.counsellorId);
+      const i = `$${params.length}`;
+      conds.push(`(t.assignee_id = ${i} OR l.counsellor_id = ${i})`);
+    }
+    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const { rows } = await pool.query(
       `${SELECT_JOINED} ${where}
-       ORDER BY t.priority DESC, t.due_date ASC, t.id ASC`
+       ORDER BY t.priority DESC, t.due_date ASC, t.id ASC`,
+      params
     );
     res.json(rows);
   } catch (e) {
@@ -46,7 +86,7 @@ router.get("/", async (req, res, next) => {
 // with no assignee render as "Unassigned" in the admin view.
 router.post("/", async (req, res, next) => {
   try {
-    const { lead_id, student_name, assignee_id, text, due_date, priority } = req.body;
+    let { lead_id, student_name, assignee_id, text, due_date, priority } = req.body;
     if (
       (lead_id === undefined || lead_id === null || lead_id === "") &&
       (student_name === undefined || student_name === null || student_name === "")
@@ -75,12 +115,29 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
     }
 
+    // Counsellors can only create tasks they own. Force assignee_id =
+    // self regardless of what the body sent (otherwise they could
+    // dump tasks onto another counsellor's queue), and refuse a
+    // lead_id pointing at a lead they don't manage.
+    if (req.user?.kind === "counsellor") {
+      assignee_id = req.user.counsellorId;
+      if (lead_id) {
+        const own = await pool.query(
+          "SELECT 1 FROM leads WHERE id = $1 AND counsellor_id = $2",
+          [lead_id, req.user.counsellorId]
+        );
+        if (own.rows.length === 0) {
+          return res.status(404).json({ error: "lead not found" });
+        }
+      }
+    }
+
     const cleanLeadId = lead_id || null;
     const cleanStudentName =
       student_name && student_name.trim() ? student_name.trim() : null;
     const cleanAssigneeId = assignee_id || null;
 
-    if (cleanLeadId) {
+    if (cleanLeadId && req.user?.kind === "admin") {
       const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [cleanLeadId]);
       if (leadCheck.rows.length === 0) {
         return res.status(404).json({ error: "lead not found" });
@@ -110,11 +167,16 @@ router.post("/", async (req, res, next) => {
 });
 
 // PATCH /api/tasks/:id — toggle priority/completed, edit text, change date,
-// or rename the free-text student.
+// or rename the free-text student. Counsellors can only patch tasks they
+// own and cannot reassign them; admin has full reach.
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const allowed = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id"];
+    if (!(await checkTaskAccess(req, res, id))) return;
+
+    const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id"];
+    const allowedCounsellor = ["text", "due_date", "priority", "completed", "student_name"];
+    const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) {
       return res.status(400).json({ error: "no valid fields to update" });
@@ -184,6 +246,7 @@ router.patch("/:id", async (req, res, next) => {
 router.post("/:id/archive", async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!(await checkTaskAccess(req, res, id))) return;
     const { rows } = await pool.query(
       `UPDATE counsellor_tasks
        SET archived = TRUE, archived_at = NOW(), updated_at = NOW()
@@ -207,6 +270,7 @@ router.post("/:id/archive", async (req, res, next) => {
 router.post("/:id/unarchive", async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!(await checkTaskAccess(req, res, id))) return;
     const { rows } = await pool.query(
       `UPDATE counsellor_tasks
        SET archived = FALSE, archived_at = NULL, updated_at = NOW()

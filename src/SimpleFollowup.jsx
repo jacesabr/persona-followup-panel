@@ -45,7 +45,10 @@ function emptyNew() {
     contact: "",
     purpose: "",
     inquiryDate: todayIstYmd(),
-    counsellorName: "",
+    // Admin must pick a counsellor from the roster (no free text). Empty
+    // string means "not yet picked" — the form blocks submit until it's
+    // a real counsellor id.
+    counsellorId: "",
   };
 }
 
@@ -70,7 +73,17 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listLeads({ includeArchived: true }), api.listCounsellors()])
+    // counsellorId scopes server-side when admin is impersonating so the
+    // wire response only carries that counsellor's leads. For a counsellor
+    // session the server already enforces the same scope; the param is
+    // redundant but harmless. For unscoped admin (null) we get every lead.
+    Promise.all([
+      api.listLeads({
+        includeArchived: true,
+        counsellorId: isScoped ? scopedCounsellorId : null,
+      }),
+      api.listCounsellors(),
+    ])
       .then(([l, c]) => {
         if (cancelled) return;
         setLeads(l);
@@ -104,10 +117,11 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       setError("Name, phone, and purpose are required.");
       return;
     }
-    // Counsellor-scoped users auto-link the lead to themselves via the FK
-    // so admin's view shows it under them. Admin's flow stays free-text:
-    // they may type a name that doesn't match an existing counsellors
-    // row, in which case it's stored as counsellor_name only.
+    // Counsellor-scoped users auto-link to themselves. Admin must pick
+    // an existing counsellor from the dropdown — free text is no longer
+    // accepted because it produced "ghost" leads invisible to every
+    // counsellor's scoped view. The server validates the FK too, but
+    // we surface a friendly error here first.
     const payload = {
       name,
       contact,
@@ -118,7 +132,11 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     if (isScoped) {
       payload.counsellor_id = scopedCounsellorId;
     } else {
-      payload.counsellor_name = newLead.counsellorName.trim() || null;
+      if (!newLead.counsellorId) {
+        setError("Pick a counsellor — leads can't be unassigned.");
+        return;
+      }
+      payload.counsellor_id = newLead.counsellorId;
     }
     setCreating(true);
     setError(null);
@@ -194,13 +212,17 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     }
   };
 
-  // Mirror the new service_date onto the lead row after CalendarPopup
-  // confirms an appointment, so the sheet's "Next follow" cell + the
-  // calendar tile color update without a refetch.
-  const onAppointmentCreated = (leadId, scheduledFor) => {
+  // Mirror the server-recomputed service_date (passed from CalendarPopup)
+  // onto the lead row after a new appointment is inserted, so the sheet's
+  // "Next follow" cell + sort order match the server's truth without a
+  // refetch. We deliberately use the server's recomputed value here, not
+  // the user's input — the server picks "next upcoming, else most recent
+  // past", which differs from the typed time when an out-of-order
+  // appointment was just inserted.
+  const onAppointmentCreated = (leadId, leadServiceDate) => {
     setLeads((prev) =>
       prev.map((l) =>
-        l.id === leadId ? { ...l, service_date: scheduledFor } : l
+        l.id === leadId ? { ...l, service_date: leadServiceDate } : l
       )
     );
   };
@@ -410,27 +432,51 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
             <span className="flex items-center gap-1">
               {isScoped ? (
                 /* Scoped users always assign new leads to themselves;
-                   the input would just be redundant. */
+                   the picker would just be redundant. */
                 <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[12px] italic text-stone-500">
                   you
                 </span>
               ) : (
-                <input
-                  type="text"
-                  list="simple-counsellors"
-                  placeholder="Counsellor"
-                  value={newLead.counsellorName}
+                /* Required <select> — admin must pick from the roster.
+                   Free text is no longer accepted because it produced
+                   "ghost" leads invisible to every counsellor's scoped
+                   view. If no counsellors exist yet, the dropdown
+                   surfaces an empty-state hint and the form refuses to
+                   submit (server enforces this too). */
+                <select
+                  value={newLead.counsellorId}
                   onChange={(e) =>
-                    setNewLead((p) => ({ ...p, counsellorName: e.target.value }))
+                    setNewLead((p) => ({ ...p, counsellorId: e.target.value }))
                   }
+                  required
                   className="min-w-0 flex-1 border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
-                />
+                  title={
+                    counsellors.length === 0
+                      ? "Add a counsellor first (Counsellors tab)"
+                      : "Pick a counsellor"
+                  }
+                >
+                  <option value="">
+                    {counsellors.length === 0
+                      ? "No counsellors yet…"
+                      : "Pick counsellor…"}
+                  </option>
+                  {counsellors.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               )}
               <button
                 onClick={submitNew}
-                disabled={creating}
-                title="Save"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                disabled={creating || (!isScoped && !newLead.counsellorId)}
+                title={
+                  !isScoped && !newLead.counsellorId
+                    ? "Pick a counsellor first"
+                    : "Save"
+                }
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {creating ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -447,13 +493,6 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 <X className="h-3 w-3" />
               </button>
             </span>
-            {/* Datalist holds existing counsellor names so common entries
-                auto-suggest as the user types — but anything goes. */}
-            <datalist id="simple-counsellors">
-              {counsellors.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
           </div>
         )}
 
@@ -540,8 +579,8 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         <CalendarPopup
           lead={calendarLead}
           onClose={() => setCalendarLead(null)}
-          onCreated={(scheduledFor) => {
-            onAppointmentCreated(calendarLead.id, scheduledFor);
+          onCreated={(leadServiceDate) => {
+            onAppointmentCreated(calendarLead.id, leadServiceDate);
           }}
         />
       )}
@@ -1092,12 +1131,17 @@ function CalendarPopup({ lead, onClose, onCreated }) {
     setBusy(true);
     setSubmitErr(null);
     try {
-      const created = await api.createAppointment(lead.id, {
-        scheduled_for: iso,
-        notes: notes.trim() || null,
-      });
-      setAppointments((prev) => [...prev, created]);
-      onCreated(iso);
+      // Server returns { appointment, lead }: the inserted row plus the
+      // lead row whose service_date has been recomputed to "next upcoming
+      // else most recent past". Mirror that recomputed value into parent
+      // state so the sheet's "Next follow" cell is always the same value
+      // the server would return on a refetch.
+      const { appointment, lead: updatedLead } = await api.createAppointment(
+        lead.id,
+        { scheduled_for: iso, notes: notes.trim() || null }
+      );
+      setAppointments((prev) => [...prev, appointment]);
+      onCreated(updatedLead.service_date);
       onClose();
     } catch (e) {
       setSubmitErr(e.message);
@@ -1284,13 +1328,24 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                 - editingApptId set: editing notes on an existing appt (any
                   day, past or future). Time field hidden — locked.
                 - empty future day: create-new form with time + notes.
-                - empty past day: read-only "no appointment" copy. */}
+                - past day with no real appt (zero entries OR only the
+                  synthetic fallback): read-only copy. The create form is
+                  hidden because the API enforces future-only times — no
+                  point showing a form whose Confirm is guaranteed to fail.
+                  Synthetic-only is a legacy state (lead.service_date set
+                  without a corresponding appointment row), so the message
+                  has to spell that out so the user isn't stuck wondering. */}
             {!editingApptId && selectedIsPast ? (
-              selectedDayAppts.length === 0 && (
+              selectedDayAppts.length === 0 ? (
                 <p className="text-[13px] italic text-stone-500">
                   No appointment on this day.
                 </p>
-              )
+              ) : selectedDayAppts.every((a) => a.synthetic) ? (
+                <p className="text-[13px] italic text-stone-500">
+                  Scheduled time on this day, but no appointment record to
+                  edit. Schedule a new appointment in the future to add notes.
+                </p>
+              ) : null
             ) : (
               <>
                 {!editingApptId && (

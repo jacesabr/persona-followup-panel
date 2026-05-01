@@ -60,9 +60,23 @@ export default function CounsellorTasks({
     // Skip the counsellors fetch when AdminPanel already supplies the
     // shared roster — saves a round trip and keeps the assignee dropdown
     // in sync with admin's "+ New counsellor" automatically.
+    //
+    // includeArchived: true on listLeads is load-bearing for the
+    // visibility filter below: a task pinned to a student whose lead has
+    // since been archived must still surface for the counsellor. Without
+    // the archived row in `leads`, myLeadIds would miss it and the task
+    // would silently vanish.
+    //
+    // counsellorId scopes server-side when an admin is impersonating so
+    // the wire response only carries that counsellor's leads. For a
+    // counsellor session the server already scopes; the param is
+    // redundant but harmless.
     const fetches = [
       api.listTasks({ includeArchived: true }),
-      api.listLeads(),
+      api.listLeads({
+        includeArchived: true,
+        counsellorId: isScoped ? scopedCounsellorId : null,
+      }),
     ];
     if (counsellorsProp == null) fetches.push(api.listCounsellors());
     Promise.all(fetches)

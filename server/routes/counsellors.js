@@ -2,6 +2,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -74,18 +75,35 @@ export const COUNSELLOR_PUBLIC_COLUMNS =
   "id, name, whatsapp, email, username, created_at";
 const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
+// GET /api/counsellors — admin sees the full roster (used by the
+// counsellors tab + the assignee dropdown). Counsellor sessions only
+// need their own row (for the impersonation-banner name lookup paths
+// in App.jsx, and the lead-counsellor name map — both are self-only
+// for a counsellor view), so the response is server-scoped to prevent
+// other counsellors' contact details from leaking via devtools.
 router.get("/", async (req, res, next) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`
-    );
+    let sql, params;
+    if (req.user?.kind === "counsellor") {
+      sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 ORDER BY name ASC`;
+      params = [req.user.counsellorId];
+    } else {
+      sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
+      params = [];
+    }
+    const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
     next(e);
   }
 });
 
-router.post("/", async (req, res, next) => {
+// Mutations are admin-only. Without this gate, any authenticated
+// counsellor could create new counsellor rows or reset another
+// counsellor's password — the auth middleware confirms a session but
+// doesn't distinguish role, and the wire client never sent these
+// requests from a counsellor view, so the gap was previously unprobed.
+router.post("/", requireAdmin, async (req, res, next) => {
   try {
     const validationError = validateCounsellorInput(req.body, { mode: "create" });
     if (validationError) return res.status(400).json({ error: validationError });
@@ -123,7 +141,7 @@ router.post("/", async (req, res, next) => {
 // PATCH /api/counsellors/:id — admin-only edits to name/contact/creds.
 // Existing notify routing keys off the FK, not the username, so renames
 // are safe.
-router.patch("/:id", async (req, res, next) => {
+router.patch("/:id", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const allowed = ["name", "whatsapp", "email", "username", "password"];

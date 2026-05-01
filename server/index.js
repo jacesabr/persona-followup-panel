@@ -5,12 +5,33 @@ import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import pool from "./db.js";
-import { requireAuth } from "./middleware/auth.js";
+import { requireAuth, SLIDING_EXPIRY_DAYS } from "./middleware/auth.js";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
 import { migrate } from "./migrate.js";
+
+const SESSION_GC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
+
+// Drop sessions whose last_seen_at fell out of the sliding window. The
+// requireAuth middleware already rejects expired rows on read, but
+// without this the table grows unbounded — every login leaves a row
+// that never gets revisited after its cookie expires. Runs once at boot
+// + once a day while the process lives.
+async function pruneExpiredSessions() {
+  try {
+    const { rowCount } = await pool.query(
+      "DELETE FROM sessions WHERE last_seen_at < NOW() - $1::interval",
+      [`${SLIDING_EXPIRY_DAYS} days`]
+    );
+    if (rowCount > 0) {
+      console.log(`[sessions] pruned ${rowCount} expired session row(s)`);
+    }
+  } catch (e) {
+    console.error("[sessions] prune failed:", e);
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -73,6 +94,8 @@ async function start() {
     process.exit(1);
   }
   await migrate();
+  await pruneExpiredSessions();
+  setInterval(pruneExpiredSessions, SESSION_GC_INTERVAL_MS).unref?.();
   app.listen(PORT, () => {
     console.log(`Persona Followup Panel listening on :${PORT}`);
   });
