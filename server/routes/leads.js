@@ -15,7 +15,7 @@ function validateLeadInput(body) {
   if (!isString(contact) || !/^\d{8,15}$/.test(contact)) {
     return "contact must be digits only, 8-15 chars";
   }
-  if (email !== undefined && email !== null && email !== "") {
+  if (email) {
     if (!isString(email) || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return "email must be a valid email address (max 320 chars)";
     }
@@ -26,7 +26,7 @@ function validateLeadInput(body) {
   // Reject bare "YYYY-MM-DDTHH:mm" strings: Postgres TIMESTAMPTZ would
   // silently reinterpret them as UTC, shifting the stored time by the
   // submitter's offset. Require an explicit Z or ±HH:MM.
-  if (service_date !== undefined && service_date !== null && service_date !== "") {
+  if (service_date) {
     if (!isValidUtcIso(service_date)) {
       return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
@@ -45,12 +45,12 @@ function validatePatchFields(body) {
       return "purpose must be a non-empty string up to 200 chars";
     }
   }
-  if (body.service_date !== undefined && body.service_date !== null && body.service_date !== "") {
+  if (body.service_date) {
     if (!isValidUtcIso(body.service_date)) {
       return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
   }
-  if (body.counsellor_name !== undefined && body.counsellor_name !== null && body.counsellor_name !== "") {
+  if (body.counsellor_name) {
     if (!isString(body.counsellor_name) || body.counsellor_name.length > 200) {
       return "counsellor_name must be a string up to 200 chars";
     }
@@ -58,26 +58,19 @@ function validatePatchFields(body) {
   return null;
 }
 
-// GET /api/leads — leads scoped server-side. Counsellors only ever see
-// their own (req.user enforces the scope so a forged ?counsellor_id query
-// can't widen access). Admin sees everything; archived rows hidden by
-// default and surfaced via ?include_archived=true.
+// GET /api/leads — counsellors are server-scoped to their own leads via
+// req.user; admin sees everything. Archived rows hidden by default,
+// surfaced via ?include_archived=true.
 router.get("/", async (req, res, next) => {
   try {
     const includeArchived = req.query.include_archived === "true";
     const where = [];
     const params = [];
     if (!includeArchived) where.push("archived = FALSE");
-
     if (req.user?.kind === "counsellor") {
       params.push(req.user.counsellorId);
       where.push(`counsellor_id = $${params.length}`);
-    } else if (req.query.counsellor_id) {
-      // Admin may opt-in to a server-side scope (e.g. impersonation view).
-      params.push(req.query.counsellor_id);
-      where.push(`counsellor_id = $${params.length}`);
     }
-
     const sql = `SELECT * FROM leads ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY service_date ASC NULLS LAST`;
     const { rows } = await pool.query(sql, params);
     res.json(rows);
@@ -96,17 +89,17 @@ router.post("/", async (req, res, next) => {
     const validationError = validateLeadInput(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
 
-    if (inquiry_date !== undefined && inquiry_date !== null && inquiry_date !== "") {
+    if (inquiry_date) {
       if (!isString(inquiry_date) || !/^\d{4}-\d{2}-\d{2}$/.test(inquiry_date)) {
         return res.status(400).json({ error: "inquiry_date must be YYYY-MM-DD" });
       }
     }
-    if (bodyStatus !== undefined && bodyStatus !== null && bodyStatus !== "") {
+    if (bodyStatus) {
       if (!["scheduled", "completed", "no_show", "unassigned"].includes(bodyStatus)) {
         return res.status(400).json({ error: "invalid status" });
       }
     }
-    if (counsellor_name !== undefined && counsellor_name !== null && counsellor_name !== "") {
+    if (counsellor_name) {
       if (!isString(counsellor_name) || counsellor_name.length > 200) {
         return res.status(400).json({ error: "counsellor_name must be a string up to 200 chars" });
       }
@@ -159,12 +152,16 @@ router.patch("/:id", async (req, res, next) => {
       return v;
     })];
 
-    // Counsellor change re-arms scheduling: a previously unassigned lead
-    // moving to a counsellor should land in 'scheduled' state.
+    // Counsellor change re-arms scheduling ONLY when the lead was
+    // previously unassigned. Reassigning a counsellor on a 'completed' or
+    // 'no_show' lead must not silently wipe the outcome. Also skip when
+    // the caller has explicitly set a status in the same patch — their
+    // value wins.
     let extraSet = "";
     const counsellorChanged =
       req.body.counsellor_id && req.body.counsellor_id !== before.counsellor_id;
-    if (counsellorChanged) {
+    const statusInPatch = fields.includes("status");
+    if (counsellorChanged && !statusInPatch && before.status === "unassigned") {
       extraSet = ", status = 'scheduled'";
     }
 
@@ -246,7 +243,7 @@ router.post("/:id/appointments", async (req, res, next) => {
     if (new Date(scheduled_for).getTime() < Date.now()) {
       return res.status(400).json({ error: "scheduled_for must be in the future" });
     }
-    if (notes !== undefined && notes !== null && notes !== "") {
+    if (notes) {
       if (!isString(notes) || notes.length > 2000) {
         return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
       }
@@ -285,7 +282,7 @@ router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
   try {
     const { leadId, apptId } = req.params;
     const { notes } = req.body;
-    if (notes !== undefined && notes !== null && notes !== "") {
+    if (notes) {
       if (!isString(notes) || notes.length > 2000) {
         return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
       }

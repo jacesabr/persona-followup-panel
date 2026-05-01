@@ -53,17 +53,17 @@ router.post("/", async (req, res, next) => {
     ) {
       return res.status(400).json({ error: "lead_id or student_name is required" });
     }
-    if (lead_id !== undefined && lead_id !== null && lead_id !== "") {
+    if (lead_id) {
       if (!isString(lead_id) || lead_id.length > 50) {
         return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
       }
     }
-    if (student_name !== undefined && student_name !== null && student_name !== "") {
+    if (student_name) {
       if (!isString(student_name) || student_name.length > 200) {
         return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
       }
     }
-    if (assignee_id !== undefined && assignee_id !== null && assignee_id !== "") {
+    if (assignee_id) {
       if (!isString(assignee_id) || assignee_id.length > 50) {
         return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
       }
@@ -129,17 +129,17 @@ router.patch("/:id", async (req, res, next) => {
         return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
       }
     }
-    if (req.body.student_name !== undefined && req.body.student_name !== null && req.body.student_name !== "") {
+    if (req.body.student_name) {
       if (!isString(req.body.student_name) || req.body.student_name.length > 200) {
         return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
       }
     }
-    if (req.body.assignee_id !== undefined && req.body.assignee_id !== null && req.body.assignee_id !== "") {
+    if (req.body.assignee_id) {
       if (!isString(req.body.assignee_id) || req.body.assignee_id.length > 50) {
         return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
       }
     }
-    if (req.body.lead_id !== undefined && req.body.lead_id !== null && req.body.lead_id !== "") {
+    if (req.body.lead_id) {
       if (!isString(req.body.lead_id) || req.body.lead_id.length > 50) {
         return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
       }

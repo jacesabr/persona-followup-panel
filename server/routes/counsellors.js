@@ -1,6 +1,7 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import pool from "../db.js";
+import { hashPassword } from "../../lib/password.js";
 
 const router = express.Router();
 
@@ -19,12 +20,12 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
       return "name must be a non-empty string up to 200 chars";
     }
   }
-  if (whatsapp !== undefined && whatsapp !== null && whatsapp !== "") {
+  if (whatsapp) {
     if (!isString(whatsapp) || !/^\d{8,15}$/.test(whatsapp)) {
       return "whatsapp must be digits only, 8-15 chars";
     }
   }
-  if (email !== undefined && email !== null && email !== "") {
+  if (email) {
     if (!isString(email) || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return "email must be a valid email address (max 320 chars)";
     }
@@ -104,7 +105,7 @@ router.post("/", async (req, res, next) => {
         `INSERT INTO counsellors (id, name, whatsapp, email, username, password)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING ${PUBLIC_COLUMNS}`,
-        [id, cleanName, cleanWa, cleanEmail, cleanUsername, password]
+        [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password)]
       );
       res.status(201).json(rows[0]);
     } catch (e) {
@@ -140,6 +141,9 @@ router.patch("/:id", async (req, res, next) => {
       // Lowercase usernames here too — same case-collision reason as POST.
       if (f === "username" && typeof v === "string") return v.trim().toLowerCase() || null;
       if (f === "whatsapp") return v || null;
+      // Hash on write so the DB never holds plaintext. Empty patch values
+      // are blocked by validateCounsellorInput above.
+      if (f === "password" && typeof v === "string") return hashPassword(v);
       return v;
     })];
 

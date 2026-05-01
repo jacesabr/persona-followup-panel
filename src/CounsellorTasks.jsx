@@ -23,12 +23,10 @@ const EMPTY_NEW = () => ({
   assigneeId: "",
 });
 
-const NO_OP = () => {};
-
 export default function CounsellorTasks({
   role = "admin",
   scopedCounsellorId = null,
-  onImpersonate = NO_OP,
+  onImpersonate = () => {},
   // Optional shared roster from AdminPanel. When provided we skip the
   // local listCounsellors() call so admin's "+ New counsellor" stays in
   // sync with the assignee dropdown automatically.

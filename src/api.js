@@ -40,19 +40,14 @@ export const api = {
   // throws 401 otherwise. App.jsx calls this on first paint to decide
   // whether to render the login form or the role-appropriate panel.
   me: () => request("GET", "/api/auth/me"),
-  // Default returns only active leads. Admin passes { includeArchived: true }
-  // to also receive archived rows for the collapsible "Archived" section.
-  // counsellorId param scopes server-side so the wire response only
-  // carries that counsellor's leads (no client-side leakage).
-  listLeads: ({ includeArchived = false, counsellorId = null } = {}) => {
-    const qs = [];
-    if (includeArchived) qs.push("include_archived=true");
-    if (counsellorId) qs.push(`counsellor_id=${encodeURIComponent(counsellorId)}`);
-    return request(
+  // Default returns only active leads. Pass { includeArchived: true } to
+  // also receive archived rows. Counsellor scope is enforced server-side
+  // by the auth middleware — clients don't pick the scope.
+  listLeads: ({ includeArchived = false } = {}) =>
+    request(
       "GET",
-      `/api/leads${qs.length ? `?${qs.join("&")}` : ""}`
-    );
-  },
+      `/api/leads${includeArchived ? "?include_archived=true" : ""}`
+    ),
   listCounsellors: () => request("GET", "/api/counsellors"),
   createCounsellor: (data) => request("POST", "/api/counsellors", data),
   updateCounsellor: (id, patch) =>

@@ -326,17 +326,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           style={{ gridTemplateColumns: gridCols }}
         >
           {/* Empty span (not sr-only) holds the grid cell for the
-              checkbox column. sr-only uses position:absolute, which makes
-              CSS Grid skip it during auto-placement — that was shifting
-              every header one column to the left. Each row's checkbox
-              already carries its own aria-label, so we don't need a
-              header label for screen readers. */}
-          {/* Empty span (not sr-only) holds the grid cell for the
-              checkbox column. sr-only uses position:absolute, which makes
-              CSS Grid skip it during auto-placement — that was shifting
-              every header one column to the left. Each row's checkbox
-              already carries its own aria-label, so we don't need a
-              header label for screen readers. */}
+              checkbox column. sr-only uses position:absolute which CSS
+              Grid skips during auto-placement, shifting every header one
+              column left. Per-row checkbox has its own aria-label. */}
           <span aria-hidden="true"></span>
           <span className="whitespace-nowrap">Query</span>
           <span className="whitespace-nowrap">Name / Email / Ph</span>

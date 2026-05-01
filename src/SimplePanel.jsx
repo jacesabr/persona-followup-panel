@@ -4,7 +4,6 @@ import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
 
 const TAB_KEY = "persona_simple_tab";
-const NO_OP = () => {};
 
 function loadTab(role) {
   if (typeof window === "undefined") return "followup";
@@ -41,7 +40,7 @@ function loadTab(role) {
 export default function SimplePanel({
   role = "admin",
   scopedCounsellorId = null,
-  onImpersonate = NO_OP,
+  onImpersonate = () => {},
   counsellors = null,
   counsellorsLoading = false,
   counsellorsError = null,

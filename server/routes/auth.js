@@ -1,13 +1,24 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import pool from "../db.js";
 import { COUNSELLOR_PUBLIC_COLUMNS } from "./counsellors.js";
+import { hashPassword, isHashed, verifyHashed } from "../../lib/password.js";
 import {
   SESSION_COOKIE_NAME,
   SLIDING_EXPIRY_DAYS,
   setSessionCookie,
   clearSessionCookie,
 } from "../middleware/auth.js";
+
+// Constant-time string compare. Used for the admin password check below
+// so a timing attack can't leak whether the typed prefix matches.
+function safeStrEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 const router = express.Router();
 
@@ -33,7 +44,7 @@ router.post("/login", async (req, res, next) => {
     const u = username.trim();
 
     // Admin path
-    if (u.toLowerCase() === ADMIN_USER && password === ADMIN_PASS) {
+    if (u.toLowerCase() === ADMIN_USER && safeStrEqual(password, ADMIN_PASS)) {
       const sid = randomUUID();
       await pool.query(
         "INSERT INTO sessions (id, user_kind) VALUES ($1, 'admin')",
@@ -53,7 +64,31 @@ router.post("/login", async (req, res, next) => {
       [u]
     );
     const row = rows[0];
-    if (!row || row.password !== password) {
+    if (!row) {
+      return res.status(401).json({ error: "Incorrect username or password" });
+    }
+    // New rows store scrypt hashes. Legacy rows pre-dating the hash
+    // migration still hold plaintext; accept those once and upgrade in
+    // place so the DB drains down to all-hashes over time. Both paths
+    // use constant-time compare to avoid leaking match info via timing.
+    let ok = false;
+    if (isHashed(row.password)) {
+      ok = verifyHashed(password, row.password);
+    } else if (typeof row.password === "string") {
+      ok = safeStrEqual(password, row.password);
+      if (ok) {
+        try {
+          await pool.query(
+            "UPDATE counsellors SET password = $1 WHERE id = $2",
+            [hashPassword(password), row.id]
+          );
+        } catch (e) {
+          console.error("[auth] password upgrade failed:", e);
+          // Don't block login on the upgrade failure; the next login retries.
+        }
+      }
+    }
+    if (!ok) {
       return res.status(401).json({ error: "Incorrect username or password" });
     }
 
