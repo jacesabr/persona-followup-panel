@@ -41,13 +41,19 @@ export const api = {
   // whether to render the login form or the role-appropriate panel.
   me: () => request("GET", "/api/auth/me"),
   // Default returns only active leads. Pass { includeArchived: true } to
-  // also receive archived rows. Counsellor scope is enforced server-side
-  // by the auth middleware — clients don't pick the scope.
-  listLeads: ({ includeArchived = false } = {}) =>
-    request(
+  // also receive archived rows. Counsellor sessions are server-scoped to
+  // their own leads regardless of params; admin sessions can opt-in to a
+  // counsellor scope via { counsellorId } (used by the impersonation
+  // view so the wire response only carries that counsellor's leads).
+  listLeads: ({ includeArchived = false, counsellorId = null } = {}) => {
+    const qs = [];
+    if (includeArchived) qs.push("include_archived=true");
+    if (counsellorId) qs.push(`counsellor_id=${encodeURIComponent(counsellorId)}`);
+    return request(
       "GET",
-      `/api/leads${includeArchived ? "?include_archived=true" : ""}`
-    ),
+      `/api/leads${qs.length ? `?${qs.join("&")}` : ""}`
+    );
+  },
   listCounsellors: () => request("GET", "/api/counsellors"),
   createCounsellor: (data) => request("POST", "/api/counsellors", data),
   updateCounsellor: (id, patch) =>
