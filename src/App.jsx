@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Loader2, LogOut, User, Lock } from "lucide-react";
 import SimplePanel from "./SimplePanel.jsx";
 import AdminPanel from "./AdminPanel.jsx";
-import { api } from "./api.js";
+import { api, setUnauthorizedHandler } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
 // Impersonation is admin-only UI state — purely a view switch, no
@@ -50,6 +50,26 @@ export default function App() {
     setImpersonatingRaw(next);
   };
   const [counsellors, setCounsellors] = useState([]);
+
+  // Global 401 handler — fires when any protected /api/* call returns
+  // 401, which means our cookie no longer maps to a live session
+  // (expired, server-deleted, or rotated). Wipe local state so the
+  // user lands on the login form instead of staring at an error banner
+  // attached to a half-broken panel.
+  //
+  // Registered exactly once at App mount; api.js stores a single
+  // callback so re-registering would just overwrite, but we set this
+  // up in its own effect to make the lifetime obvious. /api/auth/login,
+  // /me, /logout are exempt inside api.js itself (they handle 401
+  // in-place — wrong creds, bootstrap probe, already-cleared session).
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      saveKey(IMPERSONATE_KEY, null);
+      setSession(null);
+      setImpersonatingRaw(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   // First-paint bootstrap: ask the server who we are. 401 → not logged
   // in, show login. Any other error also falls back to login (the user

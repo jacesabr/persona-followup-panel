@@ -34,6 +34,13 @@ export async function requireAuth(req, res, next) {
       .query("UPDATE sessions SET last_seen_at = NOW() WHERE id = $1", [sid])
       .catch((e) => console.error("[auth] last_seen update failed:", e));
 
+    // Re-issue the cookie with a fresh maxAge. Without this, the browser
+    // drops the cookie 30 days after the *initial login* even if the user
+    // is active — server thinks the session is fresh, browser disagrees.
+    // Setting it on every protected request makes the 30-day window
+    // genuinely sliding from the client's perspective too.
+    setSessionCookie(res, sid);
+
     req.user = {
       kind: rows[0].user_kind,
       counsellorId: rows[0].counsellor_id,

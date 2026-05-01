@@ -1,5 +1,6 @@
 import express from "express";
 import pool from "../db.js";
+import { isValidYmd } from "../../lib/time.js";
 
 const router = express.Router();
 
@@ -12,8 +13,15 @@ function isString(v) {
 // pinned to a student whose lead.counsellor_id is them. Mirrors the
 // client-side visibility filter so wire and UI agree.
 //
-// 404 (not 403) for non-owners so a poker can't probe ID space.
+// 404 (not 403) for non-owners so a poker can't probe ID space. Path
+// param is validated as digits-only here too — without that, a request
+// like /api/tasks/abc/archive would cast-error at the bigint layer
+// and surface as a 500.
 async function checkTaskAccess(req, res, taskId) {
+  if (!/^\d+$/.test(String(taskId))) {
+    res.status(400).json({ error: "invalid task id" });
+    return false;
+  }
   const { rows } = await pool.query(
     `SELECT t.assignee_id, l.counsellor_id AS lead_counsellor_id
      FROM counsellor_tasks t
@@ -111,14 +119,18 @@ router.post("/", async (req, res, next) => {
     if (!isString(text) || text.trim().length < 1 || text.length > 1000) {
       return res.status(400).json({ error: "text must be 1–1000 chars" });
     }
-    if (!isString(due_date) || !/^\d{4}-\d{2}-\d{2}$/.test(due_date)) {
-      return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
+    if (!isValidYmd(due_date)) {
+      return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
     }
 
-    // Counsellors can only create tasks they own. Force assignee_id =
-    // self regardless of what the body sent (otherwise they could
-    // dump tasks onto another counsellor's queue), and refuse a
-    // lead_id pointing at a lead they don't manage.
+    // Counsellors: clamp assignee_id to self regardless of body
+    // (stops them dumping work onto someone else's queue) and refuse
+    // a lead_id they don't manage.
+    //
+    // Admin: assignee_id is REQUIRED. Letting it be null would create
+    // an "Unassigned" task that nobody owns — same fabrication risk
+    // class as orphan leads. The UI already enforces this; the server
+    // check is the second line of defense for direct API calls.
     if (req.user?.kind === "counsellor") {
       assignee_id = req.user.counsellorId;
       if (lead_id) {
@@ -129,6 +141,10 @@ router.post("/", async (req, res, next) => {
         if (own.rows.length === 0) {
           return res.status(404).json({ error: "lead not found" });
         }
+      }
+    } else {
+      if (!isString(assignee_id) || assignee_id.trim().length === 0) {
+        return res.status(400).json({ error: "assignee_id is required" });
       }
     }
 
@@ -187,8 +203,8 @@ router.patch("/:id", async (req, res, next) => {
       }
     }
     if (req.body.due_date !== undefined) {
-      if (!isString(req.body.due_date) || !/^\d{4}-\d{2}-\d{2}$/.test(req.body.due_date)) {
-        return res.status(400).json({ error: "due_date must be YYYY-MM-DD" });
+      if (!isValidYmd(req.body.due_date)) {
+        return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
       }
     }
     if (req.body.student_name) {

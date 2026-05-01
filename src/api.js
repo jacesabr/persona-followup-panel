@@ -2,14 +2,33 @@
 // In production, frontend and API share an origin (Express serves dist/), so /api works.
 // In dev, vite.config.js proxies /api → :3000.
 
+// Global handler invoked when a protected route returns 401, i.e. the
+// server says the cookie is no longer good. App.jsx registers a
+// listener that wipes session state and falls back to the login screen.
+//
+// /api/auth/login, /api/auth/me, and /api/auth/logout are excluded —
+// each handles its own 401 in-place (wrong creds, bootstrap probe,
+// already-cleared session). Without this exclusion, a failed login
+// would yank the user back to a fresh login screen mid-keystroke.
+let onUnauthorized = () => {};
+const AUTH_EXEMPT_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/me",
+]);
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = typeof fn === "function" ? fn : () => {};
+}
+
 async function request(method, path, body) {
   const res = await fetch(path, {
-    method,
     // credentials: "same-origin" is fetch's default and matches our
     // setup (Express serves the React bundle from the same origin in
     // production, vite proxies through localhost in dev — both qualify
     // as same-origin). Explicit here so a future contributor doesn't
     // wonder why cookies are flowing.
+    method,
     credentials: "same-origin",
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
@@ -23,6 +42,13 @@ async function request(method, path, body) {
     }
     const err = new Error(detail.error || `HTTP ${res.status}`);
     err.status = res.status;
+    // Session-expiry: any protected endpoint returning 401 means our
+    // cookie no longer maps to a live session. Fire the global handler
+    // so App.jsx can clear local state instead of leaving the user with
+    // a half-broken UI plus an opaque error banner.
+    if (res.status === 401 && !AUTH_EXEMPT_PATHS.has(path)) {
+      onUnauthorized();
+    }
     throw err;
   }
   if (res.status === 204) return null;

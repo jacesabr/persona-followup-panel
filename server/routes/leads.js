@@ -1,7 +1,7 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import pool from "../db.js";
-import { isValidUtcIso } from "../../lib/time.js";
+import { isValidUtcIso, isValidYmd } from "../../lib/time.js";
 
 const router = express.Router();
 
@@ -76,11 +76,9 @@ function validatePatchFields(body) {
       return "service_date must be ISO 8601 with explicit timezone (Z or ±HH:MM)";
     }
   }
-  if (body.counsellor_name) {
-    if (!isString(body.counsellor_name) || body.counsellor_name.length > 200) {
-      return "counsellor_name must be a string up to 200 chars";
-    }
-  }
+  // counsellor_name intentionally not validated here — it's no longer in
+  // the PATCH allow-list, so any value the client sends is dropped before
+  // SQL.
   return null;
 }
 
@@ -100,7 +98,10 @@ router.get("/", async (req, res, next) => {
     if (req.user?.kind === "counsellor") {
       params.push(req.user.counsellorId);
       where.push(`counsellor_id = $${params.length}`);
-    } else if (req.query.counsellor_id) {
+    } else if (typeof req.query.counsellor_id === "string" && req.query.counsellor_id.length > 0) {
+      // Express parses repeated query strings as arrays; without the
+      // string check, ?counsellor_id=A&counsellor_id=B would push an
+      // array parameter and trigger a Postgres type-mismatch 500.
       params.push(req.query.counsellor_id);
       where.push(`counsellor_id = $${params.length}`);
     }
@@ -142,8 +143,8 @@ router.post("/", async (req, res, next) => {
     if (validationError) return res.status(400).json({ error: validationError });
 
     if (inquiry_date) {
-      if (!isString(inquiry_date) || !/^\d{4}-\d{2}-\d{2}$/.test(inquiry_date)) {
-        return res.status(400).json({ error: "inquiry_date must be YYYY-MM-DD" });
+      if (!isValidYmd(inquiry_date)) {
+        return res.status(400).json({ error: "inquiry_date must be a valid YYYY-MM-DD date" });
       }
     }
     if (bodyStatus) {
@@ -377,6 +378,12 @@ router.post("/:id/appointments", async (req, res, next) => {
 router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
   try {
     const { leadId, apptId } = req.params;
+    // BIGSERIAL means apptId must be all digits — without this guard a
+    // path like /appointments/abc casts to bigint at the DB layer and
+    // raises a 500 from the global error handler. 400 is friendlier.
+    if (!/^\d+$/.test(apptId)) {
+      return res.status(400).json({ error: "invalid appointment id" });
+    }
     if (!(await checkLeadAccess(req, res, leadId))) return;
     const { notes } = req.body;
     if (notes) {

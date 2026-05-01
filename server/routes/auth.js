@@ -147,6 +147,12 @@ router.get("/me", async (req, res, next) => {
       .query("UPDATE sessions SET last_seen_at = NOW() WHERE id = $1", [sid])
       .catch((e) => console.error("[auth] last_seen update failed:", e));
 
+    // Refresh the cookie maxAge alongside the row's last_seen so a tab
+    // that just polls /me keeps its browser-side cookie alive too —
+    // matches the sliding-window behaviour that requireAuth provides
+    // for protected routes.
+    setSessionCookie(res, sid);
+
     const r = rows[0];
     if (r.user_kind === "admin") return res.json({ user_kind: "admin" });
     return res.json({

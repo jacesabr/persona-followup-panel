@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import pool from "./db.js";
 import { requireAuth, SLIDING_EXPIRY_DAYS } from "./middleware/auth.js";
 import leadsRouter from "./routes/leads.js";
@@ -37,6 +38,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set("trust proxy", 1);
 
+// Security headers — defense in depth on top of cookie hardening + auth
+// gating. Default helmet config covers:
+//   - HSTS (production HTTPS pin)
+//   - X-Content-Type-Options: nosniff
+//   - frameguard (clickjacking)
+//   - referrer-policy: no-referrer
+//   - X-DNS-Prefetch-Control
+//   - X-Permitted-Cross-Domain-Policies
+//   - Content-Security-Policy with our exact needs:
+//       script-src 'self'              — Vite-bundled JS, no inline
+//       style-src 'self' https: 'unsafe-inline'  — bundled CSS + Google Fonts CSS
+//       font-src   'self' https: data: — Google Fonts (gstatic) + base64 fallbacks
+//       img-src    'self' data:        — covers the data: URI favicon in index.html
+//
+// Default helmet style-src includes 'unsafe-inline' for backwards compat
+// with libraries that inject inline styles; lucide-react's SVG icons are
+// rendered through React (no inline <style>) so this is generous but
+// not load-bearing today.
+app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
