@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogOut, User, Lock } from "lucide-react";
+import { Loader2, LogOut, User, Lock } from "lucide-react";
 import LeadFollowup from "./LeadFollowup.jsx";
 import StaffDashboard from "./StaffDashboard.jsx";
 import SimplePanel from "./SimplePanel.jsx";
@@ -7,12 +7,10 @@ import AdminPanel from "./AdminPanel.jsx";
 import { api } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
-const ADMIN_USER = "admin";
-// Admin password is intentionally case-sensitive (matches counsellor
-// behavior — counsellor passwords are also compared as-is server-side).
-// Trial mode only.
-const ADMIN_PASS = "admin";
-const SESSION_KEY = "persona_session";
+// Impersonation is admin-only UI state — purely a view switch, no
+// security boundary (admin's session cookie is what authorizes the
+// underlying API requests). Persisted in sessionStorage so a hard
+// refresh keeps the "viewing as Neha" context.
 const IMPERSONATE_KEY = "persona_impersonating";
 
 function loadKey(key) {
@@ -31,25 +29,6 @@ function saveKey(key, v) {
   }
   sessionStorage.setItem(key, JSON.stringify(v));
 }
-// Validate the session shape on load. Old browsers may have leftover
-// sessions from before the auth rework — `{role: "staff", counsellorId}`
-// or `{role: "simple"}` — and those would otherwise fall through to the
-// counsellor branch in App.jsx without ever hitting /api/auth/login. That
-// would be an auth bypass: anyone with a stale tab gets dropped into a
-// counsellor view (or worse, the unscoped admin-like view) without
-// supplying credentials. Refuse anything that doesn't match the new shape.
-function loadSession() {
-  const raw = loadKey(SESSION_KEY);
-  if (!raw || typeof raw !== "object") return null;
-  if (raw.role === "admin") return { role: "admin" };
-  if (raw.role === "counsellor" && typeof raw.counsellorId === "string" && raw.counsellorId.length > 0) {
-    return { role: "counsellor", counsellorId: raw.counsellorId };
-  }
-  // Stale or malformed — wipe so the next render shows the login form.
-  saveKey(SESSION_KEY, null);
-  saveKey(IMPERSONATE_KEY, null);
-  return null;
-}
 function loadImpersonating() {
   const raw = loadKey(IMPERSONATE_KEY);
   if (!raw || typeof raw !== "object") return null;
@@ -59,13 +38,15 @@ function loadImpersonating() {
 }
 
 export default function App() {
-  const [session, setSession] = useState(loadSession);
-  // Admin-only "view as counsellor" impersonation. Persisted in
-  // sessionStorage so a hard refresh keeps the impersonation context
-  // (otherwise admin would silently bounce back to admin view).
-  // Shape: { counsellorId, view }
-  //   view: "staff"  → legacy StaffDashboard
-  //   view: "simple" → scoped SimplePanel
+  // session is null until /api/auth/me resolves. The server's httpOnly
+  // cookie is the source of truth — we never trust localStorage for who
+  // someone is, only for UI-state. This is the auth boundary.
+  // Shape:
+  //   null            → not logged in (login form)
+  //   "loading"       → initial bootstrap, awaiting /api/auth/me
+  //   { role: "admin" } | { role: "counsellor", counsellorId }
+  const [session, setSession] = useState("loading");
+
   const [impersonating, setImpersonatingRaw] = useState(loadImpersonating);
   const setImpersonating = (next) => {
     saveKey(IMPERSONATE_KEY, next);
@@ -73,31 +54,51 @@ export default function App() {
   };
   const [counsellors, setCounsellors] = useState([]);
 
-  // Refresh the counsellor roster whenever there's an active session — the
-  // admin's impersonation dropdown and the per-counsellor login pickers
-  // both depend on it.
+  // First-paint bootstrap: ask the server who we are. 401 → not logged
+  // in, show login. Any other error also falls back to login (the user
+  // can retry; better than rendering a broken page).
   useEffect(() => {
-    if (!session) return;
+    let cancelled = false;
+    api.me()
+      .then((me) => {
+        if (cancelled) return;
+        if (me.user_kind === "admin") {
+          setSession({ role: "admin" });
+        } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
+          setSession({ role: "counsellor", counsellorId: me.counsellor.id });
+        } else {
+          setSession(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSession(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Refresh the counsellor roster whenever there's an active session — the
+  // admin's impersonation banner needs the name and the legacy "view as"
+  // dropdown depends on it.
+  useEffect(() => {
+    if (!session || session === "loading") return;
     api.listCounsellors().then(setCounsellors).catch(() => {});
   }, [session]);
 
-  const onAdminAuth = () => {
-    const s = { role: "admin" };
-    saveKey(SESSION_KEY, s);
-    setSession(s);
-  };
-
-  // Per-counsellor login: hand creds to the server and let it validate.
-  // Distinguishes auth failure (401 → "wrong creds") from network/server
-  // failure (other → "server error") so the form can show the right
-  // message instead of always saying "incorrect password" when the API
-  // is just unreachable.
-  const onCounsellorAuth = async (username, password) => {
+  // Login: hands creds to the server, gets back the session cookie and a
+  // shape describing what landed in. We mirror that into local state so
+  // the next render picks the right panel without a second roundtrip.
+  // Distinguishes 401 (wrong creds) from other errors so the form can
+  // show the right copy.
+  const onAuth = async (username, password) => {
     try {
-      const c = await api.login(username, password);
-      const s = { role: "counsellor", counsellorId: c.id };
-      saveKey(SESSION_KEY, s);
-      setSession(s);
+      const out = await api.login(username, password);
+      if (out.user_kind === "admin") {
+        setSession({ role: "admin" });
+      } else if (out.user_kind === "counsellor") {
+        setSession({ role: "counsellor", counsellorId: out.counsellor.id });
+      }
       return { ok: true };
     } catch (e) {
       if (e && e.status === 401) return { ok: false, kind: "auth" };
@@ -105,20 +106,33 @@ export default function App() {
     }
   };
 
-  const onSignOut = () => {
-    saveKey(SESSION_KEY, null);
+  const onSignOut = async () => {
+    // Best-effort: even if the server delete fails (e.g. network blip),
+    // we still wipe local UI state so the user lands on the login form.
+    // The cookie's httpOnly + same-origin scope means a half-cleared
+    // session won't leak elsewhere.
+    try {
+      await api.logout();
+    } catch {
+      /* ignore — client state still clears below */
+    }
     saveKey(IMPERSONATE_KEY, null);
     setSession(null);
     setImpersonatingRaw(null);
   };
 
-  if (!session)
+  if (session === "loading") {
     return (
-      <Login
-        onAdminAuth={onAdminAuth}
-        onCounsellorAuth={onCounsellorAuth}
-      />
+      <div
+        className="flex min-h-screen w-full items-center justify-center font-serif text-stone-600"
+        style={{ backgroundColor: "#faf9f5" }}
+      >
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
     );
+  }
+
+  if (!session) return <Login onAuth={onAuth} />;
 
   // Admin viewing-as a counsellor. View defaults to "simple" (the new
   // scoped SimplePanel) unless the caller explicitly opted into the
@@ -252,7 +266,7 @@ function BackToAdminBanner({ staffName, onExit }) {
 // ============================================================
 // Login
 // ============================================================
-function Login({ onAdminAuth, onCounsellorAuth }) {
+function Login({ onAuth }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   // err is null when no error, or { kind: "auth"|"network", message? }.
@@ -263,13 +277,8 @@ function Login({ onAdminAuth, onCounsellorAuth }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    const u = user.trim();
-    if (u.toLowerCase() === ADMIN_USER && pw === ADMIN_PASS) {
-      onAdminAuth();
-      return;
-    }
     setBusy(true);
-    const result = await onCounsellorAuth(u, pw);
+    const result = await onAuth(user.trim(), pw);
     setBusy(false);
     if (!result.ok) setErr(result);
   };

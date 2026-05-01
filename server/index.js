@@ -3,7 +3,9 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
 import pool from "./db.js";
+import { requireAuth } from "./middleware/auth.js";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import twilioStatusRouter from "./routes/twilio_status.js";
@@ -24,6 +26,9 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "1mb" }));
+// Cookie parsing must come before any route that reads cookies (auth
+// middleware + /api/auth/* handlers).
+app.use(cookieParser());
 
 app.get("/api/health", async (req, res) => {
   try {
@@ -54,10 +59,13 @@ app.use("/api/tasks", (req, res, next) =>
 // trial-mode plaintext creds via /api/auth/login.
 app.use("/api/auth", writeLimiter);
 
-app.use("/api/leads", leadsRouter);
-app.use("/api/counsellors", counsellorsRouter);
+// Auth gate: every data route requires a valid session cookie. Twilio's
+// status webhook is signed (different trust model) and the auth router
+// handles its own login/logout/me endpoints, so they stay public.
+app.use("/api/leads", requireAuth, leadsRouter);
+app.use("/api/counsellors", requireAuth, counsellorsRouter);
 app.use("/api/twilio", twilioStatusRouter);
-app.use("/api/tasks", tasksRouter);
+app.use("/api/tasks", requireAuth, tasksRouter);
 app.use("/api/auth", authRouter);
 
 // Static frontend (Vite build output)

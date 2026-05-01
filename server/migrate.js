@@ -154,6 +154,20 @@ FROM leads l
 WHERE t.lead_id = l.id
   AND t.assignee_id IS NULL
   AND l.counsellor_id IS NOT NULL;
+
+-- Server-side sessions for cookie-based auth. user_kind 'admin' has no
+-- counsellor row; 'counsellor' rows reference counsellors.id and cascade
+-- on counsellor delete. Sliding 30-day expiry: middleware updates
+-- last_seen_at on each authenticated request and rejects rows older than
+-- last_seen_at + 30 days.
+CREATE TABLE IF NOT EXISTS sessions (
+  id UUID PRIMARY KEY,
+  user_kind TEXT NOT NULL CHECK (user_kind IN ('admin', 'counsellor')),
+  counsellor_id TEXT REFERENCES counsellors(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_seen ON sessions(last_seen_at);
 `;
 
 export async function migrate() {

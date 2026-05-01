@@ -5,6 +5,12 @@
 async function request(method, path, body) {
   const res = await fetch(path, {
     method,
+    // credentials: "same-origin" is fetch's default and matches our
+    // setup (Express serves the React bundle from the same origin in
+    // production, vite proxies through localhost in dev — both qualify
+    // as same-origin). Explicit here so a future contributor doesn't
+    // wonder why cookies are flowing.
+    credentials: "same-origin",
     headers: body ? { "Content-Type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -24,11 +30,16 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  // Per-counsellor login. Returns the matched counsellor (sans password)
-  // or throws an Error with .status = 401 on bad creds. Used by App.jsx
-  // to populate the active session.
+  // Auth: cookie-based sessions (httpOnly + SameSite=Strict). The cookie
+  // is the source of truth — these methods just open / close it on the
+  // server and tell the client what role landed in.
   login: (username, password) =>
     request("POST", "/api/auth/login", { username, password }),
+  logout: () => request("POST", "/api/auth/logout"),
+  // Returns { user_kind, counsellor? } when a valid cookie is present;
+  // throws 401 otherwise. App.jsx calls this on first paint to decide
+  // whether to render the login form or the role-appropriate panel.
+  me: () => request("GET", "/api/auth/me"),
   // Default returns only active leads. Admin passes { includeArchived: true }
   // to also receive archived rows for the collapsible "Archived" section.
   // counsellorId param scopes server-side so the wire response only
