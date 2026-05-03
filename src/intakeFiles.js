@@ -234,3 +234,49 @@ export async function confirmExtraction(id, data) {
   }
   return res.json();
 }
+
+// ----------------------------------------------------------------
+// Resume APIs. POST a batch of specs → returns the created rows;
+// poll GET /me/resumes/:id (or list) until status is terminal.
+// ----------------------------------------------------------------
+
+const RESUME_TERMINAL = new Set(["succeeded", "failed", "stale", "superseded"]);
+export const isResumeTerminal = (s) => RESUME_TERMINAL.has(s);
+
+export async function generateResumes(specs) {
+  const res = await fetch("/api/students/me/resumes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ specs }),
+  });
+  if (!res.ok) {
+    let msg = `Generation kick-off failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function listResumes() {
+  const res = await fetch("/api/students/me/resumes");
+  if (!res.ok) throw new Error(`Listing resumes failed (${res.status}).`);
+  return res.json();
+}
+
+export async function getResume(id, { signal } = {}) {
+  const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}`, { signal });
+  if (!res.ok) throw new Error(`Resume lookup failed (${res.status}).`);
+  return res.json();
+}
+
+export async function regenerateResume(id) {
+  const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}/regenerate`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    let msg = `Regenerate failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}

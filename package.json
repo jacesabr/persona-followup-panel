@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "wipe": "node server/wipe.js",
+    "import-examples": "node server/scripts/import-examples.js",
     "test": "node --test lib/*.test.js"
   },
   "dependencies": {
@@ -20,7 +21,9 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.1.0",
+    "js-yaml": "^4.1.0",
     "lucide-react": "^0.460.0",
+    "mammoth": "^1.8.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.13.1",
     "react": "^18.3.1",

@@ -31,6 +31,9 @@ import {
 } from "./intakeFiles.js";
 import ExtractionReview from "./ExtractionReview.jsx";
 import ResumeConfig from "./ResumeConfig.jsx";
+import ResumeGenerating from "./ResumeGenerating.jsx";
+import ResumeViewer from "./ResumeViewer.jsx";
+import { generateResumes } from "./intakeFiles.js";
 
 // ============================================================
 // Schema — chapters → pages → fields.
@@ -1029,16 +1032,34 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
         <ResumeConfig
           onBack={() => setPhase("review")}
           onGenerate={async (specs) => {
-            // Wired to the resume generator in the next push. For now
-            // surface what would be sent so we can confirm the shape.
-            console.log("[resume] would generate:", specs);
-            alert(
-              "Resume generation comes online in the next push.\n\n" +
-              "Configured: " + specs.length + " resume(s)\n" +
-              specs.map((s) => `  • ${s.label} (${s.length_pages}p, ${s.style})`).join("\n")
-            );
+            // Kick off the batch on the backend; it returns immediately
+            // with the created row ids and runs each generation in the
+            // background. The Generating screen polls for status.
+            try {
+              await generateResumes(specs);
+              setPhase("generating");
+            } catch (e) {
+              alert(`Couldn't start generation: ${e.message}`);
+            }
           }}
         />
+      </PostIntakeFrame>
+    );
+  }
+  if (phase === "generating") {
+    return (
+      <PostIntakeFrame onExit={onExit} title="Generating">
+        <ResumeGenerating
+          onBack={() => setPhase("config")}
+          onAllDone={() => setPhase("done")}
+        />
+      </PostIntakeFrame>
+    );
+  }
+  if (phase === "done") {
+    return (
+      <PostIntakeFrame onExit={onExit} title="Your resumes">
+        <ResumeViewer onBack={() => setPhase("config")} />
       </PostIntakeFrame>
     );
   }

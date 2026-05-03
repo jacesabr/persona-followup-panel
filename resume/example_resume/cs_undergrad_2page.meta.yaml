@@ -1,0 +1,20 @@
+label: "CS undergrad — 2 page · narrative + community"
+length_pages: 2
+length_words: 720
+domain: cs
+style: narrative
+voice_notes: |
+  Past-tense bullets with denominators, but more breathing room than the
+  1-page version. Includes a Publications section (the high-school
+  best-paper). Skills section is structured (Languages / Systems / Tools)
+  rather than a single line. Activities lean into community + leadership
+  not just technical achievement, which is how 2-page versions
+  differentiate from 1-page.
+notes: |
+  Synthesized example for a CS applicant who has community / pedagogy /
+  research substance to fill a second page. Hits the same Indian-board
+  idioms as the 1-page sibling. Coursework line + concurrent-enrollment
+  demonstrate intellectual ambition without an objective statement.
+sanitized: true
+real_student: false
+source: "synthetic seed example, generated 2026-05-03"

@@ -10,6 +10,7 @@ import { validateUploadedFile } from "../middleware/validateFile.js";
 import { scheduleExtraction } from "../extractors/run.js";
 import { audit } from "../audit.js";
 import { getStorage } from "../storage.js";
+import { scheduleResume, executeResume } from "../generators/run.js";
 
 const router = express.Router();
 
@@ -643,6 +644,169 @@ router.put("/me/extractions/:id/confirm", requireStudent, express.json(), async 
       diff: data ? { confirmed: true, edited: true } : { confirmed: true, edited: false },
     });
     res.json({ id: String(row.id), confirmedAt: row.confirmed_at });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ============================================================
+// RESUMES — generation kick-off + listing + polling. Per-student.
+// One POST creates N rows (one per spec) and fires N background
+// generations. Client polls GET /me/resumes/:id until terminal.
+// ============================================================
+
+// POST /api/students/me/resumes — body { specs: [{ label, length_pages,
+// length_words?, style?, domain? }, ...] }. Returns the created rows.
+router.post("/me/resumes", requireStudent, express.json(), async (req, res, next) => {
+  try {
+    const { specs } = req.body || {};
+    if (!Array.isArray(specs) || specs.length === 0) {
+      return res.status(400).json({ error: "specs[] required" });
+    }
+    if (specs.length > 5) {
+      return res.status(400).json({ error: "max 5 resumes per batch" });
+    }
+    const created = [];
+    for (const spec of specs) {
+      // Each scheduleResume() call inserts a row + fires the background
+      // generator. We don't await the generation; we await only the row
+      // creation so the client can start polling immediately.
+      const r = await scheduleResume({ studentId: req.user.studentId, spec });
+      created.push({
+        id: r.id,
+        status: r.status,
+        label: spec.label,
+        length_pages: spec.length_pages,
+        style: spec.style,
+        domain: spec.domain,
+      });
+    }
+    audit(req, {
+      table: "intake_resumes",
+      action: "batch_kickoff",
+      diff: { count: created.length, ids: created.map((c) => c.id) },
+    });
+    res.status(202).json({ resumes: created });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/students/me/resumes — list every resume for the current
+// student. Drives the generation-progress + viewer screens.
+router.get("/me/resumes", requireStudent, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, label, length_pages, length_words, style, domain,
+              example_ids, status, content_md, content_html, error,
+              cost_cents, source_snapshot, created_at, updated_at
+         FROM intake_resumes
+        WHERE student_id = $1
+        ORDER BY created_at DESC`,
+      [req.user.studentId]
+    );
+    res.json(
+      rows.map((r) => ({
+        id: String(r.id),
+        label: r.label,
+        lengthPages: r.length_pages,
+        lengthWords: r.length_words,
+        style: r.style,
+        domain: r.domain,
+        exampleIds: r.example_ids,
+        status: r.status,
+        contentMd: r.content_md,
+        contentHtml: r.content_html,
+        error: r.error,
+        costCents: r.cost_cents,
+        sourceSnapshot: r.source_snapshot,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }))
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/students/me/resumes/:id — single resume detail. Polled by
+// the generating screen until status is terminal (succeeded | failed).
+router.get("/me/resumes/:id", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { rows } = await pool.query(
+      `SELECT id, student_id, label, length_pages, length_words, style, domain,
+              example_ids, status, content_md, content_html, error,
+              cost_cents, source_snapshot, created_at, updated_at
+         FROM intake_resumes WHERE id = $1`,
+      [Number(req.params.id)]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: "not found" });
+    if (row.student_id !== req.user.studentId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    res.json({
+      id: String(row.id),
+      label: row.label,
+      lengthPages: row.length_pages,
+      lengthWords: row.length_words,
+      style: row.style,
+      domain: row.domain,
+      exampleIds: row.example_ids,
+      status: row.status,
+      contentMd: row.content_md,
+      contentHtml: row.content_html,
+      error: row.error,
+      costCents: row.cost_cents,
+      sourceSnapshot: row.source_snapshot,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/students/me/resumes/:id/regenerate — re-run generation
+// for an existing row (typically after a failure or after the student
+// edits an extraction). Reuses the row id so the polling client
+// stays subscribed.
+router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { rows } = await pool.query(
+      `SELECT id, student_id, label, length_pages, length_words, style, domain
+         FROM intake_resumes WHERE id = $1`,
+      [Number(req.params.id)]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: "not found" });
+    if (row.student_id !== req.user.studentId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    await pool.query(
+      `UPDATE intake_resumes
+          SET status = 'pending', error = NULL, updated_at = NOW()
+        WHERE id = $1`,
+      [row.id]
+    );
+    executeResume({
+      resumeId: row.id,
+      spec: {
+        label: row.label,
+        length_pages: row.length_pages,
+        length_words: row.length_words,
+        style: row.style,
+        domain: row.domain,
+      },
+    }).catch((e) => console.error("[resume] regenerate unhandled:", e));
+    audit(req, { table: "intake_resumes", id: row.id, action: "regenerate" });
+    res.status(202).json({ id: String(row.id), status: "pending" });
   } catch (e) {
     next(e);
   }
