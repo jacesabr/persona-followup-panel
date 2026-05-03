@@ -63,7 +63,11 @@ function inferDefaults(filePath, fullText) {
   };
 }
 
-async function upsertExample(meta, fullText, sourcePath) {
+// Exported so the in-server admin route can run the same logic without
+// shelling out to npm — useful when DB connections from outside the
+// Render network drop mid-query (common; Render external Postgres is
+// flaky on long-haul SSL handshakes).
+export async function upsertExample(meta, fullText, sourcePath) {
   const params = [
     meta.label,
     meta.length_pages || null,
@@ -105,57 +109,76 @@ async function upsertExample(meta, fullText, sourcePath) {
   }
 }
 
-async function main() {
-  if (!process.env.DATABASE_URL) {
-    console.error("[import] DATABASE_URL not set.");
-    process.exit(1);
+// Walk the corpus directory, parse each example, upsert. Exported
+// for the admin route. Returns a manifest the caller can render.
+// Doesn't pool.end() — caller decides lifecycle.
+export async function runImportFromCorpusDir(corpusDir) {
+  if (!fs.existsSync(corpusDir)) {
+    throw new Error(`corpus dir missing: ${corpusDir}`);
   }
-  if (!fs.existsSync(CORPUS_DIR)) {
-    console.error(`[import] corpus dir missing: ${CORPUS_DIR}`);
-    process.exit(1);
-  }
-
   const files = fs
-    .readdirSync(CORPUS_DIR)
+    .readdirSync(corpusDir)
     .filter((f) => !f.startsWith("."))
     .filter((f) => SUPPORTED_EXTS.has(path.extname(f).toLowerCase()))
-    // Skip sidecar yamls themselves
     .filter((f) => !/\.meta\.ya?ml$/i.test(f));
 
-  if (files.length === 0) {
-    console.log("[import] no examples found in", CORPUS_DIR);
-    process.exit(0);
-  }
-
-  console.log(`[import] found ${files.length} example file(s)`);
-
-  let inserted = 0, updated = 0, skipped = 0;
+  const results = [];
   for (const fileName of files) {
-    const filePath = path.join(CORPUS_DIR, fileName);
+    const filePath = path.join(corpusDir, fileName);
     try {
       const fullText = await readExampleText(filePath);
       if (!fullText || fullText.length < 100) {
-        console.warn(`  SKIP ${fileName} — extracted text too short (${fullText.length} chars)`);
-        skipped++;
+        results.push({ file: fileName, action: "skipped", reason: "text too short" });
         continue;
       }
       const sidecar = readSidecar(filePath);
       const defaults = inferDefaults(filePath, fullText);
       const meta = { ...defaults, ...(sidecar || {}) };
-      const { action } = await upsertExample(meta, fullText, filePath);
-      console.log(`  ${action === "inserted" ? "NEW " : "EDIT"} ${fileName}  →  ${meta.label} (${meta.length_pages}p)`);
-      if (action === "inserted") inserted++; else updated++;
+      const { action, id } = await upsertExample(meta, fullText, filePath);
+      results.push({
+        file: fileName,
+        action,
+        id: String(id),
+        label: meta.label,
+        length_pages: meta.length_pages,
+        word_count: fullText.split(/\s+/).filter(Boolean).length,
+      });
     } catch (e) {
-      console.error(`  FAIL ${fileName} —`, e.message);
-      skipped++;
+      results.push({ file: fileName, action: "error", reason: e.message });
     }
   }
+  return { dir: corpusDir, results };
+}
 
+async function main() {
+  if (!process.env.DATABASE_URL) {
+    console.error("[import] DATABASE_URL not set.");
+    process.exit(1);
+  }
+  const { results } = await runImportFromCorpusDir(CORPUS_DIR);
+  let inserted = 0, updated = 0, skipped = 0;
+  for (const r of results) {
+    if (r.action === "inserted") {
+      inserted++;
+      console.log(`  NEW  ${r.file}  →  ${r.label} (${r.length_pages}p)`);
+    } else if (r.action === "updated") {
+      updated++;
+      console.log(`  EDIT ${r.file}  →  ${r.label} (${r.length_pages}p)`);
+    } else {
+      skipped++;
+      console.log(`  ${r.action.toUpperCase()} ${r.file} — ${r.reason || ""}`);
+    }
+  }
   console.log(`[import] done: ${inserted} new, ${updated} updated, ${skipped} skipped`);
   await pool.end();
 }
 
-main().catch((e) => {
-  console.error("[import] fatal:", e);
-  process.exit(1);
-});
+// Only run main() when invoked directly (not when imported by the
+// admin route). Detect via the URL of the entrypoint module.
+import { fileURLToPath as _f } from "node:url";
+if (process.argv[1] && process.argv[1] === _f(import.meta.url)) {
+  main().catch((e) => {
+    console.error("[import] fatal:", e);
+    process.exit(1);
+  });
+}
