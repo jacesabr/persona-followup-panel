@@ -292,15 +292,18 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
 
     // Phase resolver — single source of truth for which screen the
     // student should land on after reload / sign-out / new device.
-    // Without this, phase was component-local in StudentIntake.jsx
-    // and reload during 'generating' or 'done' silently dropped the
-    // student back to 'review' (and worse, re-POSTing /me/resumes
-    // there created duplicate generations).
+    // Order matters: an in-flight generation always wins (otherwise
+    // we'd race the polling client). After that, any newly-uploaded
+    // doc that hasn't been confirmed yet pulls the student back to
+    // review — even if they previously generated a resume successfully.
+    // This handles the "generated 1 resume → uploaded a new marksheet"
+    // case the adversarial-on-change agent caught: previously the
+    // student stayed on 'done' and never saw the new extraction.
     let phase = "intake";
     if (row.intake_complete) {
       if (row.resumes_inflight > 0) phase = "generating";
-      else if (row.resumes_succeeded > 0) phase = "done";
       else if (row.extractions_unconfirmed > 0) phase = "review";
+      else if (row.resumes_succeeded > 0) phase = "done";
       else phase = "config";
     }
 
@@ -759,9 +762,44 @@ router.post("/admin/import-examples", requireAdmin, async (req, res, next) => {
 // Hard cap on per-student concurrent generations. Prevents one student
 // (whether bored, malicious, or stuck in a refresh loop) from queueing
 // 100+ Gemini-backed generation calls and blowing through the API
-// budget. Combined with the regenerate row-status guard below this
-// closes the cost-runaway hole the audit found.
+// budget. Enforced atomically — the prior version did SELECT COUNT then
+// INSERTed in a loop, which raced trivially under N parallel POSTs all
+// observing currentInflight=0 and passing the gate. Now: take a per-
+// student advisory lock, count, and either reserve all N slots in one
+// transaction or reject 429.
 const MAX_INFLIGHT_RESUMES_PER_STUDENT = 3;
+
+// Hash a student_id to a stable bigint for pg_advisory_xact_lock().
+// Postgres advisory locks key on bigint; hash so the same student
+// always serialises against itself but different students don't
+// contend. Using sha256 (overkill but boring) → take 8 bytes →
+// signed bigint. Result is deterministic across processes.
+async function takeStudentLock(client, studentId) {
+  await client.query(
+    `SELECT pg_advisory_xact_lock( ('x' || substr(md5($1), 1, 16))::bit(64)::bigint )`,
+    [`resumes:${studentId}`]
+  );
+}
+
+// Reserve N inflight slots atomically inside an open transaction.
+// Throws { code: "INFLIGHT_CAP", currentInflight, cap } when over.
+async function reserveInflightOrThrow(client, studentId, n) {
+  await takeStudentLock(client, studentId);
+  const { rows } = await client.query(
+    `SELECT COUNT(*)::int AS n FROM intake_resumes
+       WHERE student_id = $1 AND status IN ('pending','running')`,
+    [studentId]
+  );
+  const currentInflight = rows[0]?.n || 0;
+  if (currentInflight + n > MAX_INFLIGHT_RESUMES_PER_STUDENT) {
+    const e = new Error("inflight cap exceeded");
+    e.code = "INFLIGHT_CAP";
+    e.currentInflight = currentInflight;
+    e.cap = MAX_INFLIGHT_RESUMES_PER_STUDENT;
+    throw e;
+  }
+  return currentInflight;
+}
 
 // POST /api/students/me/resumes — body { specs: [{ label, length_pages,
 // length_words?, style?, domain? }, ...] }. Returns the created rows.
@@ -775,32 +813,64 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
       return res.status(400).json({ error: "max 5 resumes per batch" });
     }
 
-    // Concurrent-generation gate. Count how many of the student's
-    // resumes are already pending or running; reject if accepting this
-    // batch would push them past MAX_INFLIGHT_RESUMES_PER_STUDENT.
-    const inflight = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM intake_resumes
-        WHERE student_id = $1 AND status IN ('pending','running')`,
-      [req.user.studentId]
-    );
-    const currentInflight = inflight.rows[0]?.n || 0;
-    if (currentInflight + specs.length > MAX_INFLIGHT_RESUMES_PER_STUDENT) {
-      return res.status(429).json({
-        error: `you have ${currentInflight} resume${currentInflight === 1 ? "" : "s"} still generating; wait for those to finish before starting more`,
-        currentInflight,
-        cap: MAX_INFLIGHT_RESUMES_PER_STUDENT,
-      });
+    // Atomic gate: take the per-student advisory lock, recount, and
+    // insert all N rows inside one transaction. Concurrent POSTs from
+    // the same student serialise on the lock; the cap is honoured even
+    // under refresh-loop-style hostility.
+    const client = await pool.connect();
+    let createdRows;
+    try {
+      await client.query("BEGIN");
+      await reserveInflightOrThrow(client, req.user.studentId, specs.length);
+      // Insert each row inside the transaction so they all commit or
+      // none do. We can't reuse scheduleResume() (which uses the pool)
+      // — inline the INSERT here, then fire the background runners
+      // AFTER commit so a rollback doesn't leak runaway generations.
+      const insertedIds = [];
+      for (const spec of specs) {
+        const ins = await client.query(
+          `INSERT INTO intake_resumes
+             (student_id, label, length_pages, length_words, style, domain, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+           RETURNING id`,
+          [
+            req.user.studentId,
+            spec.label || `${spec.length_pages}-page`,
+            spec.length_pages || null,
+            spec.length_words || null,
+            spec.style || null,
+            spec.domain || null,
+          ]
+        );
+        insertedIds.push({ id: ins.rows[0].id, spec });
+      }
+      await client.query("COMMIT");
+      createdRows = insertedIds;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (e.code === "INFLIGHT_CAP") {
+        return res.status(429).json({
+          error: `you have ${e.currentInflight} resume${e.currentInflight === 1 ? "" : "s"} still generating; wait for those to finish before starting more`,
+          currentInflight: e.currentInflight,
+          cap: e.cap,
+        });
+      }
+      throw e;
+    } finally {
+      client.release();
     }
 
+    // Fire background generators AFTER commit. If a runner immediately
+    // crashes, its row is still 'pending' for the boot sweeper to
+    // catch on the next restart.
     const created = [];
-    for (const spec of specs) {
-      // Each scheduleResume() call inserts a row + fires the background
-      // generator. We don't await the generation; we await only the row
-      // creation so the client can start polling immediately.
-      const r = await scheduleResume({ studentId: req.user.studentId, spec });
+    for (const { id, spec } of createdRows) {
+      executeResume({ resumeId: id, spec }).catch((e) =>
+        console.error("[resume] batch generator unhandled:", e)
+      );
       created.push({
-        id: r.id,
-        status: r.status,
+        id: String(id),
+        status: "pending",
         label: spec.label,
         length_pages: spec.length_pages,
         style: spec.style,
@@ -915,24 +985,45 @@ router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next)
     if (row.student_id !== req.user.studentId) {
       return res.status(403).json({ error: "forbidden" });
     }
-    // Compare-and-swap: only flip to pending if the row isn't already
-    // running. Without this, two tabs hitting Regenerate at the same
-    // moment both pass the SELECT, both UPDATE, both fire executeResume,
-    // and the final status is whichever finishes last — doubling cost
-    // and confusing the polling client.
-    const swap = await pool.query(
-      `UPDATE intake_resumes
-          SET status = 'pending', error = NULL, updated_at = NOW()
-        WHERE id = $1
-          AND status NOT IN ('pending','running')
-        RETURNING id`,
-      [row.id]
-    );
-    if (swap.rows.length === 0) {
-      return res.status(409).json({
-        error: "regeneration already in progress for this resume",
-      });
+    // Atomic: take the per-student lock, check the cap (a regenerate
+    // counts toward the cap exactly like a fresh generation), CAS-flip
+    // status if the row isn't already pending/running, all in one
+    // transaction. Without the cap check here a student with N old
+    // resumes could trigger N concurrent regenerations and bypass the
+    // POST /me/resumes cap entirely.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await reserveInflightOrThrow(client, req.user.studentId, 1);
+      const swap = await client.query(
+        `UPDATE intake_resumes
+            SET status = 'pending', error = NULL, updated_at = NOW()
+          WHERE id = $1
+            AND status NOT IN ('pending','running')
+          RETURNING id`,
+        [row.id]
+      );
+      if (swap.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "regeneration already in progress for this resume",
+        });
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (e.code === "INFLIGHT_CAP") {
+        return res.status(429).json({
+          error: `you have ${e.currentInflight} resume${e.currentInflight === 1 ? "" : "s"} still generating; wait for those to finish before starting more`,
+          currentInflight: e.currentInflight,
+          cap: e.cap,
+        });
+      }
+      throw e;
+    } finally {
+      client.release();
     }
+
     executeResume({
       resumeId: row.id,
       spec: {
@@ -961,7 +1052,22 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
     if (!isString(newPassword) || newPassword.length < 6 || newPassword.length > 100) {
       return res.status(400).json({ error: "password must be 6-100 chars" });
     }
-    const currentSid = req.cookies?.[SESSION_COOKIE_NAME] || null;
+    // Validate the cookie value is a UUID before letting it hit the
+    // SQL cast — without this, a non-UUID cookie (browser extension
+    // edited it; reverse-proxy stripped it; legacy non-UUID session
+    // id) either makes the cast throw 22P02 (rolling back the password
+    // change → 500) or, if NULL, the `id <> $2::uuid` clause evaluates
+    // to NULL and the DELETE matches zero rows — silent bypass that
+    // defeats the whole point. Coerce to null on bad input + use
+    // IS DISTINCT FROM so the NULL case nukes ALL sessions (which is
+    // correct: if we can't identify the current cookie, treat it as
+    // potentially compromised and re-login everywhere).
+    const rawSid = req.cookies?.[SESSION_COOKIE_NAME];
+    const isUuid = (s) =>
+      typeof s === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    const currentSid = isUuid(rawSid) ? rawSid : null;
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -970,10 +1076,12 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
         [hashPassword(newPassword), req.user.studentId]
       );
       // Drop every session row for this student that isn't the one
-      // making the request right now. Defends against cookie theft.
+      // making the request right now. IS DISTINCT FROM handles NULL
+      // correctly (NULL is distinct from every UUID) — when currentSid
+      // is null this becomes a full purge, which is the safer default.
       const del = await client.query(
         `DELETE FROM sessions
-           WHERE student_id = $1 AND id <> $2::uuid`,
+           WHERE student_id = $1 AND id IS DISTINCT FROM $2::uuid`,
         [req.user.studentId, currentSid]
       );
       await client.query("COMMIT");
