@@ -5,9 +5,9 @@
 // reported %). Mismatches don't fail — they get flagged in `data.warnings`
 // so the student catches them in the review step.
 
-import fs from "node:fs";
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { getStorage } from "../storage.js";
+import { generateStructured } from "../llm/index.js";
 
 const MODEL = "gemini-2.5-pro";
 
@@ -123,12 +123,7 @@ function validate(data) {
   return warnings;
 }
 
-export async function extractMarksheet(file, { apiKey } = {}) {
-  const key = apiKey || process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set");
-
-  const ai = new GoogleGenAI({ apiKey: key });
-
+export async function extractMarksheet(file) {
   // Read via the storage abstraction so this works whether storage_path
   // is a local disk path or an S3 key.
   const store = await getStorage();
@@ -137,73 +132,31 @@ export async function extractMarksheet(file, { apiKey } = {}) {
   for await (const chunk of stream) chunks.push(chunk);
   const pdfBytes = Buffer.concat(chunks);
 
-  const t0 = Date.now();
-  let timeoutHandle;
-  const timeoutP = new Promise((_, reject) => {
-    timeoutHandle = setTimeout(
-      () => reject(new Error(`Gemini call exceeded ${EXTRACTION_TIMEOUT_MS}ms`)),
-      EXTRACTION_TIMEOUT_MS
-    );
-  });
-  // The SDK doesn't expose AbortController on generateContent today; the
-  // Promise.race lets us return early on timeout while the underlying
-  // network request may still be in flight. Worst case the connection
-  // dangles until the OS / Node socket timeout finishes it. Acceptable —
-  // the row gets marked failed and the student sees a retry button.
-  const callP = ai.models.generateContent({
-    model: MODEL,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: SCHEMA,
-      temperature: 0,
-    },
-    contents: [
+  const { data, model, elapsedMs, usage, provider } = await generateStructured({
+    purpose: "extract",
+    systemInstruction: SYSTEM_PROMPT,
+    responseSchema: SCHEMA,
+    temperature: 0,
+    timeoutMs: EXTRACTION_TIMEOUT_MS,
+    userParts: [
       {
-        role: "user",
-        parts: [
-          {
-            inlineData: {
-              mimeType: file.mimeType || "application/pdf",
-              data: pdfBytes.toString("base64"),
-            },
-          },
-          { text: "Extract the marksheet data per the schema." },
-        ],
+        type: "pdf",
+        mimeType: file.mimeType || "application/pdf",
+        data: pdfBytes.toString("base64"),
       },
+      { type: "text", text: "Extract the marksheet data per the schema." },
     ],
   });
-
-  let response;
-  try {
-    response = await Promise.race([callP, timeoutP]);
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-
-  const elapsedMs = Date.now() - t0;
-
-  // Gemini may return tool/function-call style results; for responseSchema +
-  // application/json the text is a JSON string we just parse.
-  const text = response.text;
-  if (!text) {
-    throw new Error("Gemini returned no text");
-  }
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Could not parse Gemini JSON response: ${e.message}`);
-  }
 
   const warnings = validate(data);
   if (warnings.length) data.warnings = warnings;
 
   return {
     data,
-    model: MODEL,
+    model,
     elapsedMs,
-    usage: response.usageMetadata || null,
+    usage,
+    provider,
   };
 }
 

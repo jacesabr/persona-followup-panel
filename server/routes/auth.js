@@ -186,6 +186,7 @@ router.post("/logout", async (req, res, next) => {
     const sid = req.cookies?.[SESSION_COOKIE_NAME];
     if (sid) {
       await pool.query("DELETE FROM sessions WHERE id = $1", [sid]);
+      audit(req, { table: "sessions", id: sid, action: "logout" });
     }
     clearSessionCookie(res);
     res.json({ ok: true });

@@ -1,0 +1,21 @@
+label: "Liberal arts undergrad — 1 page · journalism + research"
+length_pages: 1
+length_words: 365
+domain: liberal_arts
+style: narrative
+voice_notes: |
+  Slightly more narrative than the CS examples — bullets allow longer
+  prose, fewer raw numbers but still always with denominators when
+  available ("top 5 of 84 delegates", "top 1,000 of ~600,000 sitters").
+  Awards section uses a light prose summary inside each line rather
+  than pure metric. No Skills section — liberal-arts apps don't expect
+  one. Activities is the closing flourish; doesn't try to be a
+  separate big block.
+notes: |
+  Synthetic example for a humanities applicant. Targets US/UK liberal-
+  arts colleges where prose + civic engagement reads stronger than
+  technical-output bullets. Hits the always-include 10/12 board %
+  idiom. No DOB/parents/photo/declaration.
+sanitized: true
+real_student: false
+source: "synthetic seed example, generated 2026-05-03"

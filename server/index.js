@@ -14,6 +14,7 @@ import authRouter from "./routes/auth.js";
 import studentsRouter from "./routes/students.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
+import { autoAudit } from "./auditing.js";
 
 const SESSION_GC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
 
@@ -162,9 +163,14 @@ app.use("/api/students", (req, res, next) =>
 );
 app.use("/api/auth", writeLimiter);
 
-app.use("/api/leads", requireAuth, leadsRouter);
-app.use("/api/counsellors", requireAuth, counsellorsRouter);
-app.use("/api/tasks", requireAuth, tasksRouter);
+// autoAudit middleware on the pre-merge surfaces (leads/tasks/counsellors)
+// closes the audit gap the wiring agent flagged: those routes had ZERO
+// audit log coverage despite being in production. Students router has
+// inline audit() calls per-handler (more granular metadata) so it stays
+// without the wrapper.
+app.use("/api/leads", requireAuth, autoAudit("leads"), leadsRouter);
+app.use("/api/counsellors", requireAuth, autoAudit("counsellors"), counsellorsRouter);
+app.use("/api/tasks", requireAuth, autoAudit("counsellor_tasks"), tasksRouter);
 app.use("/api/students", requireAuth, studentsRouter);
 app.use("/api/auth", authRouter);
 

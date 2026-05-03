@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2 } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download } from "lucide-react";
 import { api } from "./api.js";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
@@ -13,6 +13,10 @@ export default function StudentsAdmin({ role, leads = [] }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  // Roster filter — case-insensitive substring match across the visible
+  // metadata columns. Cheap client-side filter; server pagination is a
+  // future concern (we only return the row count up to a few hundred).
+  const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
 
   const refresh = async () => {
@@ -35,17 +39,58 @@ export default function StudentsAdmin({ role, leads = [] }) {
     refresh();
   };
 
+  // Substring filter against the same fields that show on the row card.
+  const filteredStudents = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter((s) => {
+      const haystack = [
+        s.username,
+        s.display_name,
+        s.lead_name,
+        s.counsellor_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [students, filter]);
+
   return (
     <div>
       <CreateStudentForm role={role} leads={leads} onCreated={onCreated} />
 
-      <div className="mt-8 mb-3 flex items-baseline justify-between border-b border-stone-300 pb-2">
+      <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-stone-700">
           Students {students.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-stone-500">({students.length})</span>
+            <span className="ml-2 text-xs font-normal text-stone-500">
+              ({filteredStudents.length}
+              {filteredStudents.length !== students.length ? ` of ${students.length}` : ""})
+            </span>
           )}
         </h2>
-        {loading && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+        <div className="flex items-center gap-2">
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+          <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
+            <Search className="h-3 w-3 text-stone-400" />
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="filter…"
+              className="w-40 bg-transparent text-xs outline-none"
+            />
+          </div>
+          <button
+            onClick={() => downloadStudentsCsv(filteredStudents)}
+            disabled={filteredStudents.length === 0}
+            title="Download visible rows as CSV"
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700 disabled:opacity-30"
+          >
+            <Download className="h-3 w-3" /> CSV
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -59,9 +104,14 @@ export default function StudentsAdmin({ role, leads = [] }) {
           No students yet. Sign someone up using the form above.
         </p>
       )}
+      {students.length > 0 && filteredStudents.length === 0 && (
+        <p className="mt-6 text-sm italic text-stone-500">
+          No students match "{filter}".
+        </p>
+      )}
 
       <div className="space-y-2">
-        {students.map((s) => (
+        {filteredStudents.map((s) => (
           <StudentRow
             key={s.student_id}
             row={s}
@@ -555,3 +605,42 @@ const humanSize = (b) => {
   if (b < 1024 ** 2) return `${(b / 1024).toFixed(0)} KB`;
   return `${(b / 1024 ** 2).toFixed(1)} MB`;
 };
+
+// CSV download for the visible roster rows. Common parent-meeting prep
+// path. Uses RFC 4180 quoting (wrap fields in "..", escape any embedded
+// double-quote by doubling it). Date stamps the filename so a counsellor
+// downloading twice doesn't overwrite the first export.
+function downloadStudentsCsv(rows) {
+  if (!rows || rows.length === 0) return;
+  const cols = [
+    "student_id",
+    "username",
+    "display_name",
+    "intake_complete",
+    "file_count",
+    "resume_count",
+    "lead_name",
+    "counsellor_name",
+    "created_at",
+    "updated_at",
+  ];
+  const esc = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(",")];
+  for (const r of rows) {
+    lines.push(cols.map((c) => esc(r[c])).join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.download = `persona-students-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

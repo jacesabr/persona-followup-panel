@@ -13,9 +13,9 @@
 // approaches I could copy" — this is the ResumeFlow section-loop +
 // Hungreeee citation-grounded pattern, run on Gemini 2.5 Pro.
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
+import { generateStructured } from "../llm/index.js";
 
-const MODEL = "gemini-2.5-pro";
 const TIMEOUT_MS = parseInt(process.env.SECTION_TIMEOUT_MS || "120000", 10);
 
 const SYSTEM_PROMPT = `You are a senior admissions consultant writing ONE section of a student resume in a specific style.
@@ -68,13 +68,7 @@ export async function generateSection({
   wordBudget,
   claims,            // [{ id, claim, source_id, relevance }]
   examples,          // [{ label, full_text, voice_notes, ... }]
-  apiKey,
 }) {
-  const key = apiKey || process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set");
-
-  const ai = new GoogleGenAI({ apiKey: key });
-
   const promptParts = [
     `<THESIS>\n${thesis || "—"}\n</THESIS>`,
     `<SECTION>${section}</SECTION>`,
@@ -91,47 +85,14 @@ export async function generateSection({
     `Write the ${section} section now. Cite every bullet to one or more <CLAIM_LEDGER> ids in the source_ids array.`,
   ];
 
-  const t0 = Date.now();
-  let timeoutHandle;
-  const timeoutP = new Promise((_, reject) => {
-    timeoutHandle = setTimeout(
-      () => reject(new Error(`Section call (${section}) exceeded ${TIMEOUT_MS}ms`)),
-      TIMEOUT_MS
-    );
-  });
-  const callP = ai.models.generateContent({
-    model: MODEL,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: SCHEMA,
-      temperature: 0.3, // a touch of creativity for phrasing, NOT for facts
-    },
-    contents: [{ role: "user", parts: [{ text: promptParts.join("\n\n") }] }],
+  const { data: body, model, elapsedMs, usage } = await generateStructured({
+    purpose: "section",
+    systemInstruction: SYSTEM_PROMPT,
+    responseSchema: SCHEMA,
+    temperature: 0.3, // a touch of creativity for phrasing, NOT for facts
+    timeoutMs: TIMEOUT_MS,
+    userParts: [{ type: "text", text: promptParts.join("\n\n") }],
   });
 
-  let response;
-  try {
-    response = await Promise.race([callP, timeoutP]);
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-
-  const elapsedMs = Date.now() - t0;
-  const text = response.text;
-  if (!text) throw new Error(`Section ${section}: empty response`);
-
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Section ${section} JSON parse failed: ${e.message}`);
-  }
-
-  return {
-    body,
-    model: MODEL,
-    elapsedMs,
-    usage: response.usageMetadata || null,
-  };
+  return { body, model, elapsedMs, usage };
 }

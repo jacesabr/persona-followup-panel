@@ -78,8 +78,22 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
       if (req.user.kind !== "admin") {
         return res.status(403).json({ error: "only admin can supply an explicit password" });
       }
-      if (!isString(explicitPassword) || explicitPassword.length < 4 || explicitPassword.length > 100) {
-        return res.status(400).json({ error: "password must be 4-100 characters" });
+      if (!isString(explicitPassword) || explicitPassword.length < 6 || explicitPassword.length > 100) {
+        return res.status(400).json({ error: "password must be 6-100 characters" });
+      }
+      // Reject obvious-weak values so a compromised admin can't trivially
+      // build a backdoor pool of accounts with known credentials. The
+      // adversarial-on-change agent flagged this — admin-only path was
+      // capped at 4 chars with no value check. "student" still passes
+      // the floor (7 chars, not in denylist) so the explicit test
+      // account works; common weak patterns don't.
+      const lower = explicitPassword.toLowerCase();
+      const WEAK = new Set([
+        "password", "12345678", "qwerty12", "abcdef", "letmein",
+        "admin123", "password1", "qwertyui", "iloveyou", "welcome1",
+      ]);
+      if (WEAK.has(lower)) {
+        return res.status(400).json({ error: "password is too common; pick something else" });
       }
     }
 

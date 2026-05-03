@@ -2,6 +2,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { isValidUtcIso, isValidYmd } from "../../lib/time.js";
+import { audit } from "../audit.js";
 
 const router = express.Router();
 

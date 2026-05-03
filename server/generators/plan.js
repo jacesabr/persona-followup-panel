@@ -12,9 +12,9 @@
 // trace back to a `source_id` here; the validator throws away anything
 // that doesn't.
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
+import { generateStructured } from "../llm/index.js";
 
-const MODEL = "gemini-2.5-pro";
 const TIMEOUT_MS = parseInt(process.env.PLAN_TIMEOUT_MS || "120000", 10);
 
 const SYSTEM_PROMPT = `You are a senior admissions consultant building the source-of-truth fact ledger for an Indian student applying to universities abroad.
@@ -88,12 +88,7 @@ const SCHEMA = {
   propertyOrdering: ["thesis", "section_order", "section_ratios", "facts", "headline_strengths"],
 };
 
-export async function buildPlan({ studentRecord, extractions, apiKey }) {
-  const key = apiKey || process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set");
-
-  const ai = new GoogleGenAI({ apiKey: key });
-
+export async function buildPlan({ studentRecord, extractions }) {
   // Compose the input bundle the model sees. Both intake answers and
   // confirmed extractions, with stable ids the model can reference.
   const inputBundle = {
@@ -108,53 +103,21 @@ export async function buildPlan({ studentRecord, extractions, apiKey }) {
       })),
   };
 
-  const t0 = Date.now();
-  let timeoutHandle;
-  const timeoutP = new Promise((_, reject) => {
-    timeoutHandle = setTimeout(
-      () => reject(new Error(`Plan call exceeded ${TIMEOUT_MS}ms`)),
-      TIMEOUT_MS
-    );
-  });
-  const callP = ai.models.generateContent({
-    model: MODEL,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: SCHEMA,
-      temperature: 0,
-    },
-    contents: [
+  const { data: plan, model, elapsedMs, usage } = await generateStructured({
+    purpose: "plan",
+    systemInstruction: SYSTEM_PROMPT,
+    responseSchema: SCHEMA,
+    temperature: 0,
+    timeoutMs: TIMEOUT_MS,
+    userParts: [
       {
-        role: "user",
-        parts: [
-          {
-            text:
-              "Build the claim ledger for this student. Inputs follow as JSON.\n\n" +
-              JSON.stringify(inputBundle, null, 2),
-          },
-        ],
+        type: "text",
+        text:
+          "Build the claim ledger for this student. Inputs follow as JSON.\n\n" +
+          JSON.stringify(inputBundle, null, 2),
       },
     ],
   });
-
-  let response;
-  try {
-    response = await Promise.race([callP, timeoutP]);
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-
-  const elapsedMs = Date.now() - t0;
-  const text = response.text;
-  if (!text) throw new Error("Plan call returned no text");
-
-  let plan;
-  try {
-    plan = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Plan JSON parse failed: ${e.message}`);
-  }
 
   // Build a quick lookup table: fact id -> claim. Section calls reject
   // bullets that cite ids not in this set.
@@ -164,8 +127,8 @@ export async function buildPlan({ studentRecord, extractions, apiKey }) {
   return {
     plan,
     factsById,
-    model: MODEL,
+    model,
     elapsedMs,
-    usage: response.usageMetadata || null,
+    usage,
   };
 }

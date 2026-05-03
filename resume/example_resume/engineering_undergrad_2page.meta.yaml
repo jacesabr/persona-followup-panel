@@ -1,0 +1,22 @@
+label: "Engineering undergrad — 2 page · hardware + open source"
+length_pages: 2
+length_words: 540
+domain: engineering
+style: formal_compact
+voice_notes: |
+  Past tense throughout. Numbers everywhere with denominators where
+  available ("AIR 2,184 of 1.27M", "12% reduction", "91% pick success",
+  "₹1,400 vs ₹15,000+"). Cross-section coherence: research / club /
+  open-source side project all show up as different facets of the same
+  engineering identity. Skills section is grouped (Languages /
+  Engineering tools / Hardware) — appropriate for a 2-page slot where
+  readers will scan it, not just glance.
+notes: |
+  Synthetic example for an Indian engineering undergrad applying to
+  US/UK programs. Targets an audience that wants to see hands-on
+  hardware + simulation + open-source delivery, not just project
+  names. Hits the always-include 10/12 board % idiom + concurrent-
+  enrollment signal. No DOB/parents/photo/declaration.
+sanitized: true
+real_student: false
+source: "synthetic seed example, generated 2026-05-03"

@@ -26,6 +26,17 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Anthropic adapter is wired but DORMANT today — Gemini is the
+      # default. To switch the resume generator's Plan + Section calls
+      # to Claude, set LLM_PROVIDER=anthropic on this service. Per-
+      # purpose overrides also accepted: LLM_PROVIDER_PLAN=anthropic,
+      # LLM_PROVIDER_SECTION=anthropic, LLM_PROVIDER_EXTRACT=gemini.
+      # Server refuses to call Anthropic if the key isn't set, so this
+      # being absent is safe.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: "gemini"
       - key: MAX_FILE_MB
         value: "10"
       # Storage backend for student uploads. Default "local" writes to
