@@ -73,7 +73,12 @@ export async function generateWithAnthropic({
     resp = await client.messages.create(
       {
         model,
-        max_tokens: 8192,
+        // 16k headroom — plan/section calls on the longest example
+        // resumes in our corpus topped out around 11k completion tokens
+        // during the comparative-implementation testing. 8k truncated
+        // mid-tool_use, which then failed the input-schema validation
+        // silently with a partial JSON object.
+        max_tokens: 16384,
         system: systemInstruction,
         messages: [{ role: "user", content }],
         tools: [tool],
@@ -83,7 +88,13 @@ export async function generateWithAnthropic({
       { signal: ctrl.signal }
     );
   } catch (e) {
-    if (e?.name === "AbortError") {
+    // The SDK throws APIUserAbortError (not AbortError) when the
+    // signal fires. Either name OR an aborted signal means timeout.
+    if (
+      ctrl.signal.aborted ||
+      e?.name === "APIUserAbortError" ||
+      e?.name === "AbortError"
+    ) {
       throw new Error(`Anthropic call exceeded ${timeoutMs}ms`);
     }
     throw e;
@@ -96,6 +107,16 @@ export async function generateWithAnthropic({
   const block = (resp.content || []).find((b) => b.type === "tool_use");
   if (!block) {
     throw new Error("Anthropic response missing tool_use block");
+  }
+  // Truncated mid-tool_use leaves a partial JSON object in block.input
+  // that may pass schema validation by accident (e.g. missing required
+  // fields not yet emitted, or arrays cut short). Refuse loudly so the
+  // caller retries or surfaces the failure, instead of generating a
+  // resume from half-extracted data.
+  if (resp.stop_reason === "max_tokens") {
+    throw new Error(
+      `Anthropic response truncated (stop_reason=max_tokens, max=16384) — partial tool_use rejected`
+    );
   }
 
   return {

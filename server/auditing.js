@@ -28,6 +28,16 @@ export function autoAudit(table) {
   return function autoAuditMw(req, res, next) {
     if (req.method === "GET") return next();
 
+    // Snapshot the request body BEFORE handing off to the route. The
+    // adversarial-on-change agent caught this: handlers routinely
+    // mutate req.body (e.g. delete req.body.password after hashing,
+    // splice out role-elevation fields, etc.). If we read req.body
+    // inside the patched res.json (which fires AFTER the handler),
+    // the audit log records the post-sanitised version — which is
+    // exactly what hides a privilege-escalation attempt. Snapshot
+    // here, scrub here, store the scrubbed snapshot for later.
+    const bodySnapshot = scrubBody(req.body);
+
     const origJson = res.json.bind(res);
     res.json = function patchedJson(body) {
       try {
@@ -45,7 +55,7 @@ export function autoAudit(table) {
             table,
             id: targetId,
             action,
-            diff: scrubBody(req.body),
+            diff: bodySnapshot,
           });
         }
       } catch (e) {

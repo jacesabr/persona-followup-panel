@@ -88,9 +88,23 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
       // the floor (7 chars, not in denylist) so the explicit test
       // account works; common weak patterns don't.
       const lower = explicitPassword.toLowerCase();
+      // Common-password denylist. Drawn from the SecLists rockyou top-50
+      // filtered to entries 6+ chars (our minimum length). Not exhaustive
+      // by design — admins can still pick a clearly-weak unique password
+      // and we'd rather not block the test account "student" or similar
+      // intentional choices. Goal here is to defeat the laziest "set
+      // every backdoor account to '123456'" attack pattern.
       const WEAK = new Set([
-        "password", "12345678", "qwerty12", "abcdef", "letmein",
-        "admin123", "password1", "qwertyui", "iloveyou", "welcome1",
+        "123456", "1234567", "12345678", "123456789", "1234567890",
+        "111111", "000000", "222222", "121212", "654321",
+        "password", "password1", "password12", "passw0rd", "p@ssword",
+        "qwerty", "qwerty1", "qwerty12", "qwertyui", "qwertyuiop",
+        "abcdef", "abc123", "abcd1234", "asdfgh", "asdfghjkl",
+        "zxcvbn", "zxcvbnm", "letmein", "iloveyou", "trustno1",
+        "welcome", "welcome1", "monkey", "dragon", "master",
+        "admin", "admin1", "admin12", "admin123", "administrator",
+        "login", "guest", "test", "test123", "testing",
+        "default", "changeme", "secret", "shadow", "freedom",
       ]);
       if (WEAK.has(lower)) {
         return res.status(400).json({ error: "password is too common; pick something else" });

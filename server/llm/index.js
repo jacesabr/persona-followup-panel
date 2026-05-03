@@ -60,26 +60,67 @@ export async function generateStructured(req) {
 // Schema converter shared by both adapters. Gemini's @google/genai
 // SDK uses uppercase Type enums (Type.OBJECT, Type.STRING, …) which
 // are essentially JSON Schema with type strings UPPERCASED + a few
-// proprietary keys (propertyOrdering). Anthropic tool_use expects
-// vanilla lowercase JSON Schema. Convert recursively at the boundary.
+// proprietary keys (propertyOrdering, nullable). Anthropic tool_use
+// expects vanilla JSON Schema 2020-12. Convert recursively at the
+// boundary.
+//
+// Critical (caught by adversarial-on-change agent): `nullable: true`
+// is OpenAPI 3.0 syntax that Anthropic does NOT recognise. Without
+// translation, every nullable field on the marksheet schema (almost
+// all of them) becomes "required string", and Claude fabricates "0"
+// or "" to satisfy the schema instead of returning null. JSON Schema
+// 2020-12's equivalent is `type: [<t>, "null"]`.
+//
+// Also drops Gemini-specific `format` values that aren't valid JSON
+// Schema (e.g. `format: "enum"`).
 // ----------------------------------------------------------------
+const GEMINI_ONLY_KEYS = new Set(["propertyOrdering"]);
+const VALID_JSON_SCHEMA_FORMATS = new Set([
+  "date-time", "time", "date", "duration",
+  "email", "idn-email", "hostname", "idn-hostname",
+  "ipv4", "ipv6", "uri", "uri-reference", "iri", "iri-reference",
+  "uuid", "uri-template",
+  "json-pointer", "relative-json-pointer", "regex",
+]);
+
 export function toJsonSchema(schema) {
   if (!schema || typeof schema !== "object") return schema;
   if (Array.isArray(schema)) return schema.map(toJsonSchema);
+
   const out = {};
+  let typeStr = null;
+  let isNullable = false;
+
   for (const [k, v] of Object.entries(schema)) {
-    if (k === "propertyOrdering") continue; // Gemini-only
+    if (GEMINI_ONLY_KEYS.has(k)) continue;
     if (k === "type" && typeof v === "string") {
-      out.type = v.toLowerCase();
+      typeStr = v.toLowerCase();
+    } else if (k === "nullable") {
+      isNullable = !!v;
     } else if (k === "properties" && v && typeof v === "object") {
       out.properties = Object.fromEntries(
         Object.entries(v).map(([pk, pv]) => [pk, toJsonSchema(pv)])
       );
     } else if (k === "items") {
       out.items = toJsonSchema(v);
+    } else if (k === "format" && typeof v === "string") {
+      // Drop format values JSON Schema doesn't know about (Gemini-
+      // specific). Anthropic ignores unknown format strings but the
+      // strict JSON-Schema-compatible thing is to omit them.
+      if (VALID_JSON_SCHEMA_FORMATS.has(v)) out.format = v;
     } else {
       out[k] = v;
     }
   }
+
+  // Type emit: union with "null" if nullable, plain otherwise.
+  if (typeStr) {
+    out.type = isNullable ? [typeStr, "null"] : typeStr;
+  } else if (isNullable) {
+    // Nullable without a base type is technically permissive — let
+    // it through as just `null`. Shouldn't happen with our schemas.
+    out.type = "null";
+  }
+
   return out;
 }
