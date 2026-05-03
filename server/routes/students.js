@@ -55,7 +55,7 @@ function newStudentId() {
 // Returns: { student_id, username, password (PLAINTEXT, ONE TIME) }
 router.post("/", requireStaff, express.json(), async (req, res, next) => {
   try {
-    const { username, lead_id, display_name } = req.body || {};
+    const { username, lead_id, display_name, password: explicitPassword } = req.body || {};
     if (!isString(username) || username.trim().length < 3 || username.length > 50) {
       return res.status(400).json({ error: "username must be 3-50 characters" });
     }
@@ -68,9 +68,23 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     if (display_name != null && (!isString(display_name) || display_name.length > 200)) {
       return res.status(400).json({ error: "display_name must be a string up to 200 chars" });
     }
+    // Admins (only) can supply an explicit password — used for test
+    // accounts and for the rare case where a counsellor needs a known
+    // value. Counsellors always get a system-generated random password,
+    // because if they picked it themselves they could deliberately set
+    // a weak / known value and impersonate the student. Keep this gate
+    // tight.
+    if (explicitPassword != null) {
+      if (req.user.kind !== "admin") {
+        return res.status(403).json({ error: "only admin can supply an explicit password" });
+      }
+      if (!isString(explicitPassword) || explicitPassword.length < 4 || explicitPassword.length > 100) {
+        return res.status(400).json({ error: "password must be 4-100 characters" });
+      }
+    }
 
     const cleanUsername = username.trim();
-    const password = generatePassword();
+    const password = explicitPassword || generatePassword();
     const password_hash = hashPassword(password);
     const studentId = newStudentId();
 
@@ -90,7 +104,12 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
         table: "intake_students",
         id: row.student_id,
         action: "create",
-        diff: { username: row.username, lead_id: row.lead_id, display_name: row.display_name },
+        diff: {
+          username: row.username,
+          lead_id: row.lead_id,
+          display_name: row.display_name,
+          password_source: explicitPassword ? "admin_supplied" : "system_generated",
+        },
       });
       // Plaintext password is RETURNED ONCE here. We never store it
       // anywhere except the bcrypt-style hash above.

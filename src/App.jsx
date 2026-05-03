@@ -293,7 +293,21 @@ function BackToAdminBanner({ staffName, onExit }) {
 // Login
 // ============================================================
 function Login({ onAuth }) {
-  const [user, setUser] = useState("");
+  // Prefill the username from a `?u=` URL param so onboarding links
+  // sent by the counsellor (StudentsAdmin's CredentialsModal) drop the
+  // student straight into the form with their username already typed.
+  // Strip the param after read so refreshing the login screen later
+  // doesn't keep showing it.
+  const initialUser = (() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const u = params.get("u");
+      if (u && /^[a-zA-Z0-9_.-]{1,50}$/.test(u)) return u;
+    } catch {}
+    return "";
+  })();
+  const [user, setUser] = useState(initialUser);
   const [pw, setPw] = useState("");
   // err is null when no error, or { kind: "auth"|"network", message? }.
   const [err, setErr] = useState(null);
@@ -343,6 +357,9 @@ function Login({ onAuth }) {
               }}
               autoFocus
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               className="flex-1 bg-transparent py-3 text-lg outline-none"
               placeholder="username"
             />

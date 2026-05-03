@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2 } from "lucide-react";
 import { api } from "./api.js";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
@@ -190,13 +190,58 @@ function CreateStudentForm({ role, leads, onCreated }) {
 }
 
 // ============================================================
-// CredentialsModal — shows the one-time plaintext password after
-// account creation or password reset. Counsellor copies + sends to
-// the student. Cannot be retrieved again after the modal closes.
+// CredentialsModal — shown after account creation or password reset.
+// Three send paths so the counsellor's "send to the student" flow is
+// one click instead of manual copy-paste:
+//   - Open WhatsApp with the message prefilled
+//   - Open the email client with subject + body prefilled
+//   - Copy a plain-text version of the same message
+// The message includes the login URL with ?u=username so the student's
+// login form opens prefilled, plus a short list of documents to have
+// ready before they start. The password is shown ONCE — clicking the
+// modal away loses it forever (recovery is via Reset pw).
 // ============================================================
+
+// Required-doc checklist surfaced in the onboarding message. Mirrors
+// the most common intake fields in a friendlier order. Kept here (not
+// dynamically derived from the schema) so the message stays short and
+// stable; if the schema grows this list should be revisited.
+const REQUIRED_DOCS_FOR_MESSAGE = [
+  "Class 10, 11, 12 marksheets (PDF or phone photos work)",
+  "Passport (front, back, last page)",
+  "Test scores: IELTS / TOEFL / SAT / AP — whichever you have",
+  "2-3 letters of recommendation (LORs)",
+  "Statement of purpose draft",
+  "Activity / award certificates",
+];
+
+function buildOnboardingMessage(account) {
+  const loginUrl = `${window.location.origin}/?u=${encodeURIComponent(account.username)}`;
+  return [
+    `Hi ${account.display_name || "there"},`,
+    ``,
+    `Your Persona account is ready. We'll use it to collect your profile + documents and generate tailored resumes for your university applications.`,
+    ``,
+    `🔗 Log in: ${loginUrl}`,
+    `👤 Username: ${account.username}`,
+    `🔑 Password: ${account.password}`,
+    ``,
+    `You'll need these ready (PDF or phone photo both work — your progress saves automatically, no rush):`,
+    ...REQUIRED_DOCS_FOR_MESSAGE.map((d) => `  • ${d}`),
+    ``,
+    `Any questions, message back here.`,
+  ].join("\n");
+}
+
 function CredentialsModal({ account, onClose }) {
   const [copied, setCopied] = useState(null);
-  const fullText = `Username: ${account.username}\nPassword: ${account.password}\nLogin at: ${window.location.origin}`;
+
+  const message = buildOnboardingMessage(account);
+  const loginUrl = `${window.location.origin}/?u=${encodeURIComponent(account.username)}`;
+  const whatsappHref = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  const mailtoHref =
+    `mailto:?subject=${encodeURIComponent("Your Persona account is ready")}` +
+    `&body=${encodeURIComponent(message)}`;
 
   const copy = async (text, label) => {
     try {
@@ -214,13 +259,13 @@ function CredentialsModal({ account, onClose }) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg border border-stone-300 bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-stone-300 bg-white p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-baseline justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
             <KeyRound className="mr-2 inline-block h-3 w-3" />
-            Account credentials
+            Account ready — send to student
           </p>
           <button
             onClick={onClose}
@@ -232,27 +277,61 @@ function CredentialsModal({ account, onClose }) {
         </div>
 
         <p className="mb-4 text-xs text-amber-800">
-          ⚠ Copy these now — the password is shown <strong>once</strong> and never again.
-          Send them to the student through your usual channel.
+          ⚠ The password is shown <strong>once</strong>. Send it now — if you close
+          this modal you'll need to use <em>Reset pw</em> to generate a new one.
         </p>
 
         <CredField label="Username" value={account.username} onCopy={() => copy(account.username, "username")} copied={copied === "username"} />
         <CredField label="Password" value={account.password} onCopy={() => copy(account.password, "password")} copied={copied === "password"} mono />
-        <div className="mt-4">
-          <button
-            onClick={() => copy(fullText, "all")}
-            className="inline-flex items-center gap-2 border border-stone-700 bg-stone-700 px-4 py-2 text-[11px] uppercase tracking-[0.2em] text-white transition hover:bg-stone-800"
-          >
-            {copied === "all" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-            {copied === "all" ? "Copied all" : "Copy username + password + login URL"}
-          </button>
+        <CredField label="Login link" value={loginUrl} onCopy={() => copy(loginUrl, "url")} copied={copied === "url"} />
+
+        {/* Three send paths — each opens the user's preferred channel
+            with a fully-formed message prefilled (login link + creds +
+            required-docs checklist). Counsellor edits before sending if
+            they want to. Auto-fills the student's own messenger; we
+            don't talk to WhatsApp / email APIs from the server. */}
+        <div className="mt-5 border-t border-stone-200 pt-4">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-600">
+            Send to student
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 border border-emerald-700 bg-emerald-700 px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-white transition hover:bg-emerald-800"
+            >
+              <MessageCircle className="h-3 w-3" /> WhatsApp
+            </a>
+            <a
+              href={mailtoHref}
+              className="inline-flex items-center justify-center gap-2 border border-stone-700 bg-stone-700 px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-white transition hover:bg-stone-800"
+            >
+              <Mail className="h-3 w-3" /> Email
+            </a>
+            <button
+              onClick={() => copy(message, "message")}
+              className="inline-flex items-center justify-center gap-2 border border-stone-300 bg-white px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700"
+            >
+              {copied === "message" ? <Check className="h-3 w-3 text-emerald-700" /> : <Link2 className="h-3 w-3" />}
+              {copied === "message" ? "Copied" : "Copy text"}
+            </button>
+          </div>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-[10px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-900">
+              Preview message
+            </summary>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap border border-stone-200 bg-stone-50 p-2 text-[11px] text-stone-700">
+              {message}
+            </pre>
+          </details>
         </div>
 
         <button
           onClick={onClose}
           className="mt-6 w-full border border-stone-400 px-4 py-2 text-xs uppercase tracking-[0.2em] text-stone-600 hover:bg-stone-50"
         >
-          I've saved them
+          I've sent them
         </button>
       </div>
     </div>
