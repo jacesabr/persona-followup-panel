@@ -29,6 +29,8 @@ import {
   retryExtraction,
   isExtractionTerminal,
 } from "./intakeFiles.js";
+import ExtractionReview from "./ExtractionReview.jsx";
+import ResumeConfig from "./ResumeConfig.jsx";
 
 // ============================================================
 // Schema — chapters → pages → fields.
@@ -959,13 +961,38 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     }
   };
 
-  // Mark intake as complete on the canonical record before handing off
-  // to the parent. Awaits the final write so downstream views can trust
-  // the server has the latest state.
+  // Mark intake as complete on the canonical record. After this, the
+  // student moves on to the post-intake phases (review extractions,
+  // configure resumes, generate). The parent's onComplete fires too,
+  // for any external bookkeeping.
   const finishIntake = useCallback(async () => {
     await persist({ intakeComplete: true });
+    setPhase("review");
     onComplete?.(answersRef.current);
   }, [persist, onComplete]);
+
+  // Post-intake phase machine. Lives inside StudentIntake so the
+  // student stays in one cohesive component until they're done; the
+  // server is the source of truth for intake_complete so a refresh
+  // picks the right phase to land on.
+  //   "intake"     → filling the form
+  //   "review"     → confirming extracted data per document
+  //   "config"     → picking resume count + length
+  //   "generating" → (next push) generation in progress
+  //   "done"       → (next push) resumes ready, view + download
+  const [phase, setPhase] = useState("intake");
+  // Once hydration finishes and we know intake_complete, jump straight
+  // into review so a returning student doesn't see the intake form
+  // they already finished. Preserved across reloads via the server flag.
+  useEffect(() => {
+    if (hydration !== "ready") return;
+    // The hydrate effect already loaded body.intakeComplete; re-pull
+    // from the answers ref via the parent record. We mirror it onto
+    // a local flag set during loadRecord. Simplest: re-fetch once.
+    loadRecord().then((body) => {
+      if (body?.intakeComplete) setPhase("review");
+    }).catch(() => {});
+  }, [hydration]);
 
   // Enter advances on welcome / closing only — multi-field pages need free Enter.
   useEffect(() => {
@@ -983,6 +1010,37 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
 
   if (hydration !== "ready") {
     return <HydrationGate state={hydration} />;
+  }
+
+  // Post-intake phases: render full-width without the intake's flow map.
+  if (phase === "review") {
+    return (
+      <PostIntakeFrame onExit={onExit} title="Review">
+        <ExtractionReview
+          onBack={() => setPhase("intake")}
+          onContinue={() => setPhase("config")}
+        />
+      </PostIntakeFrame>
+    );
+  }
+  if (phase === "config") {
+    return (
+      <PostIntakeFrame onExit={onExit} title="Resume setup">
+        <ResumeConfig
+          onBack={() => setPhase("review")}
+          onGenerate={async (specs) => {
+            // Wired to the resume generator in the next push. For now
+            // surface what would be sent so we can confirm the shape.
+            console.log("[resume] would generate:", specs);
+            alert(
+              "Resume generation comes online in the next push.\n\n" +
+              "Configured: " + specs.length + " resume(s)\n" +
+              specs.map((s) => `  • ${s.label} (${s.length_pages}p, ${s.style})`).join("\n")
+            );
+          }}
+        />
+      </PostIntakeFrame>
+    );
   }
 
   return (
@@ -1026,6 +1084,38 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
         onReset={resetOrder}
         onReorder={reorderTo}
       />
+    </div>
+  );
+}
+
+// Shared frame for the post-intake screens (Review, Config, Generating,
+// Done). Same brand chrome as the intake's TopBar minus the autofill
+// button, plus a wider content area since these screens have tables.
+function PostIntakeFrame({ children, onExit, title }) {
+  return (
+    <div
+      className="min-h-screen w-full font-serif text-stone-900"
+      style={{ backgroundColor: "#f4f0e6" }}
+    >
+      <header className="fixed left-0 right-0 top-0 z-10 flex items-center justify-between border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
+        <button
+          onClick={onExit}
+          className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+        >
+          <ArrowLeft className="h-3 w-3" /> sign out
+        </button>
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm italic text-stone-500">the</span>
+          <span className="text-lg font-semibold tracking-tight">Persona</span>
+          <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            · {title}
+          </span>
+        </div>
+        <div className="w-20" /> {/* spacer to balance the sign-out */}
+      </header>
+      <section className="mx-auto max-w-4xl px-6 pt-24 pb-16">
+        {children}
+      </section>
     </div>
   );
 }

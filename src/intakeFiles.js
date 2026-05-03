@@ -204,3 +204,33 @@ export async function retryExtraction(fileId) {
 }
 
 export const isExtractionTerminal = (status) => TERMINAL_STATUSES.has(status);
+
+// List every extraction belonging to the current student. Drives the
+// "Review what we read" page — one card per extraction, grouped by file.
+export async function listExtractions() {
+  const res = await fetch("/api/students/me/extractions");
+  if (!res.ok) {
+    let msg = `Listing extractions failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// Mark an extraction as confirmed by the student. `data` is the
+// edited (or as-is) version; the server stores it in
+// intake_extractions.confirmed_data alongside the original data
+// blob — provenance preserved either way.
+export async function confirmExtraction(id, data) {
+  const res = await fetch(`/api/students/me/extractions/${encodeURIComponent(id)}/confirm`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) {
+    let msg = `Confirm failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
