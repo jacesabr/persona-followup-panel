@@ -106,4 +106,25 @@ export const api = {
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
   archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),
   unarchiveTask: (id) => request("POST", `/api/tasks/${id}/unarchive`),
+  // ----------------------------------------------------------------
+  // Students. Staff (admin/counsellor) creates accounts and reviews
+  // intake data; students themselves don't go through this client
+  // surface — they see the StudentIntake component, which talks to
+  // /api/students/me/* directly.
+  // ----------------------------------------------------------------
+  // Sign a lead (or anyone) up as a student. Returns the new account
+  // including a one-time plaintext password the counsellor copies and
+  // sends to the student.
+  createStudent: ({ username, lead_id, display_name } = {}) =>
+    request("POST", "/api/students", { username, lead_id, display_name }),
+  // Generate a fresh password for an existing student. Returns the
+  // new plaintext one-time.
+  resetStudentPassword: (studentId) =>
+    request("POST", `/api/students/${studentId}/reset-password`),
+  // Roster: admin sees all student accounts, counsellor sees only the
+  // ones they created.
+  listStudents: () => request("GET", "/api/students"),
+  // Detail: full intake data + extractions + resumes for one student.
+  // Same scoping rules as listStudents.
+  getStudent: (studentId) => request("GET", `/api/students/${studentId}`),
 };

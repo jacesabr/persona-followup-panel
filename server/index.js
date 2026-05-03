@@ -11,6 +11,7 @@ import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
+import studentsRouter from "./routes/students.js";
 import { migrate } from "./migrate.js";
 
 const SESSION_GC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
@@ -85,11 +86,15 @@ app.use("/api/counsellors", (req, res, next) =>
 app.use("/api/tasks", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/students", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 app.use("/api/auth", writeLimiter);
 
 app.use("/api/leads", requireAuth, leadsRouter);
 app.use("/api/counsellors", requireAuth, counsellorsRouter);
 app.use("/api/tasks", requireAuth, tasksRouter);
+app.use("/api/students", requireAuth, studentsRouter);
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");

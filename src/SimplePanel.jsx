@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
+import StudentsAdmin from "./StudentsAdmin.jsx";
+import { api } from "./api.js";
 
 const TAB_KEY = "persona_simple_tab";
 
@@ -9,7 +11,7 @@ function loadTab(role) {
   if (typeof window === "undefined") return "followup";
   try {
     const t = sessionStorage.getItem(TAB_KEY);
-    if (t === "followup" || t === "tasks") return t;
+    if (t === "followup" || t === "tasks" || t === "students") return t;
     if (t === "counsellors" && role === "admin") return t;
   } catch {
     /* ignore */
@@ -47,6 +49,10 @@ export default function SimplePanel({
   onCounsellorsChanged,
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
+  // Leads list piggybacks here so the Students tab's signup form can show
+  // a "link to lead" dropdown — counsellor sees only their own leads,
+  // admin sees all (handled server-side in /api/leads).
+  const [leadsForLink, setLeadsForLink] = useState([]);
 
   useEffect(() => {
     try {
@@ -55,6 +61,13 @@ export default function SimplePanel({
       /* ignore quota/private mode */
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "students") return;
+    api.listLeads({ counsellorId: role === "counsellor" ? scopedCounsellorId : null })
+      .then(setLeadsForLink)
+      .catch(() => setLeadsForLink([]));
+  }, [tab, role, scopedCounsellorId]);
 
   return (
     <>
@@ -69,6 +82,11 @@ export default function SimplePanel({
             label="Counsellor tasks"
             active={tab === "tasks"}
             onClick={() => setTab("tasks")}
+          />
+          <FolderTab
+            label="Students"
+            active={tab === "students"}
+            onClick={() => setTab("students")}
           />
           {role === "admin" && (
             /* Admin-only tab: list every counsellor + create new ones
@@ -94,6 +112,9 @@ export default function SimplePanel({
           onImpersonate={onImpersonate}
           counsellors={counsellors}
         />
+      )}
+      {tab === "students" && (
+        <StudentsAdmin role={role} leads={leadsForLink} />
       )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin

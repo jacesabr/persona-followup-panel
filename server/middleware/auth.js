@@ -19,7 +19,7 @@ export async function requireAuth(req, res, next) {
     if (!sid) return res.status(401).json({ error: "not authenticated" });
 
     const { rows } = await pool.query(
-      `SELECT id, user_kind, counsellor_id
+      `SELECT id, user_kind, counsellor_id, student_id
        FROM sessions
        WHERE id = $1
          AND last_seen_at > NOW() - $2::interval`,
@@ -44,6 +44,7 @@ export async function requireAuth(req, res, next) {
     req.user = {
       kind: rows[0].user_kind,
       counsellorId: rows[0].counsellor_id,
+      studentId: rows[0].student_id,
     };
     next();
   } catch (e) {
@@ -79,6 +80,27 @@ export function clearSessionCookie(res) {
 export function requireAdmin(req, res, next) {
   if (req.user?.kind !== "admin") {
     return res.status(403).json({ error: "admin only" });
+  }
+  next();
+}
+
+// requireStaff — admin OR counsellor. Used by the routes that staff
+// (either role) hit on a student's behalf, e.g. POST /api/students
+// (sign a lead up as a student).
+export function requireStaff(req, res, next) {
+  const k = req.user?.kind;
+  if (k !== "admin" && k !== "counsellor") {
+    return res.status(403).json({ error: "staff only" });
+  }
+  next();
+}
+
+// requireStudent — gate the intake routes so only an authenticated
+// student session can hit them. Populates req.user.studentId by the
+// time it returns.
+export function requireStudent(req, res, next) {
+  if (req.user?.kind !== "student" || !req.user?.studentId) {
+    return res.status(403).json({ error: "student only" });
   }
   next();
 }

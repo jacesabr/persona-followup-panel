@@ -102,6 +102,139 @@ DROP TABLE IF EXISTS lead_actionables CASCADE;
 ALTER TABLE leads DROP COLUMN IF EXISTS transcript;
 ALTER TABLE leads DROP COLUMN IF EXISTS notes;
 ALTER TABLE leads DROP COLUMN IF EXISTS reminder_sent;
+
+-- ============================================================
+-- STUDENT INTAKE TABLES (merged in from persona-intake repo).
+-- All additive, all CREATE/ALTER … IF NOT EXISTS, all FKs
+-- ON DELETE RESTRICT so nothing cascades silently. The intake
+-- pipeline writes here; the admin panel reads.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS intake_students (
+  id              BIGSERIAL PRIMARY KEY,
+  student_id      TEXT NOT NULL UNIQUE,
+  intake_complete BOOLEAN NOT NULL DEFAULT FALSE,
+  data            JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_students_updated  ON intake_students(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intake_students_complete ON intake_students(intake_complete);
+
+-- Per-student account credentials + provenance (lead origin + creating counsellor).
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS username       TEXT;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_hash  TEXT;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS lead_id        TEXT REFERENCES leads(id) ON DELETE SET NULL;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS counsellor_id  TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS display_name   TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_students(LOWER(username)) WHERE username IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);
+CREATE INDEX IF NOT EXISTS idx_intake_students_counsellor ON intake_students(counsellor_id);
+
+CREATE TABLE IF NOT EXISTS intake_files (
+  id            BIGSERIAL PRIMARY KEY,
+  student_id    TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
+  field_id      TEXT NOT NULL,
+  row_index     INT,
+  original_name TEXT NOT NULL,
+  storage_path  TEXT NOT NULL,
+  size          BIGINT NOT NULL,
+  mime_type     TEXT NOT NULL,
+  superseded_at TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_files_student ON intake_files(student_id);
+CREATE INDEX IF NOT EXISTS idx_intake_files_active
+  ON intake_files(student_id, field_id, row_index) WHERE superseded_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS intake_extractions (
+  id              BIGSERIAL PRIMARY KEY,
+  file_id         BIGINT NOT NULL REFERENCES intake_files(id) ON DELETE RESTRICT,
+  student_id      TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
+  extractor       TEXT NOT NULL,
+  model           TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  data            JSONB,
+  confirmed_data  JSONB,
+  confirmed_at    TIMESTAMPTZ,
+  error           TEXT,
+  cost_cents      INT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_extractions_file    ON intake_extractions(file_id);
+CREATE INDEX IF NOT EXISTS idx_intake_extractions_student ON intake_extractions(student_id);
+CREATE INDEX IF NOT EXISTS idx_intake_extractions_status  ON intake_extractions(status);
+
+CREATE TABLE IF NOT EXISTS intake_insights (
+  id              BIGSERIAL PRIMARY KEY,
+  student_id      TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
+  model           TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  data            JSONB,
+  source_snapshot JSONB,
+  cost_cents      INT,
+  error           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_insights_student ON intake_insights(student_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS intake_examples (
+  id              BIGSERIAL PRIMARY KEY,
+  label           TEXT NOT NULL,
+  length_pages    INT,
+  length_words    INT,
+  domain          TEXT,
+  style           TEXT,
+  voice_notes     TEXT,
+  full_text       TEXT NOT NULL,
+  source_pdf_path TEXT,
+  notes           TEXT,
+  active          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_examples_active
+  ON intake_examples(domain, length_pages) WHERE active = TRUE;
+
+CREATE TABLE IF NOT EXISTS intake_resumes (
+  id              BIGSERIAL PRIMARY KEY,
+  student_id      TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
+  label           TEXT,
+  length_pages    INT,
+  length_words    INT,
+  style           TEXT,
+  domain          TEXT,
+  example_ids     BIGINT[],
+  insights_id     BIGINT REFERENCES intake_insights(id) ON DELETE SET NULL,
+  source_snapshot JSONB,
+  model           TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  content_md      TEXT,
+  content_html    TEXT,
+  pdf_file_id     BIGINT REFERENCES intake_files(id) ON DELETE SET NULL,
+  cost_cents      INT,
+  error           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_resumes_student ON intake_resumes(student_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intake_resumes_active  ON intake_resumes(student_id, status);
+
+-- Sessions: extend to allow user_kind='student' + carry student_id.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;
+DO $reauth_sessions$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'sessions_user_kind_check'
+       OR (conrelid = 'sessions'::regclass AND contype = 'c')
+  ) THEN
+    ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_user_kind_check;
+  END IF;
+END
+$reauth_sessions$;
+ALTER TABLE sessions ADD CONSTRAINT sessions_user_kind_check
+  CHECK (user_kind IN ('admin', 'counsellor', 'student'));
 `;
 
 export async function migrate() {

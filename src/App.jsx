@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Loader2, LogOut, User, Lock } from "lucide-react";
 import SimplePanel from "./SimplePanel.jsx";
 import AdminPanel from "./AdminPanel.jsx";
+import StudentIntake from "./StudentIntake.jsx";
 import { api, setUnauthorizedHandler } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 
@@ -83,6 +84,12 @@ export default function App() {
           setSession({ role: "admin" });
         } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
           setSession({ role: "counsellor", counsellorId: me.counsellor.id });
+        } else if (me.user_kind === "student" && me.student?.student_id) {
+          setSession({
+            role: "student",
+            studentId: me.student.student_id,
+            studentName: me.student.display_name || me.student.username,
+          });
         } else {
           setSession(null);
         }
@@ -114,6 +121,12 @@ export default function App() {
         setSession({ role: "admin" });
       } else if (out.user_kind === "counsellor") {
         setSession({ role: "counsellor", counsellorId: out.counsellor.id });
+      } else if (out.user_kind === "student") {
+        setSession({
+          role: "student",
+          studentId: out.student.student_id,
+          studentName: out.student.display_name || out.student.username,
+        });
       }
       return { ok: true };
     } catch (e) {
@@ -149,6 +162,19 @@ export default function App() {
   }
 
   if (!session) return <Login onAuth={onAuth} />;
+
+  // Student session — render the intake form, no admin chrome. The
+  // intake's TopBar provides its own sign-out path via the existing
+  // /api/auth/logout flow.
+  if (session.role === "student") {
+    return (
+      <StudentIntake
+        studentName={session.studentName || "student"}
+        onExit={onSignOut}
+        onComplete={() => { /* server-side intake_complete flag flips inside the intake UI */ }}
+      />
+    );
+  }
 
   // Admin viewing-as a counsellor. Renders the same scoped SimplePanel
   // a counsellor would see for themselves; the impersonation banner up
