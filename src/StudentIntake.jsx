@@ -804,8 +804,13 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   // writes (concurrent-tab race) with 409 instead of silently overwriting.
   const expectedUpdatedAtRef = useRef(null);
 
-  // Hydrate from backend on mount. The server sets the intake_sid cookie
-  // if missing, then returns either the saved record or an empty one.
+  // Hydrate from backend on mount. ONE round-trip — body now includes
+  // both the saved data AND a server-resolved `phase` so reload during
+  // any post-intake screen lands on the right thing (was a hole the
+  // wiring audit found: phase was component-local; reload bounced the
+  // student back to review and re-POSTing duplicated generations).
+  // Also restores the last page they were on (data.lastStep) so the
+  // 80-question intake doesn't restart at welcome.
   useEffect(() => {
     let cancelled = false;
     loadRecord()
@@ -814,9 +819,24 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
         const data = body?.data || {};
         const savedAnswers = data.answers || {};
         const savedOrder = data.order;
+        const reconciledOrder = reconcileOrder(savedOrder);
         setAnswers(repairTransientStates(savedAnswers));
-        setOrder(reconcileOrder(savedOrder));
+        setOrder(reconciledOrder);
         expectedUpdatedAtRef.current = body?.updatedAt || null;
+
+        // Last-page restore. data.lastStep is the index into the
+        // ordered pages array we were on. Clamp into [-1, total-1] in
+        // case the schema changed since the save.
+        if (Number.isInteger(data.lastStep)) {
+          const clamped = Math.max(-1, Math.min(reconciledOrder.length - 1, data.lastStep));
+          setStep(clamped);
+        }
+
+        // Phase restore — server is the source of truth.
+        const serverPhase = body?.phase;
+        if (serverPhase && serverPhase !== "intake") {
+          setPhase(serverPhase);
+        }
         setHydration("ready");
       })
       .catch((err) => {
@@ -842,11 +862,23 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   // races (rare — three tabs?), surface the error and let the next save
   // try again. We DON'T overwrite the user's typed answers on the merge —
   // their local edits always win at the field level.
+  // Track the latest step in a ref so persist() can include it in the
+  // payload without re-binding on every step change.
+  const stepRef = useRef(step);
+  useEffect(() => { stepRef.current = step; }, [step]);
+
   const persist = useCallback(async (opts = {}) => {
     setSaveState("saving");
     const tryOnce = async () => {
       const payload = {
-        data: { answers: answersRef.current, order: orderRef.current },
+        data: {
+          answers: answersRef.current,
+          order: orderRef.current,
+          // Persist the page index so a returning student lands on the
+          // exact page they left, not the welcome screen. Cheap — adds
+          // ~10 bytes to every PUT.
+          lastStep: stepRef.current,
+        },
         intakeComplete: !!opts.intakeComplete,
         expectedUpdatedAt: expectedUpdatedAtRef.current,
       };
@@ -984,18 +1016,13 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   //   "generating" → (next push) generation in progress
   //   "done"       → (next push) resumes ready, view + download
   const [phase, setPhase] = useState("intake");
-  // Once hydration finishes and we know intake_complete, jump straight
-  // into review so a returning student doesn't see the intake form
-  // they already finished. Preserved across reloads via the server flag.
-  useEffect(() => {
-    if (hydration !== "ready") return;
-    // The hydrate effect already loaded body.intakeComplete; re-pull
-    // from the answers ref via the parent record. We mirror it onto
-    // a local flag set during loadRecord. Simplest: re-fetch once.
-    loadRecord().then((body) => {
-      if (body?.intakeComplete) setPhase("review");
-    }).catch(() => {});
-  }, [hydration]);
+  // Phase is now set inside the hydrate useEffect from the server's
+  // resolved phase field — see the loadRecord block above. The previous
+  // implementation re-fetched /me/record solely to read intake_complete,
+  // which (a) doubled the round-trips on every mount and (b) only
+  // handled the intake→review transition; reload during generating /
+  // done bounced the student back to review. The wiring audit flagged
+  // both.
 
   // Enter advances on welcome / closing only — multi-field pages need free Enter.
   useEffect(() => {
@@ -1429,7 +1456,14 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
         value={value}
         onChange={onChange}
         onBlur={onBlur}
-        accept={field.accept || "application/pdf"}
+        // Default accept now allows phone-camera photos (JPG/PNG) AND
+        // PDFs everywhere. Indian students overwhelmingly snap
+        // marksheets/LORs on Android; PDF-only was rejecting the
+        // most common upload path. Server validator already accepts
+        // image/jpeg + image/png, so this is a pure client-side
+        // unblock. Per-field schema can still override (e.g. force
+        // PDF-only for a field where photos make no sense).
+        accept={field.accept || "image/jpeg,image/png,application/pdf"}
         maxSizeMB={field.maxSizeMB ?? 10}
         fieldId={field.id}
       />
@@ -1559,7 +1593,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
 // On error or completion the user can replace or remove the file.
 // ============================================================
 const FileSlot = forwardRef(function FileSlot(
-  { value, onChange, onBlur, accept = "application/pdf", maxSizeMB = 10, fieldId, compact = false },
+  { value, onChange, onBlur, accept = "image/jpeg,image/png,application/pdf", maxSizeMB = 10, fieldId, compact = false },
   ref
 ) {
   const inputRef = useRef(null);
@@ -1835,7 +1869,7 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
           value={value}
           onChange={onChange}
           onBlur={onBlur}
-          accept={subfield.accept || "application/pdf"}
+          accept={subfield.accept || "image/jpeg,image/png,application/pdf"}
           maxSizeMB={subfield.maxSizeMB ?? 10}
           fieldId={subfield.id}
           compact

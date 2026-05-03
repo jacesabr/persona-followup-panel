@@ -238,28 +238,48 @@ function ExtractionCard({
 
   return (
     <div className={`border ${headerTone}`}>
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-        disabled={isInflight}
-      >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-stone-500" />
-        ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-stone-500" />
+      <div className="flex w-full items-center gap-3 px-4 py-3">
+        <button
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          disabled={isInflight}
+        >
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-stone-500" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-stone-500" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-stone-900">
+              {prettyExtractor(e.extractor)}
+              {" — "}
+              <span className="font-normal text-stone-600">{e.fileName}</span>
+            </p>
+            <p className="mt-0.5 text-[11px] text-stone-500">
+              <StatusPill status={status} confirmedAt={e.confirmedAt} error={e.error} />
+              {" · "}<span className="font-mono text-stone-400">{e.fieldId}</span>
+            </p>
+          </div>
+        </button>
+        {/* "View original" — opens the source PDF / image in a new tab
+            so the student can compare what the AI read against the
+            actual document side-by-side. Single biggest review-screen
+            friction point per the journey audit (Journey 4 ❌).
+            Authenticated download via the existing /me/files/:id route
+            (browser sends the persona_session cookie automatically since
+            it's same-origin). */}
+        {e.fileId && (
+          <a
+            href={`/api/students/me/files/${encodeURIComponent(e.fileId)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(ev) => ev.stopPropagation()}
+            className="ml-2 shrink-0 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700"
+          >
+            View original
+          </a>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-stone-900">
-            {prettyExtractor(e.extractor)}
-            {" — "}
-            <span className="font-normal text-stone-600">{e.fileName}</span>
-          </p>
-          <p className="mt-0.5 text-[11px] text-stone-500">
-            <StatusPill status={status} confirmedAt={e.confirmedAt} error={e.error} />
-            {" · "}<span className="font-mono text-stone-400">{e.fieldId}</span>
-          </p>
-        </div>
-      </button>
+      </div>
 
       {expanded && !isInflight && (
         <div className="border-t border-stone-200 bg-white p-4">

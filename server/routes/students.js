@@ -5,7 +5,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
-import { requireStaff, requireStudent } from "../middleware/auth.js";
+import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
 import { validateUploadedFile } from "../middleware/validateFile.js";
 import { scheduleExtraction } from "../extractors/run.js";
 import { audit } from "../audit.js";
@@ -115,23 +115,48 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
 // POST /api/students/:student_id/reset-password — staff regenerates a
 // student's password. Returns the new plaintext one-time. Useful when
 // the student loses their credentials.
+//
+// Invalidates ALL existing student sessions in the same transaction —
+// a stolen cookie that prompted the reset can NOT survive the reset.
 router.post("/:student_id/reset-password", requireStaff, async (req, res, next) => {
   try {
     const password = generatePassword();
     const password_hash = hashPassword(password);
-    const { rows } = await pool.query(
-      `UPDATE intake_students SET password_hash = $1
-        WHERE student_id = $2
-        RETURNING student_id, username`,
-      [password_hash, req.params.student_id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: "student not found" });
+    const client = await pool.connect();
+    let row;
+    try {
+      await client.query("BEGIN");
+      const u = await client.query(
+        `UPDATE intake_students SET password_hash = $1
+          WHERE student_id = $2
+          RETURNING student_id, username`,
+        [password_hash, req.params.student_id]
+      );
+      if (u.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student not found" });
+      }
+      row = u.rows[0];
+      // Invalidate every session for this student. The new password
+      // takes effect immediately; any old cookie is now dead.
+      await client.query(
+        `DELETE FROM sessions WHERE student_id = $1`,
+        [row.student_id]
+      );
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
     audit(req, {
       table: "intake_students",
-      id: rows[0].student_id,
+      id: row.student_id,
       action: "password_reset",
+      diff: { sessions_invalidated: true },
     });
-    res.json({ ...rows[0], password });
+    res.json({ ...row, password });
   } catch (e) {
     next(e);
   }
@@ -229,9 +254,30 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
 
 router.get("/me/record", requireStudent, async (req, res, next) => {
   try {
+    // One round-trip: pull the student row + the counts the phase
+    // resolver needs (extractions: total / unconfirmed; resumes:
+    // any-inflight / any-succeeded). LEFT JOIN against aggregates so
+    // brand-new students with zero rows still get the right shape.
     const { rows } = await pool.query(
-      `SELECT student_id, intake_complete, data, updated_at
-         FROM intake_students WHERE student_id = $1`,
+      `SELECT s.student_id, s.intake_complete, s.data, s.updated_at,
+              COALESCE(ex.total, 0) AS extractions_total,
+              COALESCE(ex.unconfirmed, 0) AS extractions_unconfirmed,
+              COALESCE(rs.inflight, 0) AS resumes_inflight,
+              COALESCE(rs.succeeded, 0) AS resumes_succeeded
+         FROM intake_students s
+         LEFT JOIN (
+           SELECT student_id,
+                  COUNT(*)::int AS total,
+                  SUM(CASE WHEN status = 'succeeded' AND confirmed_at IS NULL THEN 1 ELSE 0 END)::int AS unconfirmed
+             FROM intake_extractions GROUP BY student_id
+         ) ex ON ex.student_id = s.student_id
+         LEFT JOIN (
+           SELECT student_id,
+                  SUM(CASE WHEN status IN ('pending','running') THEN 1 ELSE 0 END)::int AS inflight,
+                  SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END)::int AS succeeded
+             FROM intake_resumes GROUP BY student_id
+         ) rs ON rs.student_id = s.student_id
+        WHERE s.student_id = $1`,
       [req.user.studentId]
     );
     const row = rows[0];
@@ -240,13 +286,36 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
         studentId: req.user.studentId,
         intakeComplete: false,
         data: {},
+        phase: "intake",
       });
     }
+
+    // Phase resolver — single source of truth for which screen the
+    // student should land on after reload / sign-out / new device.
+    // Without this, phase was component-local in StudentIntake.jsx
+    // and reload during 'generating' or 'done' silently dropped the
+    // student back to 'review' (and worse, re-POSTing /me/resumes
+    // there created duplicate generations).
+    let phase = "intake";
+    if (row.intake_complete) {
+      if (row.resumes_inflight > 0) phase = "generating";
+      else if (row.resumes_succeeded > 0) phase = "done";
+      else if (row.extractions_unconfirmed > 0) phase = "review";
+      else phase = "config";
+    }
+
     res.json({
       studentId: row.student_id,
       intakeComplete: row.intake_complete,
       data: row.data || {},
       updatedAt: row.updated_at,
+      phase,
+      counts: {
+        extractions: row.extractions_total,
+        extractionsUnconfirmed: row.extractions_unconfirmed,
+        resumesInflight: row.resumes_inflight,
+        resumesSucceeded: row.resumes_succeeded,
+      },
     });
   } catch (e) {
     next(e);
@@ -687,6 +756,13 @@ router.post("/admin/import-examples", requireAdmin, async (req, res, next) => {
 // generations. Client polls GET /me/resumes/:id until terminal.
 // ============================================================
 
+// Hard cap on per-student concurrent generations. Prevents one student
+// (whether bored, malicious, or stuck in a refresh loop) from queueing
+// 100+ Gemini-backed generation calls and blowing through the API
+// budget. Combined with the regenerate row-status guard below this
+// closes the cost-runaway hole the audit found.
+const MAX_INFLIGHT_RESUMES_PER_STUDENT = 3;
+
 // POST /api/students/me/resumes — body { specs: [{ label, length_pages,
 // length_words?, style?, domain? }, ...] }. Returns the created rows.
 router.post("/me/resumes", requireStudent, express.json(), async (req, res, next) => {
@@ -698,6 +774,24 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
     if (specs.length > 5) {
       return res.status(400).json({ error: "max 5 resumes per batch" });
     }
+
+    // Concurrent-generation gate. Count how many of the student's
+    // resumes are already pending or running; reject if accepting this
+    // batch would push them past MAX_INFLIGHT_RESUMES_PER_STUDENT.
+    const inflight = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM intake_resumes
+        WHERE student_id = $1 AND status IN ('pending','running')`,
+      [req.user.studentId]
+    );
+    const currentInflight = inflight.rows[0]?.n || 0;
+    if (currentInflight + specs.length > MAX_INFLIGHT_RESUMES_PER_STUDENT) {
+      return res.status(429).json({
+        error: `you have ${currentInflight} resume${currentInflight === 1 ? "" : "s"} still generating; wait for those to finish before starting more`,
+        currentInflight,
+        cap: MAX_INFLIGHT_RESUMES_PER_STUDENT,
+      });
+    }
+
     const created = [];
     for (const spec of specs) {
       // Each scheduleResume() call inserts a row + fires the background
@@ -821,12 +915,24 @@ router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next)
     if (row.student_id !== req.user.studentId) {
       return res.status(403).json({ error: "forbidden" });
     }
-    await pool.query(
+    // Compare-and-swap: only flip to pending if the row isn't already
+    // running. Without this, two tabs hitting Regenerate at the same
+    // moment both pass the SELECT, both UPDATE, both fire executeResume,
+    // and the final status is whichever finishes last — doubling cost
+    // and confusing the polling client.
+    const swap = await pool.query(
       `UPDATE intake_resumes
           SET status = 'pending', error = NULL, updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1
+          AND status NOT IN ('pending','running')
+        RETURNING id`,
       [row.id]
     );
+    if (swap.rows.length === 0) {
+      return res.status(409).json({
+        error: "regeneration already in progress for this resume",
+      });
+    }
     executeResume({
       resumeId: row.id,
       spec: {
@@ -845,17 +951,44 @@ router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next)
 });
 
 // Student changes their own password.
+//
+// Invalidates every OTHER session for this student so a previously-
+// stolen cookie can't survive the rotation. Keeps the current session
+// alive so the tab the student typed in stays logged in.
 router.post("/me/change-password", requireStudent, express.json(), async (req, res, next) => {
   try {
     const { newPassword } = req.body || {};
     if (!isString(newPassword) || newPassword.length < 6 || newPassword.length > 100) {
       return res.status(400).json({ error: "password must be 6-100 chars" });
     }
-    await pool.query(
-      `UPDATE intake_students SET password_hash = $1 WHERE student_id = $2`,
-      [hashPassword(newPassword), req.user.studentId]
-    );
-    audit(req, { table: "intake_students", id: req.user.studentId, action: "change_password" });
+    const currentSid = req.cookies?.[SESSION_COOKIE_NAME] || null;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE intake_students SET password_hash = $1 WHERE student_id = $2`,
+        [hashPassword(newPassword), req.user.studentId]
+      );
+      // Drop every session row for this student that isn't the one
+      // making the request right now. Defends against cookie theft.
+      const del = await client.query(
+        `DELETE FROM sessions
+           WHERE student_id = $1 AND id <> $2::uuid`,
+        [req.user.studentId, currentSid]
+      );
+      await client.query("COMMIT");
+      audit(req, {
+        table: "intake_students",
+        id: req.user.studentId,
+        action: "change_password",
+        diff: { other_sessions_invalidated: del.rowCount },
+      });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
     res.json({ ok: true });
   } catch (e) {
     next(e);
