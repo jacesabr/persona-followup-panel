@@ -8,6 +8,8 @@ import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent } from "../middleware/auth.js";
 import { validateUploadedFile } from "../middleware/validateFile.js";
 import { scheduleExtraction } from "../extractors/run.js";
+import { audit } from "../audit.js";
+import { getStorage } from "../storage.js";
 
 const router = express.Router();
 
@@ -18,8 +20,12 @@ const isPositiveInt = (s) => /^[1-9][0-9]*$/.test(String(s));
 const isString = (v) => typeof v === "string";
 const sanitizeForFs = (s) => String(s).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
 
-const uploadsRoot = path.resolve(UPLOADS_DIR);
-fs.mkdirSync(uploadsRoot, { recursive: true });
+// Multer's staging area — every upload lands here briefly while we
+// run validation, then storage.save() moves it to its permanent home
+// (local disk, S3, R2, …). Lives under UPLOADS_DIR so the local backend
+// can do an atomic rename instead of a copy.
+const tmpRoot = path.resolve(UPLOADS_DIR, "_tmp");
+fs.mkdirSync(tmpRoot, { recursive: true });
 
 // Generate an 8-char password the counsellor copies and sends to the
 // student. Excludes ambiguous chars (0/O, 1/l/I) to reduce typos.
@@ -76,6 +82,12 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
         [studentId, cleanUsername, password_hash, lead_id || null, counsellorId, display_name || null]
       );
       const row = rows[0];
+      audit(req, {
+        table: "intake_students",
+        id: row.student_id,
+        action: "create",
+        diff: { username: row.username, lead_id: row.lead_id, display_name: row.display_name },
+      });
       // Plaintext password is RETURNED ONCE here. We never store it
       // anywhere except the bcrypt-style hash above.
       res.status(201).json({
@@ -110,6 +122,11 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
       [password_hash, req.params.student_id]
     );
     if (rows.length === 0) return res.status(404).json({ error: "student not found" });
+    audit(req, {
+      table: "intake_students",
+      id: rows[0].student_id,
+      action: "password_reset",
+    });
     res.json({ ...rows[0], password });
   } catch (e) {
     next(e);
@@ -232,20 +249,60 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
   }
 });
 
+// PUT /me/record — accepts optional `expectedUpdatedAt` precondition.
+// When the student has the form open in two tabs and tab A's debounced
+// save fires after tab B's, naive last-write-wins silently wipes A's
+// edits. Precondition check: if the body's expectedUpdatedAt doesn't
+// match the row's current updated_at, return 409 with the latest data
+// so the client can refetch + replay the user's local diff on top.
 router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (req, res, next) => {
   try {
-    const { data, intakeComplete } = req.body || {};
-    const { rows } = await pool.query(
-      `UPDATE intake_students
-          SET data = $1::jsonb,
-              intake_complete = $2,
-              updated_at = NOW()
-        WHERE student_id = $3
-        RETURNING student_id, intake_complete, updated_at`,
-      [JSON.stringify(data || {}), !!intakeComplete, req.user.studentId]
-    );
+    const { data, intakeComplete, expectedUpdatedAt } = req.body || {};
+
+    // The conflict-detecting UPDATE: filter on student_id AND on the
+    // optional expectedUpdatedAt. If expectedUpdatedAt is null/undefined
+    // we skip the precondition (initial save, mock data autofill, etc).
+    const sql = expectedUpdatedAt
+      ? `UPDATE intake_students
+            SET data = $1::jsonb,
+                intake_complete = $2,
+                updated_at = NOW()
+          WHERE student_id = $3
+            AND updated_at = $4::timestamptz
+          RETURNING student_id, intake_complete, updated_at`
+      : `UPDATE intake_students
+            SET data = $1::jsonb,
+                intake_complete = $2,
+                updated_at = NOW()
+          WHERE student_id = $3
+          RETURNING student_id, intake_complete, updated_at`;
+    const params = expectedUpdatedAt
+      ? [JSON.stringify(data || {}), !!intakeComplete, req.user.studentId, expectedUpdatedAt]
+      : [JSON.stringify(data || {}), !!intakeComplete, req.user.studentId];
+
+    const { rows } = await pool.query(sql, params);
     const row = rows[0];
+    if (!row && expectedUpdatedAt) {
+      // Precondition failed — surface the latest state so the client
+      // can decide how to merge (refetch + replay user's pending diff).
+      const latest = await pool.query(
+        `SELECT data, intake_complete, updated_at
+           FROM intake_students WHERE student_id = $1`,
+        [req.user.studentId]
+      );
+      const cur = latest.rows[0];
+      if (!cur) return res.status(404).json({ error: "student row missing" });
+      return res.status(409).json({
+        error: "stale write — another tab or device updated this record",
+        latest: {
+          data: cur.data || {},
+          intakeComplete: cur.intake_complete,
+          updatedAt: cur.updated_at,
+        },
+      });
+    }
     if (!row) return res.status(404).json({ error: "student row missing" });
+
     res.json({
       studentId: row.student_id,
       intakeComplete: row.intake_complete,
@@ -263,19 +320,17 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
 // poll /me/extractions/:id immediately.
 // ============================================================
 
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const dir = path.join(uploadsRoot, sanitizeForFs(req.user?.studentId || "anon"));
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
+// Multer always lands in tmpRoot — we move (or upload) to the configured
+// storage backend after validating magic bytes.
+const multerStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, tmpRoot),
   filename: (_req, file, cb) => {
     const id = crypto.randomBytes(12).toString("hex");
     const ext = path.extname(file.originalname) || "";
     cb(null, `${id}${ext}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: MAX_FILE_MB * 1024 * 1024 } });
+const upload = multer({ storage: multerStorage, limits: { fileSize: MAX_FILE_MB * 1024 * 1024 } });
 
 router.post("/me/upload", requireStudent, upload.single("file"), async (req, res, next) => {
   try {
@@ -294,58 +349,96 @@ router.post("/me/upload", requireStudent, upload.single("file"), async (req, res
     const studentId = req.user.studentId;
     const rowIdx = rowIndex != null && rowIndex !== "" ? Number(rowIndex) : null;
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(
-        `UPDATE intake_files
-            SET superseded_at = NOW()
-          WHERE student_id = $1 AND field_id = $2
-            AND ((row_index IS NULL AND $3::int IS NULL) OR row_index = $3)
-            AND superseded_at IS NULL`,
-        [studentId, fieldId, rowIdx]
-      );
-      const ins = await client.query(
-        `INSERT INTO intake_files
-           (student_id, field_id, row_index, original_name, storage_path, size, mime_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, created_at`,
-        [studentId, fieldId, rowIdx, req.file.originalname, req.file.path, req.file.size, v.actualType]
-      );
-      await client.query("COMMIT");
-      const doc = ins.rows[0];
+    // Hand the validated bytes to the storage backend (local disk by
+    // default, S3-compatible if STORAGE_BACKEND=s3). Returns the opaque
+    // `key` we persist as storage_path; download routes stream by key.
+    const store = await getStorage();
+    const saved = await store.save({
+      tmpPath: req.file.path,
+      scope: studentId,
+      originalName: req.file.originalname,
+      mimeType: v.actualType,
+    });
 
-      let extraction = null;
+    // Race guard: two simultaneous uploads to the same slot would both
+    // see "no active row, supersede no-op" and both INSERT, leaving two
+    // active rows. The unique partial index idx_intake_files_one_active
+    // prevents that — a 23505 here means the other upload won; we
+    // retry the supersede + insert once. Second attempt sees the now-
+    // existing active row and supersedes it cleanly.
+    const insertWithRetry = async () => {
+      const client = await pool.connect();
       try {
-        const sched = await scheduleExtraction({
-          id: doc.id,
-          student_id: studentId,
-          field_id: fieldId,
-          original_name: req.file.originalname,
-          storage_path: req.file.path,
-          mime_type: v.actualType,
-        });
-        if (sched.supported) {
-          extraction = { id: sched.id, status: sched.status, extractor: sched.extractor };
-        }
+        await client.query("BEGIN");
+        await client.query(
+          `UPDATE intake_files
+              SET superseded_at = NOW()
+            WHERE student_id = $1 AND field_id = $2
+              AND ((row_index IS NULL AND $3::int IS NULL) OR row_index = $3)
+              AND superseded_at IS NULL`,
+          [studentId, fieldId, rowIdx]
+        );
+        const ins = await client.query(
+          `INSERT INTO intake_files
+             (student_id, field_id, row_index, original_name, storage_path, size, mime_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, created_at`,
+          [studentId, fieldId, rowIdx, req.file.originalname, saved.key, saved.size, v.actualType]
+        );
+        await client.query("COMMIT");
+        return ins.rows[0];
       } catch (e) {
-        console.error("[upload] auto-extract schedule failed:", e);
+        await client.query("ROLLBACK").catch(() => {});
+        throw e;
+      } finally {
+        client.release();
       }
+    };
 
-      res.json({
-        fileId: String(doc.id),
-        url: `/api/students/me/files/${doc.id}`,
-        uploadedAt: doc.created_at.toISOString(),
-        actualType: v.actualType,
-        size: req.file.size,
-        extraction,
-      });
+    let doc;
+    try {
+      doc = await insertWithRetry();
     } catch (e) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw e;
-    } finally {
-      client.release();
+      if (e.code === "23505") {
+        doc = await insertWithRetry();
+      } else {
+        // DB insert failed — orphaned blob in storage. Best-effort cleanup.
+        await store.deleteIfExists(saved.key).catch(() => {});
+        throw e;
+      }
     }
+
+    let extraction = null;
+    try {
+      const sched = await scheduleExtraction({
+        id: doc.id,
+        student_id: studentId,
+        field_id: fieldId,
+        original_name: req.file.originalname,
+        storage_path: req.file.path,
+        mime_type: v.actualType,
+      });
+      if (sched.supported) {
+        extraction = { id: sched.id, status: sched.status, extractor: sched.extractor };
+      }
+    } catch (e) {
+      console.error("[upload] auto-extract schedule failed:", e);
+    }
+
+    audit(req, {
+      table: "intake_files",
+      id: doc.id,
+      action: "upload",
+      diff: { field_id: fieldId, original_name: req.file.originalname, size: req.file.size },
+    });
+    res.json({
+      fileId: String(doc.id),
+      url: `/api/students/me/files/${doc.id}`,
+      uploadedAt: doc.created_at.toISOString(),
+      actualType: v.actualType,
+      size: req.file.size,
+      extraction,
+    });
   } catch (err) {
     if (req.file?.path && fs.existsSync(req.file.path)) {
       try { fs.unlinkSync(req.file.path); } catch {}
@@ -370,8 +463,9 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
     if (doc.student_id !== req.user.studentId) {
       return res.status(403).json({ error: "Forbidden." });
     }
-    if (!fs.existsSync(doc.storage_path)) {
-      return res.status(410).json({ error: "File missing on disk." });
+    const store = await getStorage();
+    if (!(await store.exists(doc.storage_path))) {
+      return res.status(410).json({ error: "File missing in storage." });
     }
     res.set("Content-Type", doc.mime_type);
     res.set("Content-Length", String(doc.size));
@@ -379,7 +473,9 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
       "Content-Disposition",
       `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
     );
-    fs.createReadStream(doc.storage_path).pipe(res);
+    const stream = await store.openReadStream(doc.storage_path);
+    stream.on("error", (e) => next(e));
+    stream.pipe(res);
   } catch (e) {
     next(e);
   }
@@ -407,8 +503,9 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
     if (req.user.kind === "counsellor" && doc.counsellor_id !== req.user.counsellorId) {
       return res.status(403).json({ error: "not your student" });
     }
-    if (!fs.existsSync(doc.storage_path)) {
-      return res.status(410).json({ error: "File missing on disk." });
+    const store = await getStorage();
+    if (!(await store.exists(doc.storage_path))) {
+      return res.status(410).json({ error: "File missing in storage." });
     }
     res.set("Content-Type", doc.mime_type);
     res.set("Content-Length", String(doc.size));
@@ -416,7 +513,9 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
       "Content-Disposition",
       `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
     );
-    fs.createReadStream(doc.storage_path).pipe(res);
+    const stream = await store.openReadStream(doc.storage_path);
+    stream.on("error", (e) => next(e));
+    stream.pipe(res);
   } catch (e) {
     next(e);
   }
@@ -537,6 +636,12 @@ router.put("/me/extractions/:id/confirm", requireStudent, express.json(), async 
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ error: "not found" });
+    audit(req, {
+      table: "intake_extractions",
+      id: row.id,
+      action: "confirm",
+      diff: data ? { confirmed: true, edited: true } : { confirmed: true, edited: false },
+    });
     res.json({ id: String(row.id), confirmedAt: row.confirmed_at });
   } catch (e) {
     next(e);
@@ -554,6 +659,7 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
       `UPDATE intake_students SET password_hash = $1 WHERE student_id = $2`,
       [hashPassword(newPassword), req.user.studentId]
     );
+    audit(req, { table: "intake_students", id: req.user.studentId, action: "change_password" });
     res.json({ ok: true });
   } catch (e) {
     next(e);

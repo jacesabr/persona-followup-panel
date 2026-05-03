@@ -81,6 +81,11 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_seen ON sessions(last_seen_at);
 -- Marker table makes this idempotent: it runs exactly once (first boot
 -- after this migration ships), then the IF NOT EXISTS short-circuits
 -- forever. Real client data added afterwards is safe.
+--
+-- This block runs BEFORE the intake_* tables exist (on a brand-new DB)
+-- because Postgres processes statements in order. On already-migrated
+-- DBs the marker short-circuits, so the FK from intake_students.counsellor_id
+-- never gets evaluated against the truncate. Safe.
 DO $persona_wipe$
 BEGIN
   IF NOT EXISTS (
@@ -127,9 +132,21 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_hash  TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS lead_id        TEXT REFERENCES leads(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS counsellor_id  TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS display_name   TEXT;
+-- Soft-delete + retention. is_archived is a tombstone — row stays so files
+-- and FKs don't dangle, but the student can no longer log in and the staff
+-- UI hides them by default. scheduled_deletion_at is honoured by an offline
+-- job (not yet implemented) per DPDP retention rules.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS is_archived          BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS archived_at          TIMESTAMPTZ;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS archived_reason      TEXT;
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS scheduled_deletion_at TIMESTAMPTZ;
+-- Schema version of the JSONB intake form data this row was filled against.
+-- The resume generator + admin views can branch on this when we evolve fields.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS schema_version INT NOT NULL DEFAULT 1;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_students(LOWER(username)) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);
 CREATE INDEX IF NOT EXISTS idx_intake_students_counsellor ON intake_students(counsellor_id);
+CREATE INDEX IF NOT EXISTS idx_intake_students_active     ON intake_students(updated_at DESC) WHERE is_archived = FALSE;
 
 CREATE TABLE IF NOT EXISTS intake_files (
   id            BIGSERIAL PRIMARY KEY,
@@ -146,6 +163,12 @@ CREATE TABLE IF NOT EXISTS intake_files (
 CREATE INDEX IF NOT EXISTS idx_intake_files_student ON intake_files(student_id);
 CREATE INDEX IF NOT EXISTS idx_intake_files_active
   ON intake_files(student_id, field_id, row_index) WHERE superseded_at IS NULL;
+-- Race guard: enforce one active file per slot. COALESCE turns NULL row_index
+-- into a stable -1 so two non-repeater uploads at the same field collide via
+-- 23505 instead of both committing. Caller catches 23505 and retries.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_files_one_active
+  ON intake_files(student_id, field_id, COALESCE(row_index, -1))
+  WHERE superseded_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS intake_extractions (
   id              BIGSERIAL PRIMARY KEY,
@@ -220,8 +243,71 @@ CREATE TABLE IF NOT EXISTS intake_resumes (
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_student ON intake_resumes(student_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_active  ON intake_resumes(student_id, status);
 
+-- ============================================================
+-- intake_audit_log: append-only history of mutations on the
+-- intake side. Every UPDATE/INSERT/DELETE that staff or students
+-- trigger writes one row here, so "who changed this and when"
+-- is answerable for any row, ever. Required for DPDP / GDPR
+-- requests + parental data-access asks.
+--   actor_kind: 'admin' | 'counsellor' | 'student' | 'system'
+--   actor_id: counsellor_id (for counsellor) or student_id (for
+--             student) or NULL for admin/system
+--   target_table / target_id: what was touched
+--   action: 'create' | 'update' | 'delete' | 'view' | 'login' |
+--           'password_reset' | 'archive' | ...
+--   diff: JSONB { before: {...}, after: {...} } where useful
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intake_audit_log (
+  id            BIGSERIAL PRIMARY KEY,
+  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actor_kind    TEXT NOT NULL,
+  actor_id      TEXT,
+  ip            TEXT,
+  user_agent    TEXT,
+  target_table  TEXT NOT NULL,
+  target_id     TEXT,
+  action        TEXT NOT NULL,
+  diff          JSONB,
+  notes         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_intake_audit_target
+  ON intake_audit_log(target_table, target_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intake_audit_actor
+  ON intake_audit_log(actor_kind, actor_id, occurred_at DESC);
+
+-- ============================================================
+-- intake_consents: per-student consent records. The student (or
+-- their guardian for minors) signs once per consent_type+version;
+-- the row captures the legal moment for DPDP compliance. Snapshot
+-- of the document text is preserved so a later policy revision
+-- doesn't retroactively change what the student agreed to.
+--   consent_type: 'tos' | 'privacy_dpdp' | 'service_agreement' |
+--                 'data_sharing_universities' | 'parent_consent_minor' |
+--                 'payment_authorization'
+--   version: bumped per legal text change
+--   signed_by_minor_guardian: when student is under 18 per DPDP
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intake_consents (
+  id                       BIGSERIAL PRIMARY KEY,
+  student_id               TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
+  consent_type             TEXT NOT NULL,
+  version                  TEXT NOT NULL,
+  signed_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ip                       TEXT,
+  user_agent               TEXT,
+  signed_by_minor_guardian TEXT,
+  document_snapshot        TEXT NOT NULL,
+  notes                    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_intake_consents_student
+  ON intake_consents(student_id, consent_type, signed_at DESC);
+
 -- Sessions: extend to allow user_kind='student' + carry student_id.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;
+-- Absolute upper bound on session lifetime independent of sliding window.
+-- requireAuth checks created_at + this cap before honouring a cookie, so a
+-- leaked cookie can't survive forever just because the attacker keeps it warm.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_age_days INT NOT NULL DEFAULT 90;
 DO $reauth_sessions$
 BEGIN
   IF EXISTS (

@@ -18,11 +18,16 @@ export async function requireAuth(req, res, next) {
     const sid = req.cookies?.[SESSION_COOKIE_NAME];
     if (!sid) return res.status(401).json({ error: "not authenticated" });
 
+    // Two-axis expiry: (a) sliding window via last_seen_at and (b) hard
+    // upper bound via created_at + max_age_days. (b) means a leaked
+    // cookie can't survive forever just by being kept warm — even a
+    // continuously-active attacker hits the absolute wall.
     const { rows } = await pool.query(
       `SELECT id, user_kind, counsellor_id, student_id
        FROM sessions
        WHERE id = $1
-         AND last_seen_at > NOW() - $2::interval`,
+         AND last_seen_at > NOW() - $2::interval
+         AND created_at   > NOW() - (max_age_days::text || ' days')::interval`,
       [sid, `${SLIDING_EXPIRY_DAYS} days`]
     );
     if (rows.length === 0) {

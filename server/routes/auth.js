@@ -3,6 +3,14 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import pool from "../db.js";
 import { COUNSELLOR_PUBLIC_COLUMNS } from "./counsellors.js";
 import { hashPassword, isHashed, verifyHashed } from "../../lib/password.js";
+import { audit } from "../audit.js";
+
+// Static dummy scrypt hash used to equalize timing on the no-such-user
+// path. We always run a verifyHashed (~50ms) before responding 401, so
+// "username doesn't exist" and "username exists, wrong password" take
+// indistinguishable wall-clock time. The hash is for the literal string
+// "dummy" — irrelevant; only the hash math matters.
+const DUMMY_HASH = hashPassword("dummy_password_for_timing_equalization");
 import {
   SESSION_COOKIE_NAME,
   SLIDING_EXPIRY_DAYS,
@@ -56,6 +64,9 @@ async function tryStudentLogin(username, password, res) {
     [sid, s.student_id]
   );
   setSessionCookie(res, sid);
+  audit({ user: { kind: "student", studentId: s.student_id } }, {
+    table: "sessions", id: sid, action: "login", notes: `student:${s.username}`
+  });
   return {
     matched: true,
     respond: () =>
@@ -100,6 +111,9 @@ router.post("/login", async (req, res, next) => {
         [sid]
       );
       setSessionCookie(res, sid);
+      audit({ ip: req.ip, headers: req.headers, user: { kind: "admin" } }, {
+        table: "sessions", id: sid, action: "login", notes: "admin"
+      });
       return res.json({ user_kind: "admin" });
     }
 
@@ -117,6 +131,10 @@ router.post("/login", async (req, res, next) => {
       // Try student path before failing.
       const studentResult = await tryStudentLogin(u, password, res);
       if (studentResult.matched) return studentResult.respond();
+      // No counsellor and no student — burn one scrypt verify so the
+      // timing matches the wrong-password path, defeating username
+      // enumeration via response-time observation.
+      verifyHashed(password, DUMMY_HASH);
       return res.status(401).json({ error: "Incorrect username or password" });
     }
     // New rows store scrypt hashes. Legacy rows pre-dating the hash
@@ -150,6 +168,9 @@ router.post("/login", async (req, res, next) => {
       [sid, row.id]
     );
     setSessionCookie(res, sid);
+    audit({ ip: req.ip, headers: req.headers, user: { kind: "counsellor", counsellorId: row.id } }, {
+      table: "sessions", id: sid, action: "login", notes: `counsellor:${row.username}`
+    });
     const { password: _pw, ...safe } = row;
     res.json({ user_kind: "counsellor", counsellor: safe });
   } catch (e) {
@@ -189,7 +210,8 @@ router.get("/me", async (req, res, next) => {
        LEFT JOIN counsellors c     ON c.id          = s.counsellor_id
        LEFT JOIN intake_students st ON st.student_id = s.student_id
        WHERE s.id = $1
-         AND s.last_seen_at > NOW() - $2::interval`,
+         AND s.last_seen_at > NOW() - $2::interval
+         AND s.created_at   > NOW() - (s.max_age_days::text || ' days')::interval`,
       [sid, `${SLIDING_EXPIRY_DAYS} days`]
     );
     if (rows.length === 0) {

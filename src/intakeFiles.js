@@ -113,13 +113,30 @@ export async function uploadFile(file, { fieldId, rowIndex, accept } = {}) {
 }
 
 // Persist the form state. Backend is the source of truth — caller
-// surfaces errors via the SaveIndicator state machine.
-export async function syncRecord({ data, intakeComplete }) {
+// surfaces errors via the SaveIndicator state machine. Pass the
+// expectedUpdatedAt the client last saw so the server can reject
+// stale writes (concurrent-tab scenario) with a 409 instead of
+// silently overwriting another tab's edits.
+//
+// On 409 the server returns { latest: { data, intakeComplete, updatedAt } }.
+// We surface it as a typed error the caller can catch + reconcile.
+export async function syncRecord({ data, intakeComplete, expectedUpdatedAt } = {}) {
   const res = await fetch("/api/students/me/record", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data: data || {}, intakeComplete: !!intakeComplete }),
+    body: JSON.stringify({
+      data: data || {},
+      intakeComplete: !!intakeComplete,
+      expectedUpdatedAt: expectedUpdatedAt || null,
+    }),
   });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body?.error || "stale write");
+    err.code = "STALE_WRITE";
+    err.latest = body?.latest || null;
+    throw err;
+  }
   if (!res.ok) {
     let msg = `Sync failed (${res.status}).`;
     try {

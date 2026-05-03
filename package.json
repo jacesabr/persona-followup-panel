@@ -13,6 +13,7 @@
     "test": "node --test lib/*.test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.682.0",
     "@google/genai": "^1.6.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",

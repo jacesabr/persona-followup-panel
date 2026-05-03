@@ -7,8 +7,17 @@
 
 import fs from "node:fs";
 import { GoogleGenAI, Type } from "@google/genai";
+import { getStorage } from "../storage.js";
 
 const MODEL = "gemini-2.5-pro";
+
+// Hard wall-clock cap on a single Gemini call. Beyond this we return a
+// failed extraction the student can retry. The boot-time sweeper in
+// server/index.js is a safety net; this is the primary defense.
+const EXTRACTION_TIMEOUT_MS = parseInt(
+  process.env.EXTRACTION_TIMEOUT_MS || "120000",
+  10
+);
 
 const SYSTEM_PROMPT = `You are extracting data from an Indian school-board marksheet.
 
@@ -120,10 +129,28 @@ export async function extractMarksheet(file, { apiKey } = {}) {
 
   const ai = new GoogleGenAI({ apiKey: key });
 
-  const pdfBytes = fs.readFileSync(file.storagePath);
+  // Read via the storage abstraction so this works whether storage_path
+  // is a local disk path or an S3 key.
+  const store = await getStorage();
+  const stream = await store.openReadStream(file.storagePath);
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const pdfBytes = Buffer.concat(chunks);
 
   const t0 = Date.now();
-  const response = await ai.models.generateContent({
+  let timeoutHandle;
+  const timeoutP = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Gemini call exceeded ${EXTRACTION_TIMEOUT_MS}ms`)),
+      EXTRACTION_TIMEOUT_MS
+    );
+  });
+  // The SDK doesn't expose AbortController on generateContent today; the
+  // Promise.race lets us return early on timeout while the underlying
+  // network request may still be in flight. Worst case the connection
+  // dangles until the OS / Node socket timeout finishes it. Acceptable —
+  // the row gets marked failed and the student sees a retry button.
+  const callP = ai.models.generateContent({
     model: MODEL,
     config: {
       systemInstruction: SYSTEM_PROMPT,
@@ -146,6 +173,13 @@ export async function extractMarksheet(file, { apiKey } = {}) {
       },
     ],
   });
+
+  let response;
+  try {
+    response = await Promise.race([callP, timeoutP]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 
   const elapsedMs = Date.now() - t0;
 

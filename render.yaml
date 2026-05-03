@@ -28,6 +28,27 @@ services:
         sync: false
       - key: MAX_FILE_MB
         value: "10"
+      # Storage backend for student uploads. Default "local" writes to
+      # disk under server/uploads/ — fine for dev, BUT Render's free tier
+      # filesystem is ephemeral so every redeploy / cold-start wipes
+      # uploaded PDFs. For real students set STORAGE_BACKEND=s3 plus
+      # the S3_* vars below (Cloudflare R2 recommended — free up to
+      # 10 GB + free egress). All marked sync:false so credentials
+      # never live in source.
+      - key: STORAGE_BACKEND
+        value: "local"
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: persona-followup-db

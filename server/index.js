@@ -13,6 +13,7 @@ import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
 import studentsRouter from "./routes/students.js";
 import { migrate } from "./migrate.js";
+import { initStorage } from "./storage.js";
 
 const SESSION_GC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
 
@@ -32,6 +33,76 @@ async function pruneExpiredSessions() {
     }
   } catch (e) {
     console.error("[sessions] prune failed:", e);
+  }
+}
+
+// Boot-time sweeper for in-flight extraction rows. If the process died
+// mid-Gemini-call (Render redeploy, OOM, free-tier sleep cycle), the row
+// stays 'running' forever and the frontend FileSlot polls it forever
+// — the polling loop only stops on a terminal status. Mark them failed
+// so the student gets the retry button instead of an indefinite spinner.
+async function failOrphanedExtractions() {
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE intake_extractions
+          SET status = 'failed',
+              error  = COALESCE(error, 'Process restarted before extraction completed.')
+        WHERE status IN ('pending', 'running')`
+    );
+    if (rowCount > 0) {
+      console.log(`[extractions] swept ${rowCount} orphaned row(s) to failed`);
+    }
+  } catch (e) {
+    console.error("[extractions] orphan sweep failed:", e);
+  }
+}
+
+// Same problem for resumes + insights once those become async-execute.
+// Today both tables exist but no executor is wired; this is here so the
+// sweeper is in place when generation lands.
+async function failOrphanedAsyncJobs() {
+  for (const table of ["intake_resumes", "intake_insights"]) {
+    try {
+      const { rowCount } = await pool.query(
+        `UPDATE ${table}
+            SET status = 'failed',
+                error  = COALESCE(error, 'Process restarted before job completed.')
+          WHERE status IN ('pending', 'running')`
+      );
+      if (rowCount > 0) {
+        console.log(`[${table}] swept ${rowCount} orphaned row(s) to failed`);
+      }
+    } catch (e) {
+      console.error(`[${table}] orphan sweep failed:`, e);
+    }
+  }
+}
+
+// Boot-time integrity gate: if any counsellor row still holds a bare
+// plaintext password (pre-hash-migration legacy), the constant-time
+// compare path in /api/auth/login still fires and we never get to a
+// fully-hashed DB. Refuse to start when we shouldn't be deployed.
+async function refuseIfPlaintextPasswordsPresent() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, username FROM counsellors
+        WHERE password IS NOT NULL AND password NOT LIKE 'scrypt:%'`
+    );
+    if (rows.length > 0) {
+      console.error(
+        `[startup] ${rows.length} counsellor row(s) still hold plaintext passwords:`,
+        rows.map((r) => `${r.username || r.id} (${r.name})`).join(", ")
+      );
+      console.error(
+        "[startup] reset their passwords (admin UI) so they get re-hashed, then redeploy."
+      );
+      process.exit(1);
+    }
+  } catch (e) {
+    // If counsellors table doesn't exist yet (very first boot), skip gracefully.
+    if (e.code === "42P01") return;
+    console.error("[startup] plaintext-password check failed:", e);
+    process.exit(1);
   }
 }
 
@@ -119,6 +190,15 @@ async function start() {
     process.exit(1);
   }
   await migrate();
+  // Boot invariants: refuse to start if plaintext counsellor passwords
+  // remain. Surface storage misconfig (e.g., STORAGE_BACKEND=s3 with
+  // missing bucket creds) at startup, not at first upload. Sweep async
+  // jobs that died with the previous process so the frontend doesn't
+  // poll dead rows forever.
+  await refuseIfPlaintextPasswordsPresent();
+  await initStorage();
+  await failOrphanedExtractions();
+  await failOrphanedAsyncJobs();
   await pruneExpiredSessions();
   setInterval(pruneExpiredSessions, SESSION_GC_INTERVAL_MS).unref?.();
   app.listen(PORT, () => {

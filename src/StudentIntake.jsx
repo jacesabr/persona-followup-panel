@@ -794,6 +794,10 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   useEffect(() => { answersRef.current = answers; }, [answers]);
   const orderRef = useRef(order);
   useEffect(() => { orderRef.current = order; }, [order]);
+  // Latest server-known updated_at for the student record. We pass this
+  // as `expectedUpdatedAt` on every PUT so the server can reject stale
+  // writes (concurrent-tab race) with 409 instead of silently overwriting.
+  const expectedUpdatedAtRef = useRef(null);
 
   // Hydrate from backend on mount. The server sets the intake_sid cookie
   // if missing, then returns either the saved record or an empty one.
@@ -807,6 +811,7 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
         const savedOrder = data.order;
         setAnswers(repairTransientStates(savedAnswers));
         setOrder(reconcileOrder(savedOrder));
+        expectedUpdatedAtRef.current = body?.updatedAt || null;
         setHydration("ready");
       })
       .catch((err) => {
@@ -827,18 +832,46 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
 
   // Single sync path. data shape on the wire is { answers, order } so the
   // backend stores the form's own state verbatim — no schema dependency.
+  // On a 409 (another tab wrote first), refetch latest, merge our local
+  // edits on top of the server's, retry once. If the second attempt also
+  // races (rare — three tabs?), surface the error and let the next save
+  // try again. We DON'T overwrite the user's typed answers on the merge —
+  // their local edits always win at the field level.
   const persist = useCallback(async (opts = {}) => {
-    const payload = {
-      data: { answers: answersRef.current, order: orderRef.current },
-      intakeComplete: !!opts.intakeComplete,
-    };
     setSaveState("saving");
+    const tryOnce = async () => {
+      const payload = {
+        data: { answers: answersRef.current, order: orderRef.current },
+        intakeComplete: !!opts.intakeComplete,
+        expectedUpdatedAt: expectedUpdatedAtRef.current,
+      };
+      const res = await syncRecord(payload);
+      expectedUpdatedAtRef.current = res?.updatedAt || expectedUpdatedAtRef.current;
+      return res;
+    };
     try {
-      await syncRecord(payload);
+      await tryOnce();
       setSaveState("saved");
     } catch (err) {
-      console.warn("[sync] failed:", err.message);
-      setSaveState("error");
+      if (err?.code === "STALE_WRITE" && err?.latest) {
+        // Pull in the server's latest state, but keep the student's
+        // currently-typed answers on top — last-edit-wins per field.
+        const serverAnswers = err.latest?.data?.answers || {};
+        const merged = { ...serverAnswers, ...answersRef.current };
+        answersRef.current = merged;
+        setAnswers(merged);
+        expectedUpdatedAtRef.current = err.latest.updatedAt;
+        try {
+          await tryOnce();
+          setSaveState("saved");
+        } catch (err2) {
+          console.warn("[sync] retry after 409 failed:", err2.message);
+          setSaveState("error");
+        }
+      } else {
+        console.warn("[sync] failed:", err.message);
+        setSaveState("error");
+      }
     }
   }, []);
 
