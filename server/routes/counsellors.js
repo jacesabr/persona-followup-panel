@@ -84,12 +84,20 @@ const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 router.get("/", async (req, res, next) => {
   try {
     let sql, params;
-    if (req.user?.kind === "counsellor") {
+    const kind = req.user?.kind;
+    if (kind === "counsellor") {
       sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 ORDER BY name ASC`;
       params = [req.user.counsellorId];
-    } else {
+    } else if (kind === "admin") {
       sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
       params = [];
+    } else {
+      // Students (and any other future role) get an empty list. The
+      // counsellor roster is staff-only PII (phone, email) — without
+      // this gate, the App.jsx-level fetch on every authenticated
+      // session was leaking the full directory to every logged-in
+      // student. Server-side defense in depth.
+      return res.json([]);
     }
     const { rows } = await pool.query(sql, params);
     res.json(rows);

@@ -102,10 +102,13 @@ export default function App() {
     };
   }, []);
 
-  // Refresh the counsellor roster whenever there's an active session — the
-  // admin's impersonation banner reads the counsellor name from this list.
+  // Refresh the counsellor roster only for staff sessions — the admin's
+  // impersonation banner reads the counsellor name from this list. Students
+  // never need it (and the server now returns [] for them anyway, but
+  // skipping the request avoids a useless round-trip).
   useEffect(() => {
     if (!session || session === "loading") return;
+    if (session.role === "student") return;
     api.listCounsellors().then(setCounsellors).catch(() => {});
   }, [session]);
 

@@ -176,6 +176,22 @@ app.get("*", (req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // express.json() throws SyntaxError on malformed JSON bodies — surface
+  // as 400 rather than 500 (live probe found this leaking as a 500
+  // before, which adversarial scanners love to flag). express-rate-limit
+  // throws a typed error too; respect its statusCode if present.
+  if (err && err.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "invalid JSON body" });
+  }
+  if (err && err.type === "entity.too.large") {
+    return res.status(413).json({ error: "request body too large" });
+  }
+  if (err && (err instanceof SyntaxError) && "body" in err) {
+    return res.status(400).json({ error: "invalid JSON body" });
+  }
+  if (err && typeof err.statusCode === "number" && err.statusCode >= 400 && err.statusCode < 500) {
+    return res.status(err.statusCode).json({ error: err.message || "bad request" });
+  }
   console.error("[error]", err);
   res.status(500).json({ error: err.message || "internal error" });
 });
