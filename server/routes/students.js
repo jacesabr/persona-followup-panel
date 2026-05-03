@@ -414,12 +414,19 @@ router.post("/me/upload", requireStudent, upload.single("file"), async (req, res
 
     let extraction = null;
     try {
+      // CRITICAL: pass the storage backend's key (saved.key — R2 object key
+      // when STORAGE_BACKEND=s3, disk path when local), NOT multer's tmp
+      // path (which storage.save() already deleted). The DB row at
+      // intake_files.storage_path holds saved.key; the extractor reads
+      // through getStorage().openReadStream(key), which only works with
+      // the same opaque key. Passing req.file.path here was silently
+      // breaking every auto-extract on R2.
       const sched = await scheduleExtraction({
         id: doc.id,
         student_id: studentId,
         field_id: fieldId,
         original_name: req.file.originalname,
-        storage_path: req.file.path,
+        storage_path: saved.key,
         mime_type: v.actualType,
       });
       if (sched.supported) {
