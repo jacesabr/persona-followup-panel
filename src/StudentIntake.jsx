@@ -28,12 +28,10 @@ import {
   fetchExtraction,
   retryExtraction,
   isExtractionTerminal,
+  transitionPhase,
 } from "./intakeFiles.js";
-import ExtractionReview from "./ExtractionReview.jsx";
-import ResumeConfig from "./ResumeConfig.jsx";
-import ResumeGenerating from "./ResumeGenerating.jsx";
-import ResumeViewer from "./ResumeViewer.jsx";
-import { generateResumes } from "./intakeFiles.js";
+import DocReview from "./DocReview.jsx";
+import StudentDashboard from "./StudentDashboard.jsx";
 
 // ============================================================
 // Schema — chapters → pages → fields.
@@ -67,12 +65,10 @@ const CHAPTERS = [
       {
         id: "p_ids",
         title: "Identification",
-        helper: "We need these for university and visa applications.",
+        helper: "We need these for university and visa applications. Passport details are filled in the document-review step alongside the uploaded scan.",
         fields: [
           { id: "aadhar", label: "Aadhar card #", type: "text", placeholder: "XXXX XXXX XXXX" },
           { id: "pan", label: "PAN card #", type: "text", optional: true },
-          { id: "passport", label: "Passport #", type: "text", placeholder: "A1234567" },
-          { id: "passportExpiry", label: "Passport expiry date", type: "date" },
         ],
       },
       {
@@ -117,39 +113,35 @@ const CHAPTERS = [
     pages: [
       {
         id: "p_marks10",
-        title: "10th-grade marks",
+        title: "10th-grade marksheet",
+        helper: "Upload the PDF — you'll type the percentage in the document-review step with the marksheet visible.",
         fields: [
-          { id: "marks10pct", label: "Percentage", type: "number", placeholder: "85" },
           { id: "marks10sheet", label: "Marksheet (PDF)", type: "file" },
         ],
       },
       {
         id: "p_marks11",
-        title: "11th-grade marks",
-        helper: "Per-subject scores if you have them.",
+        title: "11th-grade marksheet",
+        helper: "Upload the PDF — you'll type the percentage in the document-review step.",
         fields: [
-          { id: "marks11pct", label: "Percentage", type: "number" },
           { id: "marks11sheet", label: "Marksheet (PDF)", type: "file" },
         ],
       },
       {
         id: "p_marks12",
-        title: "12th-grade marks",
-        helper: "If boards aren't out yet, fill the predicted-scores fields and skip the marksheet.",
+        title: "12th-grade marksheet",
+        helper: "Upload either the actual marksheet OR a predicted-scores sheet (or both). You'll type the values in the document-review step.",
         fields: [
-          { id: "marks12pct", label: "Percentage", type: "number", optional: true, helper: "Skip if boards aren't out." },
           { id: "marks12sheet", label: "Marksheet (PDF)", type: "file", optional: true },
-          { id: "marks12predicted", label: "Predicted score", type: "text", optional: true, placeholder: "e.g. 92% predicted" },
           { id: "marks12predictedSheet", label: "Predicted-scores sheet (PDF)", type: "file", optional: true },
         ],
       },
       {
         id: "p_cgpa",
-        title: "Graduate CGPA",
-        helper: "Only fill if applying for a post-graduate program.",
+        title: "Graduate transcripts",
+        helper: "Only fill if applying for a post-graduate program. CGPA goes in the document-review step alongside the transcript.",
         optional: true,
         fields: [
-          { id: "cgpa", label: "CGPA", type: "text", optional: true },
           { id: "transcript", label: "Transcript (PDF)", type: "file", optional: true },
           { id: "finalDegree", label: "Final degree (PDF)", type: "file", optional: true },
           { id: "semesterTranscripts", label: "All-semester transcripts (PDF)", type: "file", optional: true },
@@ -179,32 +171,27 @@ const CHAPTERS = [
     pages: [
       {
         id: "p_tests",
-        title: "Test scores",
-        helper: "Per test: score (if taken), whether it's booked, booking #, and result PDF. Skip what doesn't apply.",
+        title: "Test bookings & results",
+        helper: "Per test: whether it's booked, booking #, and result PDF. Scores go in the document-review step alongside the result PDF. Skip what doesn't apply.",
         optional: true,
         fields: [
           // IELTS
-          { id: "ielts_score", label: "IELTS · score", type: "text", optional: true },
           { id: "ielts_booked", label: "IELTS · booked?", type: "checkbox", optional: true },
           { id: "ielts_bookingNum", label: "IELTS · booking #", type: "text", optional: true },
           { id: "ielts_result", label: "IELTS · result (PDF)", type: "file", optional: true },
           // TOEFL
-          { id: "toefl_score", label: "TOEFL · score", type: "text", optional: true },
           { id: "toefl_booked", label: "TOEFL · booked?", type: "checkbox", optional: true },
           { id: "toefl_bookingNum", label: "TOEFL · booking #", type: "text", optional: true },
           { id: "toefl_result", label: "TOEFL · result (PDF)", type: "file", optional: true },
           // SAT / ACT
-          { id: "sat_score", label: "SAT / ACT · score", type: "text", optional: true },
           { id: "sat_booked", label: "SAT / ACT · booked?", type: "checkbox", optional: true },
           { id: "sat_bookingNum", label: "SAT / ACT · booking #", type: "text", optional: true },
           { id: "sat_result", label: "SAT / ACT · result (PDF)", type: "file", optional: true },
           // AP
-          { id: "ap_score", label: "AP · scores", type: "text", optional: true },
           { id: "ap_booked", label: "AP · booked?", type: "checkbox", optional: true },
           { id: "ap_bookingNum", label: "AP · booking #", type: "text", optional: true },
           { id: "ap_result", label: "AP · result (PDF)", type: "file", optional: true },
           // Other (TUMA / TSA / etc.)
-          { id: "other_score", label: "Other (TUMA / TSA) · score", type: "text", optional: true },
           { id: "other_booked", label: "Other · booked?", type: "checkbox", optional: true },
           { id: "other_bookingNum", label: "Other · booking #", type: "text", optional: true },
           { id: "other_result", label: "Other · result (PDF)", type: "file", optional: true },
@@ -389,6 +376,118 @@ const CHAPTERS = [
     ],
   },
 ];
+
+// ============================================================
+// DOC_REVIEW_GROUPS — manifest for the doc-review step. After the
+// general intake form completes, the student moves to a side-by-side
+// screen that shows each uploaded doc alongside the form fields whose
+// values are visible on that doc (marks %, passport #, test scores).
+// The student types those values directly while looking at the doc;
+// the auto-extraction worker is dormant in this build.
+//
+// Each entry:
+//   - docFieldId: the upload field id from CHAPTERS (e.g. "marks10sheet")
+//   - title:      heading shown above the doc viewer
+//   - fields:     form fields to render to the right of the viewer.
+//                 Empty fields means "verify-only" (no data to type;
+//                 the student just confirms the right doc is attached).
+//
+// Field shapes mirror the CHAPTERS field schema so the existing
+// FieldInput renderer can handle them without a separate code path.
+// ============================================================
+export const DOC_REVIEW_GROUPS = [
+  {
+    docFieldId: "photoFile",
+    title: "Profile photo",
+    helper: "Confirm this is the photo you want to use.",
+    fields: [],
+  },
+  {
+    docFieldId: "marks10sheet",
+    title: "Class 10 marksheet",
+    fields: [
+      { id: "marks10pct", label: "Overall percentage", type: "number", placeholder: "85" },
+    ],
+  },
+  {
+    docFieldId: "marks11sheet",
+    title: "Class 11 marksheet",
+    fields: [
+      { id: "marks11pct", label: "Overall percentage", type: "number" },
+    ],
+  },
+  {
+    docFieldId: "marks12sheet",
+    title: "Class 12 marksheet",
+    fields: [
+      { id: "marks12pct", label: "Overall percentage", type: "number", optional: true },
+    ],
+  },
+  {
+    docFieldId: "marks12predictedSheet",
+    title: "Class 12 predicted scores",
+    fields: [
+      { id: "marks12predicted", label: "Predicted score", type: "text", optional: true, placeholder: "e.g. 92% predicted" },
+    ],
+  },
+  {
+    docFieldId: "transcript",
+    title: "University transcript",
+    fields: [
+      { id: "cgpa", label: "CGPA", type: "text", placeholder: "8.5 / 10" },
+    ],
+  },
+  { docFieldId: "finalDegree", title: "Final degree", fields: [] },
+  { docFieldId: "semesterTranscripts", title: "Semester transcripts", fields: [] },
+  {
+    docFieldId: "passportFrontBack",
+    title: "Passport (front & back)",
+    helper: "Type the values shown on the passport.",
+    fields: [
+      { id: "passport", label: "Passport #", type: "text", placeholder: "A1234567" },
+      { id: "passportExpiry", label: "Expiry date", type: "date" },
+    ],
+  },
+  { docFieldId: "passportFront", title: "Passport — front page", fields: [] },
+  { docFieldId: "passportLast", title: "Passport — last page", fields: [] },
+  {
+    docFieldId: "ielts_result",
+    title: "IELTS result",
+    fields: [{ id: "ielts_score", label: "Overall score", type: "text", placeholder: "7.5" }],
+  },
+  {
+    docFieldId: "toefl_result",
+    title: "TOEFL result",
+    fields: [{ id: "toefl_score", label: "Total score", type: "text", placeholder: "108" }],
+  },
+  {
+    docFieldId: "sat_result",
+    title: "SAT / ACT result",
+    fields: [{ id: "sat_score", label: "Total score", type: "text", placeholder: "1480" }],
+  },
+  {
+    docFieldId: "ap_result",
+    title: "AP result",
+    fields: [{ id: "ap_score", label: "Scores (per subject)", type: "text", placeholder: "Calc BC: 5, Physics C: 5" }],
+  },
+  {
+    docFieldId: "other_result",
+    title: "Other test result",
+    fields: [{ id: "other_score", label: "Score", type: "text", optional: true }],
+  },
+  // Verify-only docs: no fields to type, student just confirms attachment.
+  { docFieldId: "lor1", title: "Letter of recommendation 1", fields: [] },
+  { docFieldId: "lor2", title: "Letter of recommendation 2", fields: [] },
+  { docFieldId: "lor3", title: "Letter of recommendation 3", fields: [] },
+  { docFieldId: "internship1", title: "Internship 1", fields: [] },
+  { docFieldId: "internship2", title: "Internship 2", fields: [] },
+  { docFieldId: "internship3", title: "Internship 3", fields: [] },
+  { docFieldId: "sop", title: "Statement of purpose", fields: [] },
+  { docFieldId: "resumeFile", title: "Existing resume", fields: [] },
+];
+export const DOC_REVIEW_BY_FIELD = Object.fromEntries(
+  DOC_REVIEW_GROUPS.map((g) => [g.docFieldId, g])
+);
 
 const ALL_PAGES = CHAPTERS.flatMap((c) =>
   c.pages.map((p) => ({ ...p, chapterId: c.id, chapterTitle: c.title }))
@@ -996,25 +1095,41 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     }
   };
 
-  // Mark intake as complete on the canonical record. After this, the
-  // student moves on to the post-intake phases (review extractions,
-  // configure resumes, generate). The parent's onComplete fires too,
-  // for any external bookkeeping.
+  // Mark general intake as done and transition the server-side phase
+  // to 'doc_review'. The client's local phase mirrors so the next
+  // render shows the side-by-side document review screen.
+  //
+  // Two server calls (save-then-transition) on purpose: the phase
+  // endpoint doesn't take data, so we need the persist to land first
+  // OR the doc-review screen would render against a stale server
+  // record. transitionPhase will 409 if the server already moved past
+  // 'intake' (e.g. another tab finished first); we surface that as a
+  // generic "couldn't continue" — refreshing the page rehydrates the
+  // correct phase from the server.
   const finishIntake = useCallback(async () => {
-    await persist({ intakeComplete: true });
-    setPhase("review");
-    onComplete?.(answersRef.current);
+    await persist({ intakeComplete: false });
+    try {
+      await transitionPhase("doc_review");
+      setPhase("doc_review");
+      onComplete?.(answersRef.current);
+    } catch (e) {
+      // Silent failure on PHASE_CONFLICT: refresh once the user
+      // notices nothing happened and the server's hydration will
+      // jump them to the right place.
+      console.error("[finishIntake] phase transition failed:", e);
+      alert(e?.message || "Couldn't continue — refresh and try again.");
+    }
   }, [persist, onComplete]);
 
-  // Post-intake phase machine. Lives inside StudentIntake so the
-  // student stays in one cohesive component until they're done; the
-  // server is the source of truth for intake_complete so a refresh
-  // picks the right phase to land on.
-  //   "intake"     → filling the form
-  //   "review"     → confirming extracted data per document
-  //   "config"     → picking resume count + length
-  //   "generating" → (next push) generation in progress
-  //   "done"       → (next push) resumes ready, view + download
+  // Server-driven phase machine. Single source of truth for which
+  // screen the student sees:
+  //   "intake"      → filling the general form
+  //   "doc_review"  → side-by-side viewer + manual fields per doc
+  //   "generating"  → resume auto-fired by the doc_review→done
+  //                   transition; dashboard polls
+  //   "done"        → resume ready; dashboard renders it
+  // Old "review" / "config" branches are gone — extraction is dormant
+  // and there's only one resume (no picker) for v1.
   const [phase, setPhase] = useState("intake");
   // Phase is now set inside the hydrate useEffect from the server's
   // resolved phase field — see the loadRecord block above. The previous
@@ -1042,52 +1157,43 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     return <HydrationGate state={hydration} />;
   }
 
-  // Post-intake phases: render full-width without the intake's flow map.
-  if (phase === "review") {
+  // Post-intake phases: doc-review (side-by-side viewer + manual
+  // fields) → done/generating (StudentDashboard renders the auto-
+  // generated resume + polls while it's still in flight).
+  if (phase === "doc_review") {
     return (
-      <PostIntakeFrame onExit={onExit} title="Review">
-        <ExtractionReview
+      <PostIntakeFrame onExit={onExit} title="Review your documents">
+        <DocReview
+          answers={answers}
+          onChangeField={(id, v) => {
+            // Single-field write into the same answers blob the intake
+            // form uses. persist() picks it up on the next debounce.
+            const next = { ...answersRef.current, [id]: v };
+            answersRef.current = next;
+            setAnswers(next);
+            scheduleSave();
+          }}
+          onSave={() => persist()}
           onBack={() => setPhase("intake")}
-          onContinue={() => setPhase("config")}
-        />
-      </PostIntakeFrame>
-    );
-  }
-  if (phase === "config") {
-    return (
-      <PostIntakeFrame onExit={onExit} title="Resume setup">
-        <ResumeConfig
-          onBack={() => setPhase("review")}
-          onGenerate={async (specs) => {
-            // Kick off the batch on the backend; it returns immediately
-            // with the created row ids and runs each generation in the
-            // background. The Generating screen polls for status.
+          onFinish={async () => {
             try {
-              await generateResumes(specs);
+              await transitionPhase("done");
               setPhase("generating");
             } catch (e) {
-              alert(`Couldn't start generation: ${e.message}`);
+              throw e;
             }
           }}
         />
       </PostIntakeFrame>
     );
   }
-  if (phase === "generating") {
+  if (phase === "generating" || phase === "done") {
+    // Both phases render the same dashboard — it polls until the
+    // auto-fired resume's status becomes terminal, then shows the
+    // markdown. The server's GET /me/record may bump phase from
+    // "done" to "generating" if the resume hasn't completed yet.
     return (
-      <PostIntakeFrame onExit={onExit} title="Generating">
-        <ResumeGenerating
-          onBack={() => setPhase("config")}
-          onAllDone={() => setPhase("done")}
-        />
-      </PostIntakeFrame>
-    );
-  }
-  if (phase === "done") {
-    return (
-      <PostIntakeFrame onExit={onExit} title="Your resumes">
-        <ResumeViewer onBack={() => setPhase("config")} />
-      </PostIntakeFrame>
+      <StudentDashboard studentName={studentName} onExit={onExit} />
     );
   }
 
@@ -1288,15 +1394,16 @@ function Welcome({ name, onStart }) {
 function Closing({ onDone, onBack }) {
   return (
     <div className="animate-fadeUp py-20">
-      <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">All done</p>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">Almost there</p>
       <h2 className="mt-2 font-serif text-5xl leading-[1.05]">
-        All saved.
+        General intake saved.
         <br />
-        We'll take it from here.
+        One more step.
       </h2>
       <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
-        Your counsellor will reach out within 24 hours. You can review and edit
-        anything from your dashboard.
+        Next: open each document you uploaded and type the values shown on it
+        (marks percentage, passport number, test scores). Should take a few
+        minutes per document.
       </p>
       <div className="mt-10 flex items-center gap-4">
         <button
@@ -1309,7 +1416,7 @@ function Closing({ onDone, onBack }) {
           onClick={onDone}
           className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
         >
-          Go to dashboard <ArrowRight className="h-4 w-4" />
+          Continue to document review <ArrowRight className="h-4 w-4" />
         </button>
       </div>
     </div>

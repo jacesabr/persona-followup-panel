@@ -269,6 +269,29 @@ export async function getResume(id, { signal } = {}) {
   return res.json();
 }
 
+// Forward-only phase transitions for the post-intake state machine.
+// `phase` is "doc_review" (after general intake) or "done" (after
+// doc-review; server auto-fires one 300-word resume in the same tx).
+// Server validates the current phase and 409s on illegal transitions —
+// the client surfaces that as a typed error so the caller can refetch.
+export async function transitionPhase(phase) {
+  const res = await fetch("/api/students/me/intake/phase", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phase }),
+  });
+  if (!res.ok) {
+    let msg = `Phase transition failed (${res.status}).`;
+    let body = null;
+    try { body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    const err = new Error(msg);
+    err.code = res.status === 409 ? "PHASE_CONFLICT" : "PHASE_FAIL";
+    err.currentPhase = body?.currentPhase || null;
+    throw err;
+  }
+  return res.json();
+}
+
 export async function regenerateResume(id) {
   const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}/regenerate`, {
     method: "POST",
