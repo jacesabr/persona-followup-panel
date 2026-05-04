@@ -49,6 +49,11 @@ export function autoAudit(table) {
             req.params?.id ||
             req.params?.leadId ||
             req.params?.apptId ||
+            // Self-actions (POST /me/change-password, etc) have no id
+            // in body or params — fall back to the actor's own id so
+            // the audit row ties to a real subject instead of NULL.
+            req.user?.counsellorId ||
+            req.user?.studentId ||
             null;
           // Don't await — fire-and-forget. audit() itself swallows errors.
           audit(req, {
@@ -75,6 +80,7 @@ function inferAction(req) {
   if (/\/archive(?:\b|$|\/)/.test(path)) return "archive";
   if (/\/unarchive(?:\b|$|\/)/.test(path)) return "unarchive";
   if (/\/reset-password(?:\b|$|\/)/.test(path)) return "reset_password";
+  if (/\/change-password(?:\b|$|\/)/.test(path)) return "change_password";
   // Method-default fallback.
   if (req.method === "POST") return "create";
   if (req.method === "PATCH" || req.method === "PUT") return "update";

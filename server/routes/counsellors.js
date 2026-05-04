@@ -37,12 +37,17 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
       return "name must be a non-empty string up to 200 chars";
     }
   }
-  if (whatsapp) {
+  // Reject non-string truthy/non-null values explicitly. Without these,
+  // PATCH {"email": 0} or {"whatsapp": false} fell past the `if (email)`
+  // truthy gate (0/false are falsy, skipping validation) but the column
+  // write later coerced 0 → "0" and stored garbage. Same hole on POST.
+  // Audit-on-change agent caught this on PATCH.
+  if (whatsapp !== undefined && whatsapp !== null && whatsapp !== "") {
     if (!isString(whatsapp) || !/^\d{8,15}$/.test(whatsapp)) {
       return "whatsapp must be digits only, 8-15 chars";
     }
   }
-  if (email) {
+  if (email !== undefined && email !== null && email !== "") {
     if (!isString(email) || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return "email must be a valid email address (max 320 chars)";
     }
@@ -78,14 +83,14 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
         // worked end-to-end. Defence in depth.
         return "password must be 6-100 characters";
       }
-      if (COUNSELLOR_WEAK_PASSWORDS.has(password.toLowerCase())) {
+      if (COUNSELLOR_WEAK_PASSWORDS.has(password.trim().toLowerCase())) {
         return "password is too common; pick something else";
       }
     } else if (password !== null && password !== "") {
       if (!isString(password) || password.length < 6 || password.length > 100) {
         return "password must be 6-100 characters";
       }
-      if (COUNSELLOR_WEAK_PASSWORDS.has(password.toLowerCase())) {
+      if (COUNSELLOR_WEAK_PASSWORDS.has(password.trim().toLowerCase())) {
         return "password is too common; pick something else";
       }
     }
@@ -104,28 +109,21 @@ const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
 // GET /api/counsellors — admin sees the full roster (used by the
 // counsellors tab + the assignee dropdown). Counsellor sessions only
-// need their own row (for the impersonation-banner name lookup paths
-// in App.jsx, and the lead-counsellor name map — both are self-only
-// for a counsellor view), so the response is server-scoped to prevent
-// other counsellors' contact details from leaking via devtools.
+// see their own row (for the impersonation-banner name lookup + the
+// lead-counsellor name map — both self-only for a counsellor view) so
+// other counsellors' contact details don't leak via devtools.
+//
+// Mount-level requireStaff (server/index.js) gates the route, so any
+// non-staff role (student, no-role) gets 403 before reaching this
+// handler — the previous student-fallback `else { return [] }` is
+// therefore unreachable and was removed by the audit-on-change pass.
 router.get("/", async (req, res, next) => {
   try {
-    let sql, params;
     const kind = req.user?.kind;
-    if (kind === "counsellor") {
-      sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 ORDER BY name ASC`;
-      params = [req.user.counsellorId];
-    } else if (kind === "admin") {
-      sql = `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
-      params = [];
-    } else {
-      // Students (and any other future role) get an empty list. The
-      // counsellor roster is staff-only PII (phone, email) — without
-      // this gate, the App.jsx-level fetch on every authenticated
-      // session was leaking the full directory to every logged-in
-      // student. Server-side defense in depth.
-      return res.json([]);
-    }
+    const sql = kind === "counsellor"
+      ? `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 ORDER BY name ASC`
+      : `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
+    const params = kind === "counsellor" ? [req.user.counsellorId] : [];
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
@@ -221,12 +219,22 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       return v;
     })];
 
+    const passwordChanged = fields.includes("password");
     try {
       const { rows } = await pool.query(
         `UPDATE counsellors SET ${set} WHERE id = $1 RETURNING ${PUBLIC_COLUMNS}`,
         values
       );
       if (rows.length === 0) return res.status(404).json({ error: "counsellor not found" });
+      // If admin changed the password, drop every session for this
+      // counsellor — same recovery semantics as POST /:student_id/
+      // reset-password and POST /me/change-password. Without this an
+      // admin "rotating" a leaked password leaves the leaked cookie
+      // alive; the rotation is half-broken as a recovery action.
+      // Audit-on-change adversarial agent caught this asymmetry.
+      if (passwordChanged) {
+        await pool.query(`DELETE FROM sessions WHERE counsellor_id = $1`, [id]);
+      }
       res.json(rows[0]);
     } catch (e) {
       if (e.code === "23505") {
@@ -256,7 +264,7 @@ router.post("/me/change-password", express.json(), async (req, res, next) => {
     if (!isString(newPassword) || newPassword.length < 6 || newPassword.length > 100) {
       return res.status(400).json({ error: "password must be 6-100 chars" });
     }
-    if (COUNSELLOR_WEAK_PASSWORDS.has(newPassword.toLowerCase())) {
+    if (COUNSELLOR_WEAK_PASSWORDS.has(newPassword.trim().toLowerCase())) {
       return res.status(400).json({ error: "password is too common; pick something else" });
     }
 

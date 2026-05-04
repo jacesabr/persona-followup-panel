@@ -82,8 +82,20 @@ export async function generateStructured(req) {
 function isQuotaError(e) {
   if (!e) return false;
   if (e.status === 429 || e.code === 429) return true;
-  const msg = String(e.message || "");
-  return msg.includes("RESOURCE_EXHAUSTED") || msg.includes('"code":429');
+  const msg = String(e.message || "").toLowerCase();
+  // Tolerant matching: Google's canonical form is uppercase
+  // RESOURCE_EXHAUSTED + "code":429 with no space, but the underlying
+  // HTTP transport / SDK may reformat. Also catch generic "quota" /
+  // "rate limit" phrasing — false positives here just trigger an
+  // extra Anthropic call, which is the safer failure mode than
+  // surfacing a raw error to the user.
+  return (
+    msg.includes("resource_exhausted") ||
+    msg.includes('"code":429') ||
+    msg.includes('"code": 429') ||
+    msg.includes("quota") ||
+    msg.includes("rate limit")
+  );
 }
 
 // ----------------------------------------------------------------

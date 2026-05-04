@@ -33,6 +33,27 @@ fs.mkdirSync(tmpRoot, { recursive: true });
 
 // Generate an 8-char password the counsellor copies and sends to the
 // student. Excludes ambiguous chars (0/O, 1/l/I) to reduce typos.
+//
+// Common-password denylist shared by every place a student password is
+// set: admin-create with explicit_password, and the /me/change-password
+// route. Drawn from the SecLists rockyou top-50 filtered to entries 6+
+// chars (our minimum length), plus admin/test/changeme variants.
+// Module-scoped so both handlers see the same set; previously the
+// const was inline in the create handler and the change-password route
+// had no denylist at all.
+const STUDENT_WEAK_PASSWORDS = new Set([
+  "123456", "1234567", "12345678", "123456789", "1234567890",
+  "111111", "000000", "222222", "121212", "654321",
+  "password", "password1", "password12", "passw0rd", "p@ssword",
+  "qwerty", "qwerty1", "qwerty12", "qwertyui", "qwertyuiop",
+  "abcdef", "abc123", "abcd1234", "asdfgh", "asdfghjkl",
+  "zxcvbn", "zxcvbnm", "letmein", "iloveyou", "trustno1",
+  "welcome", "welcome1", "monkey", "dragon", "master",
+  "admin", "admin1", "admin12", "admin123", "administrator",
+  "login", "guest", "test", "test123", "testing",
+  "default", "changeme", "secret", "shadow", "freedom",
+]);
+
 function generatePassword() {
   const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
   let out = "";
@@ -93,26 +114,12 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
       // capped at 4 chars with no value check. "student" still passes
       // the floor (7 chars, not in denylist) so the explicit test
       // account works; common weak patterns don't.
-      const lower = explicitPassword.toLowerCase();
-      // Common-password denylist. Drawn from the SecLists rockyou top-50
-      // filtered to entries 6+ chars (our minimum length). Not exhaustive
-      // by design — admins can still pick a clearly-weak unique password
-      // and we'd rather not block the test account "student" or similar
-      // intentional choices. Goal here is to defeat the laziest "set
-      // every backdoor account to '123456'" attack pattern.
-      const WEAK = new Set([
-        "123456", "1234567", "12345678", "123456789", "1234567890",
-        "111111", "000000", "222222", "121212", "654321",
-        "password", "password1", "password12", "passw0rd", "p@ssword",
-        "qwerty", "qwerty1", "qwerty12", "qwertyui", "qwertyuiop",
-        "abcdef", "abc123", "abcd1234", "asdfgh", "asdfghjkl",
-        "zxcvbn", "zxcvbnm", "letmein", "iloveyou", "trustno1",
-        "welcome", "welcome1", "monkey", "dragon", "master",
-        "admin", "admin1", "admin12", "admin123", "administrator",
-        "login", "guest", "test", "test123", "testing",
-        "default", "changeme", "secret", "shadow", "freedom",
-      ]);
-      if (WEAK.has(lower)) {
+      // .trim() before .toLowerCase(): defends the trivial whitespace
+      // bypass ("qwerty " or " admin123") the audit-on-change agent
+      // demonstrated. Anyone whose password is "qwerty + space" still
+      // had a denylist-trivial password.
+      const lower = explicitPassword.trim().toLowerCase();
+      if (STUDENT_WEAK_PASSWORDS.has(lower)) {
         return res.status(400).json({ error: "password is too common; pick something else" });
       }
     }
@@ -202,11 +209,22 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
         await client.query("ROLLBACK");
         return res.status(404).json({ error: "student not found" });
       }
+      // Belt+suspenders on the ownership check: filter the UPDATE by
+      // counsellor_id too. Without this, a TOCTOU window between the
+      // SELECT above and this UPDATE would let a counsellor reset a
+      // student that admin reassigned away from them mid-transaction.
+      // Tight window (~ms) but trivial to close.
       const u = await client.query(
-        `UPDATE intake_students SET password_hash = $1
-          WHERE student_id = $2
-          RETURNING student_id, username`,
-        [password_hash, req.params.student_id]
+        req.user.kind === "counsellor"
+          ? `UPDATE intake_students SET password_hash = $1
+               WHERE student_id = $2 AND counsellor_id = $3
+               RETURNING student_id, username`
+          : `UPDATE intake_students SET password_hash = $1
+               WHERE student_id = $2
+               RETURNING student_id, username`,
+        req.user.kind === "counsellor"
+          ? [password_hash, req.params.student_id, req.user.counsellorId]
+          : [password_hash, req.params.student_id]
       );
       if (u.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -829,15 +847,32 @@ router.put("/me/extractions/:id/confirm", requireStudent, express.json(), async 
   try {
     if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
     const { data } = req.body || {};
+    // Refuse to confirm a row whose extraction didn't succeed. Without
+    // this check the prior commit's resume-gate (which counts confirmed
+    // extractions) was trivially bypassable: confirm a failed row →
+    // confirmed_at = NOW() → resume gate passes → generator runs against
+    // an empty fact bundle. Audit-on-change journey agent reproduced
+    // this end-to-end. The conditional UPDATE handles the common path;
+    // the SELECT only fires on the rare miss to distinguish 404 (no
+    // such row) from 409 (row exists, wrong status).
     const { rows } = await pool.query(
       `UPDATE intake_extractions
           SET confirmed_data = $1::jsonb, confirmed_at = NOW()
-        WHERE id = $2 AND student_id = $3
+        WHERE id = $2 AND student_id = $3 AND status = 'succeeded'
         RETURNING id, confirmed_at`,
       [JSON.stringify(data ?? null), Number(req.params.id), req.user.studentId]
     );
     const row = rows[0];
-    if (!row) return res.status(404).json({ error: "not found" });
+    if (!row) {
+      const probe = await pool.query(
+        `SELECT status FROM intake_extractions WHERE id = $1 AND student_id = $2`,
+        [Number(req.params.id), req.user.studentId]
+      );
+      if (probe.rows.length === 0) return res.status(404).json({ error: "not found" });
+      return res.status(409).json({
+        error: `cannot confirm extraction with status '${probe.rows[0].status}' — only 'succeeded' rows can be confirmed`,
+      });
+    }
     audit(req, {
       table: "intake_extractions",
       id: row.id,
@@ -963,9 +998,13 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
     // generation, burned ~$0.20 of LLM budget per resume, and produced
     // a junk artefact. Gate explicitly so the failure surfaces before
     // any provider call.
+    // status='succeeded' is also enforced at the confirm endpoint, but
+    // belt+suspenders: even if a row got confirmed under earlier code,
+    // the gate now refuses to count anything that didn't actually
+    // succeed during extraction. Pairs with the confirm-time check.
     const reviewCheck = await pool.query(
       `SELECT COUNT(*)::int AS n FROM intake_extractions
-        WHERE student_id = $1 AND confirmed_at IS NOT NULL`,
+        WHERE student_id = $1 AND confirmed_at IS NOT NULL AND status = 'succeeded'`,
       [req.user.studentId]
     );
     if ((reviewCheck.rows[0]?.n || 0) === 0) {
@@ -1212,6 +1251,13 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
     const { newPassword } = req.body || {};
     if (!isString(newPassword) || newPassword.length < 6 || newPassword.length > 100) {
       return res.status(400).json({ error: "password must be 6-100 chars" });
+    }
+    // Same denylist + .trim() guard as the create path. Previously the
+    // student self-rotation route had no denylist at all — a logged-in
+    // student could quietly downgrade to "qwerty". The trim closes the
+    // trivial "qwerty " whitespace bypass.
+    if (STUDENT_WEAK_PASSWORDS.has(newPassword.trim().toLowerCase())) {
+      return res.status(400).json({ error: "password is too common; pick something else" });
     }
     // Validate the cookie value is a UUID before letting it hit the
     // SQL cast — without this, a non-UUID cookie (browser extension
