@@ -456,7 +456,13 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
             )}
           </p>
           <p className="mt-0.5 text-xs text-stone-500">
-            {row.intake_complete ? "✓ intake complete" : "intake in progress"}
+            <span className={
+              row.intake_complete
+                ? "text-emerald-700"
+                : "text-stone-500"
+            }>
+              {row.intake_complete ? "✓ intake complete" : "intake in progress"}
+            </span>
             {" · "}
             {row.file_count} files{" · "}
             {row.resume_count} resumes
@@ -494,13 +500,27 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
 // ============================================================
 function StudentDetail({ detail }) {
   const { student, files, extractions, resumes } = detail;
+  // Phase pill: explicit signal of where the student is in the
+  // pipeline. Replaces the implicit-from-counts indicator.
+  const phaseLabel = ({
+    intake: "Filling intake form",
+    doc_review: "Reviewing uploaded documents",
+    done: "Intake complete",
+  }[student?.intake_phase] || "Filling intake form");
   return (
     <div className="space-y-5 text-xs">
+      <div className="flex items-center justify-between border-b border-stone-200 pb-2">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Pipeline phase</span>
+        <span className={`text-[11px] font-medium ${
+          student?.intake_phase === "done" ? "text-emerald-700"
+          : student?.intake_phase === "doc_review" ? "text-amber-700"
+          : "text-stone-600"
+        }`}>{phaseLabel}</span>
+      </div>
+
       <Section title="Intake form data">
         {student?.data && Object.keys(student.data).length > 0 ? (
-          <pre className="max-h-64 overflow-auto bg-white p-3 text-[10px] text-stone-800">
-            {JSON.stringify(student.data, null, 2)}
-          </pre>
+          <IntakeAnswers data={student.data} />
         ) : (
           <p className="italic text-stone-500">Student hasn't started filling the form yet.</p>
         )}
@@ -531,8 +551,10 @@ function StudentDetail({ detail }) {
         )}
       </Section>
 
-      <Section title={`AI extractions (${extractions?.length || 0})`}>
-        {extractions?.length ? (
+      {/* AI extractions section hidden when empty — auto-extract is
+          dormant in this build, so most students will have no rows. */}
+      {extractions?.length > 0 && (
+        <Section title={`AI extractions (${extractions.length})`}>
           <div className="space-y-2">
             {extractions.map((e) => (
               <details key={e.id} className="border border-stone-200 bg-white">
@@ -553,31 +575,40 @@ function StudentDetail({ detail }) {
               </details>
             ))}
           </div>
-        ) : (
-          <p className="italic text-stone-500">No extractions yet.</p>
-        )}
-      </Section>
+        </Section>
+      )}
 
       <Section title={`Generated resumes (${resumes?.length || 0})`}>
         {resumes?.length ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {resumes.map((r) => (
-              <div key={r.id} className="border border-stone-200 bg-white px-3 py-2">
-                <p className="text-stone-900">
-                  {r.label || `Resume #${r.id}`}
-                  <span className="ml-2 text-[10px] uppercase tracking-[0.15em] text-stone-500">
-                    {r.length_pages ? `${r.length_pages}p` : ""} · {r.style || "—"} · {r.status}
+              <div key={r.id} className="border border-stone-200 bg-white">
+                <header className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
+                  <span className="text-stone-900">
+                    {r.label || `Resume #${r.id}`}
                   </span>
-                </p>
-                {r.content_md && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer text-[10px] uppercase tracking-[0.15em] text-stone-500">
-                      View Markdown
-                    </summary>
-                    <pre className="mt-2 max-h-64 overflow-auto bg-stone-50 p-3 text-[10px] text-stone-800">
-                      {r.content_md}
-                    </pre>
-                  </details>
+                  <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+                    {r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
+                    {" · "}
+                    <span className={
+                      r.status === "succeeded" ? "text-emerald-700"
+                      : r.status === "failed" ? "text-red-700"
+                      : "text-amber-700"
+                    }>{r.status}</span>
+                  </span>
+                </header>
+                {/* Render the resume markdown inline as preformatted
+                    text — keeps line breaks + headings legible without
+                    a markdown renderer dependency. Capped height with
+                    overflow so a 2-page resume doesn't dominate. */}
+                {r.content_md ? (
+                  <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap bg-white px-4 py-3 font-serif text-[12px] leading-relaxed text-stone-800">
+                    {r.content_md}
+                  </pre>
+                ) : r.error ? (
+                  <p className="px-3 py-2 text-[10px] text-red-700">{String(r.error).slice(0, 300)}</p>
+                ) : (
+                  <p className="px-3 py-2 text-[10px] italic text-stone-500">Generation in progress…</p>
                 )}
               </div>
             ))}
@@ -588,6 +619,67 @@ function StudentDetail({ detail }) {
       </Section>
     </div>
   );
+}
+
+// IntakeAnswers — render the student.data blob as human-readable
+// rows. The intake JSONB is `{ answers: {fieldId: value, ...},
+// order: [...], lastStep: N }`. We only show `answers`; the other
+// keys are UI bookkeeping. File slots collapse to "[file: name]"
+// since the actual download lives in the Uploaded files section.
+function IntakeAnswers({ data }) {
+  const answers = (data && typeof data === "object" && data.answers) || data || {};
+  const entries = Object.entries(answers).filter(([, v]) => v != null && v !== "");
+  if (entries.length === 0) {
+    return <p className="italic text-stone-500">No answers yet.</p>;
+  }
+  return (
+    <div className="border border-stone-200 bg-white">
+      <table className="w-full">
+        <tbody>
+          {entries.map(([key, val]) => (
+            <tr key={key} className="border-b border-stone-100 last:border-0">
+              <td className="w-1/3 px-3 py-1.5 align-top font-mono text-[10px] text-stone-500">{key}</td>
+              <td className="px-3 py-1.5 text-[11px] text-stone-800">
+                <AnswerCell value={val} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AnswerCell({ value }) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    // File slot shape: { name, status, uploadedUrl, ... }
+    if (typeof value.name === "string" && "status" in value) {
+      return (
+        <span className="font-mono text-[10px] text-stone-600">
+          [file: {value.name}{value.status === "uploaded" ? " ✓" : ` (${value.status})`}]
+        </span>
+      );
+    }
+    // Generic nested object — fall back to compact JSON.
+    return (
+      <pre className="overflow-auto text-[10px] text-stone-600">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="italic text-stone-400">(empty)</span>;
+    return (
+      <ol className="list-decimal pl-4">
+        {value.map((item, i) => (
+          <li key={i} className="text-[11px]">
+            <AnswerCell value={item} />
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  return <span>{String(value)}</span>;
 }
 
 function Section({ title, children }) {
