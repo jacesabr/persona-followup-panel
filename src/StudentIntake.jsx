@@ -1213,15 +1213,26 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
     const fileSubfield = field.itemFields.find((sf) => sf.type === "file");
     const hasFileSubfield = !!fileSubfield;
     const cols = field.itemFields.length;
+    // Per-cell minimum so cells stay readable on phones. Without this,
+    // a 320px viewport with 5 columns squeezes each cell to ~50px and
+    // text inputs become unusable. With min 9rem per data column the
+    // table widens past the viewport and the wrapper scrolls
+    // horizontally — standard pattern for data-dense tables on mobile.
+    const dataColTrack = "minmax(9rem, 1fr)";
     const gridStyle = {
       gridTemplateColumns: hasFileSubfield
-        ? `2rem repeat(${cols}, minmax(0, 1fr)) 4rem 2rem`
-        : `2rem repeat(${cols}, minmax(0, 1fr)) 2rem`,
+        ? `2rem repeat(${cols}, ${dataColTrack}) 4rem 2rem`
+        : `2rem repeat(${cols}, ${dataColTrack}) 2rem`,
     };
 
     return (
       <div className="mt-2">
-        <div className="overflow-hidden border border-stone-900/20">
+        {/* overflow-x-auto turns the table into a horizontally
+            scrollable strip on narrow viewports. -webkit-overflow-
+            scrolling: touch makes the scroll feel native on iOS. The
+            inner grid keeps its full width via the min-width tracks
+            above. */}
+        <div className="overflow-x-auto overflow-y-hidden border border-stone-900/20">
           <div
             className="grid items-center gap-px bg-stone-900/15 text-[9px] uppercase tracking-[0.15em] text-stone-600"
             style={gridStyle}
@@ -1288,18 +1299,57 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
       </div>
     );
   }
+  // Normalise on blur so the persisted value is canonical (digits-only
+  // Aadhar formatted as "XXXX XXXX XXXX", upper-cased passport, etc.)
+  // even if the student typed freely. Doing it on blur instead of
+  // on-change avoids the cursor-jumping jank that mid-typing reformat
+  // produces. The mutation goes through onChange so the autosave debounce
+  // still fires.
+  const norm = field.normalize ? NORMALIZERS[field.normalize] : null;
   return (
     <input
       ref={ref}
       type={field.type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
+      onBlur={(e) => {
+        if (norm) {
+          const next = norm(value);
+          if (next !== value) onChange(next);
+        }
+        onBlur?.(e);
+      }}
       placeholder={field.placeholder}
+      inputMode={field.inputMode}
+      autoComplete={field.autoComplete}
       className={lineCls}
     />
   );
 });
+
+// Field-level value canonicalisers, keyed by the schema's `normalize`
+// flag. Each is a pure (string -> string); blur handlers apply them
+// after the user stops editing.
+const NORMALIZERS = {
+  // Aadhar is a 12-digit number, conventionally written in groups of
+  // four. We tolerate any input — students paste in dashes, hyphens,
+  // dots, sometimes with the country code — and reduce to digits. Once
+  // it's exactly 12 digits we space-format it; otherwise we leave the
+  // raw digits so a partially-typed value stays editable instead of
+  // getting padded into nonsense.
+  aadhar: (s) => {
+    const digits = String(s || "").replace(/\D+/g, "");
+    if (digits.length === 12) {
+      return `${digits.slice(0, 4)} ${digits.slice(4, 8)} ${digits.slice(8, 12)}`;
+    }
+    return digits;
+  },
+  // Indian passports are alphanumeric (commonly one capital letter +
+  // 7 digits, e.g. "A1234567"). Strip whitespace and uppercase the
+  // letters; keep everything else as-is so we don't mangle unfamiliar
+  // formats from non-Indian passports.
+  passport: (s) => String(s || "").replace(/\s+/g, "").toUpperCase(),
+};
 
 // ============================================================
 // FileSlot — real <input type="file"> with validation and upload.
@@ -1307,12 +1357,17 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
 // On error or completion the user can replace or remove the file.
 // ============================================================
 const FileSlot = forwardRef(function FileSlot(
-  { value, onChange, onBlur, accept = "image/jpeg,image/png,application/pdf", maxSizeMB = 10, fieldId, compact = false },
+  { value, onChange, onBlur, accept = "image/jpeg,image/png,application/pdf", maxSizeMB = 10, fieldId, compact = false, capture = null },
   ref
 ) {
   const inputRef = useRef(null);
   const slot = isFileSlot(value) ? value : null;
   const status = slot?.status || "empty";
+  // Drag-over visual: tracked locally so the dashed border lights up
+  // when the student drags a file into the slot. dragDepth handles
+  // child-element drag events that would otherwise flicker the state.
+  const [dragDepth, setDragDepth] = useState(0);
+  const isDragging = dragDepth > 0;
 
   const handleFile = async (file) => {
     const base = fileMeta(file);
@@ -1366,13 +1421,49 @@ const FileSlot = forwardRef(function FileSlot(
   const padCls = compact ? "px-2 py-1.5" : "px-3 py-2";
   const textCls = compact ? "text-xs" : "text-sm";
 
+  // Drag-and-drop wiring. The hidden <input> still owns the canonical
+  // file-picker UX (click → OS dialog) and on-mobile the camera-capture
+  // hint; drag events only matter on desktop. dragenter/leave events
+  // bubble through child nodes which would otherwise flip the state on
+  // every internal transition — counter via depth so we only un-style
+  // when the cursor truly leaves the slot.
+  const onDragEnter = (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      setDragDepth((d) => d + 1);
+    }
+  };
+  const onDragOver = (e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  };
+  const onDragLeave = () => setDragDepth((d) => Math.max(0, d - 1));
+  const onDrop = (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    setDragDepth(0);
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  };
+
   return (
     <div className={compact ? "" : "mt-1.5"}>
-    <div className={`flex items-center justify-between gap-2 border border-dashed bg-white/40 ${padCls} transition ${borderCls}`}>
+    <div
+      className={`flex items-center justify-between gap-2 border border-dashed bg-white/40 ${padCls} transition ${
+        isDragging ? "border-stone-900 bg-stone-50" : borderCls
+      }`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <input
         ref={inputRef}
         type="file"
         accept={accept}
+        capture={capture || undefined}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -1384,7 +1475,11 @@ const FileSlot = forwardRef(function FileSlot(
       <div className="min-w-0 flex-1">
         {status === "empty" && (
           <span className={`block truncate italic text-stone-400 ${textCls}`}>
-            {compact ? `${acceptHuman} · max ${maxSizeMB} MB` : `no file selected · ${acceptHuman} · max ${maxSizeMB} MB`}
+            {isDragging
+              ? "drop file here…"
+              : compact
+              ? `${acceptHuman} · max ${maxSizeMB} MB`
+              : `no file selected · ${acceptHuman} · max ${maxSizeMB} MB`}
           </span>
         )}
         {status === "validating" && (
@@ -1451,16 +1546,34 @@ const FileSlot = forwardRef(function FileSlot(
 });
 
 // Inline preview shown right below an uploaded file slot. Image files
-// render with an <img>; PDFs (and anything else) drop into an iframe so
-// browsers show their built-in viewer. The whole preview links to the
-// asset in a new tab so the student can pop it out full-screen if they
-// want a closer look while transcribing values into the next field.
+// render with an <img>; PDFs render as a tappable card that opens the
+// file in a new tab.
+//
+// We intentionally don't <iframe> PDFs: iOS Safari (and most mobile
+// browsers) refuse to render PDFs inline and show a blank box instead,
+// so a meaningful slice of users would see a broken preview right at
+// the point they're trying to transcribe values from it. The
+// "open in new tab" affordance hands the file off to the OS / browser
+// PDF viewer, which works everywhere.
+//
+// Image attrs:
+//   loading="lazy"      — defer offscreen renders until scrolled into view
+//   decoding="async"    — don't block the main thread while decoding the
+//                         full-resolution photo (phone JPEGs are big)
+//   referrerpolicy="no-referrer" — don't leak the file's URL via Referer
+//                         if a student ever right-clicks → "open image in
+//                         new tab" on a page that gets shared.
+//
+// EXIF orientation: server-side sharp() bakes the rotation into the
+// pixels at upload time, so by the time we render the <img> the image
+// is already physically right-side-up. Modern browsers also honour the
+// EXIF tag for <img> by default; this is belt-and-suspenders.
 function FilePreview({ slot }) {
   const url = slot?.uploadedUrl;
   if (!url) return null;
   // Autofill mock writes stub:// URLs that no browser can render. Skip
   // the preview block in that case so the demo state shows the
-  // "uploaded" pill without a broken image / empty iframe underneath.
+  // "uploaded" pill without a broken image underneath.
   if (url.startsWith("stub://")) return null;
   const type = slot?.type || "";
   const name = slot?.name || "uploaded file";
@@ -1476,27 +1589,35 @@ function FilePreview({ slot }) {
         <img
           src={url}
           alt={name}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
           className="block max-h-96 w-full object-contain"
+          style={{ imageOrientation: "from-image" }}
         />
       </a>
     );
   }
+  // PDF (or any non-image — the upload validator only accepts PDF / JPEG
+  // / PNG, so this branch is effectively "PDF").
   return (
-    <div className="mt-2 border border-stone-900/15 bg-white">
-      <iframe
-        src={url}
-        title={name}
-        className="block h-80 w-full border-0"
-      />
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="block border-t border-stone-900/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-900"
-      >
-        Open full size ↗
-      </a>
-    </div>
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 flex items-center justify-between gap-3 border border-stone-900/15 bg-white px-3 py-3 transition hover:border-stone-900 hover:bg-stone-50"
+      title="Open in a new tab"
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-900/30 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
+          PDF
+        </span>
+        <span className="min-w-0 truncate text-sm text-stone-700">{name}</span>
+      </div>
+      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-500">
+        Open ↗
+      </span>
+    </a>
   );
 }
 
@@ -1571,7 +1692,11 @@ function RepeaterThumb({ slot }) {
         <img
           src={url}
           alt={name}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
           className="block h-10 w-full object-cover"
+          style={{ imageOrientation: "from-image" }}
         />
       ) : (
         <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-600">

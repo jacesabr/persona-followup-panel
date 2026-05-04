@@ -5,8 +5,8 @@
 // until status is terminal.
 //
 // Pipeline:
-//   1. Pull the latest intake answers (general form + doc-review
-//      typed values).
+//   1. Pull the latest intake answers (typed personal info + doc-
+//      derived values transcribed alongside each upload).
 //   2. Run the Plan call ONCE per resume.
 //   3. For each section in plan.section_order: pick the example,
 //      generate, validate, accumulate.
@@ -67,8 +67,9 @@ export async function executeResume({ resumeId, spec }) {
   try {
     await update({ status: "running" });
 
-    // 1. Load the student record (intake answers + doc-review values
-    //    all live in the same `data` jsonb).
+    // 1. Load the student record. All intake answers (typed personal
+    //    info + doc-derived values transcribed alongside each upload)
+    //    live in the same `data` jsonb.
     const studentRow = await pool.query(
       "SELECT student_id FROM intake_resumes WHERE id = $1",
       [resumeId]

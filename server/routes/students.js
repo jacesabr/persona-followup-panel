@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import sharp from "sharp";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
@@ -699,12 +700,54 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
     const studentId = req.user.studentId;
     const rowIdx = rowIndex != null && rowIndex !== "" ? Number(rowIndex) : null;
 
+    // EXIF orientation bake + size cap for image uploads. Two birds, one
+    // sharp pipeline:
+    //
+    //   - Phone-camera JPEGs/PNGs carry an "Orientation" EXIF tag that
+    //     says "rotate 90/180/270 on display." Most modern browsers
+    //     honour it for <img>, but embedded WebViews (Instagram,
+    //     WhatsApp) and downstream PDF/print pipelines often don't —
+    //     students see their marksheet/Aadhar sideways. .rotate() with
+    //     no args reads the EXIF tag and rotates the pixels, then we
+    //     strip the tag so every consumer renders the same picture.
+    //
+    //   - 4032×3024 phone JPEGs run 4–6 MB. We resize down to 1600px
+    //     on the longest side (lossless if smaller — withoutEnlargement)
+    //     so storage, downloads, and the inline preview stay snappy on
+    //     slow Indian mobile connections. 1600px keeps text on a
+    //     marksheet legible for transcription (the original use case)
+    //     while typically shrinking the file to ~300–600 KB.
+    //
+    // PDFs pass through untouched — sharp can't rasterise them without
+    // a libvips poppler build, which our Render deploy doesn't ship.
+    const tmpForStorage = req.file.path;
+    let bakedTmp = null;
+    if (v.actualType === "image/jpeg" || v.actualType === "image/png") {
+      bakedTmp = `${req.file.path}.oriented`;
+      try {
+        await sharp(req.file.path)
+          .rotate()
+          .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+          .withMetadata({ orientation: undefined })
+          .toFile(bakedTmp);
+        // Replace the original tmp with the oriented+resized one so
+        // storage.save moves the canonical version. Failure here falls
+        // through to the raw upload — better to ship a possibly-
+        // sideways/oversized image than to 500 the upload entirely.
+        fs.renameSync(bakedTmp, req.file.path);
+        bakedTmp = null;
+      } catch (e) {
+        console.warn("[upload] sharp auto-orient/resize failed, falling back to raw upload:", e.message);
+        try { if (bakedTmp) fs.unlinkSync(bakedTmp); } catch {}
+      }
+    }
+
     // Hand the validated bytes to the storage backend (local disk by
     // default, S3-compatible if STORAGE_BACKEND=s3). Returns the opaque
     // `key` we persist as storage_path; download routes stream by key.
     const store = await getStorage();
     const saved = await store.save({
-      tmpPath: req.file.path,
+      tmpPath: tmpForStorage,
       scope: studentId,
       originalName: req.file.originalname,
       mimeType: v.actualType,
@@ -769,7 +812,11 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
       url: `/api/students/me/files/${doc.id}`,
       uploadedAt: doc.created_at.toISOString(),
       actualType: v.actualType,
-      size: req.file.size,
+      // Report the post-processing size (after sharp resize). For PDFs
+      // this matches req.file.size; for images it's typically much
+      // smaller, and we want the client's "filename · 423 KB" pill to
+      // match what's actually stored.
+      size: saved.size,
     });
   } catch (err) {
     if (req.file?.path && fs.existsSync(req.file.path)) {
@@ -801,6 +848,14 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
     }
     res.set("Content-Type", doc.mime_type);
     res.set("Content-Length", String(doc.size));
+    // private = single-user (cookie-gated, contains personal data —
+    // Aadhar / passport scans). max-age = treat the response as
+    // immutable for an hour: file IDs are unique-per-upload (BIGSERIAL),
+    // so a "replace" gets a brand new URL and the browser cache for the
+    // old one becomes irrelevant. immutable hints the browser away from
+    // revalidating on back/forward nav, which keeps the inline preview
+    // snappy as the student bounces between intake pages.
+    res.set("Cache-Control", "private, max-age=3600, immutable");
     res.set(
       "Content-Disposition",
       `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
@@ -841,6 +896,9 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
     }
     res.set("Content-Type", doc.mime_type);
     res.set("Content-Length", String(doc.size));
+    // Same Cache-Control rationale as the student-side route above —
+    // private + immutable, file IDs never alias.
+    res.set("Cache-Control", "private, max-age=3600, immutable");
     res.set(
       "Content-Disposition",
       `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`

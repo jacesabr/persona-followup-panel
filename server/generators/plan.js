@@ -90,8 +90,9 @@ const SCHEMA = {
 
 export async function buildPlan({ studentRecord }) {
   // Compose the input bundle the model sees. The student's intake
-  // answers carry both the general-intake values and the doc-review
-  // values typed against each uploaded document.
+  // answers carry both the typed personal info and the doc-derived
+  // values (marks %, passport #, test scores) the student transcribed
+  // alongside each upload.
   const inputBundle = {
     intake_answers: studentRecord?.data?.answers || {},
   };
