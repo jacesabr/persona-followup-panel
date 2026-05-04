@@ -108,17 +108,33 @@ router.get("/", async (req, res, next) => {
       where.push(`counsellor_id = $${params.length}`);
     }
     // next_appointment_* columns let the followup row show a "Session"
-    // button without round-tripping per lead. Subqueries return NULL when
-    // the lead has no upcoming appointment — UI keys off the id being
-    // truthy.
+    // button without round-tripping per lead. Picks the next upcoming
+    // appointment, else falls back to the most recent past one — same
+    // precedence as the service_date recompute in POST /:id/appointments.
+    // The fallback keeps the Session button available after the meeting
+    // time has passed so the counsellor can still add notes for that
+    // session; once a followup is booked, the upcoming row takes over
+    // and the Session target retargets to the new appointment.
+    // Both subqueries use NOW() (statement-stable in Postgres) so id and
+    // scheduled_for always come from the same row.
     const sql = `
       SELECT leads.*,
-        (SELECT id FROM lead_appointments
-           WHERE lead_id = leads.id AND scheduled_for >= NOW()
-           ORDER BY scheduled_for ASC LIMIT 1) AS next_appointment_id,
-        (SELECT scheduled_for FROM lead_appointments
-           WHERE lead_id = leads.id AND scheduled_for >= NOW()
-           ORDER BY scheduled_for ASC LIMIT 1) AS next_appointment_scheduled_for
+        COALESCE(
+          (SELECT id FROM lead_appointments
+             WHERE lead_id = leads.id AND scheduled_for >= NOW()
+             ORDER BY scheduled_for ASC LIMIT 1),
+          (SELECT id FROM lead_appointments
+             WHERE lead_id = leads.id AND scheduled_for < NOW()
+             ORDER BY scheduled_for DESC LIMIT 1)
+        ) AS next_appointment_id,
+        COALESCE(
+          (SELECT scheduled_for FROM lead_appointments
+             WHERE lead_id = leads.id AND scheduled_for >= NOW()
+             ORDER BY scheduled_for ASC LIMIT 1),
+          (SELECT scheduled_for FROM lead_appointments
+             WHERE lead_id = leads.id AND scheduled_for < NOW()
+             ORDER BY scheduled_for DESC LIMIT 1)
+        ) AS next_appointment_scheduled_for
       FROM leads
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY service_date ASC NULLS LAST

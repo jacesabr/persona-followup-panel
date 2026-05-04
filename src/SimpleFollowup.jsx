@@ -585,14 +585,17 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 >
                   <History className="h-3.5 w-3.5" /> View
                 </button>
-                {/* Session button — only when there's an upcoming
-                    appointment to work against. Opens a popup that
-                    captures session notes + creates tasks linked to
-                    this specific appointment_id. */}
+                {/* Session button — targets the next upcoming appointment
+                    if one exists, otherwise the most recent past one. Lets
+                    the counsellor keep adding notes after a session ends,
+                    right up until a followup is booked (at which point the
+                    button retargets to the new upcoming row automatically).
+                    Opens a popup that captures session notes + creates
+                    tasks linked to this specific appointment_id. */}
                 {lead.next_appointment_id && (
                   <button
                     onClick={() => setSessionLead(lead)}
-                    title="Open session notes + tasks for the upcoming appointment"
+                    title="Open session notes + tasks for the current appointment"
                     className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[11px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
                   >
                     <Calendar className="h-3.5 w-3.5" /> Session
@@ -1480,8 +1483,11 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 // ============================================================
 // Session popup
 // ============================================================
-// Opens against ONE specific appointment (the lead's next upcoming one,
-// surfaced via lead.next_appointment_id from the leads list response).
+// Opens against ONE specific appointment — either the lead's next upcoming
+// session, or (when none is upcoming) the most recent past session that
+// hasn't yet been replaced by a followup. Surfaced via
+// lead.next_appointment_id from the leads list response, which COALESCEs
+// upcoming with most-recent-past server-side.
 // Two stacked sections:
 //   1. Notes — textarea bound to lead_appointments.notes. Save button
 //      writes back via PATCH /leads/:id/appointments/:apptId.
@@ -1498,6 +1504,13 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 function SessionPopup({ lead, onClose }) {
   const apptId = lead.next_appointment_id;
   const apptDate = lead.next_appointment_scheduled_for;
+  // When apptDate is in the past, the popup is being used to document a
+  // session that already happened — render a small badge so the counsellor
+  // sees at a glance that this isn't an upcoming one. Once they book a
+  // followup, the leads-list refetch retargets the button to the new
+  // upcoming row and this badge naturally goes away.
+  const isPastSession =
+    apptDate && new Date(apptDate).getTime() < Date.now();
 
   const [notes, setNotes] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -1599,6 +1612,11 @@ function SessionPopup({ lead, onClose }) {
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
               Session
+              {isPastSession && (
+                <span className="ml-2 border border-stone-400 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-stone-600">
+                  Past · awaiting notes
+                </span>
+              )}
             </p>
             <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-stone-900">
               {lead.name}
