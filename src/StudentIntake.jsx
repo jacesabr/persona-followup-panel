@@ -1205,8 +1205,19 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
       onChange(next.length === 0 ? [{}] : next);
     };
 
+    // Repeaters with a file subfield (activities, other-docs) get an
+    // extra "Preview" column so the student can pop the upload open in
+    // a new tab and verify it. We don't inline a full FilePreview here
+    // because the row is already a tight grid — a tappable thumbnail
+    // (image) or PDF badge keeps the row's height bounded.
+    const fileSubfield = field.itemFields.find((sf) => sf.type === "file");
+    const hasFileSubfield = !!fileSubfield;
     const cols = field.itemFields.length;
-    const gridStyle = { gridTemplateColumns: `2rem repeat(${cols}, minmax(0, 1fr)) 2rem` };
+    const gridStyle = {
+      gridTemplateColumns: hasFileSubfield
+        ? `2rem repeat(${cols}, minmax(0, 1fr)) 4rem 2rem`
+        : `2rem repeat(${cols}, minmax(0, 1fr)) 2rem`,
+    };
 
     return (
       <div className="mt-2">
@@ -1221,6 +1232,9 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
                 {sf.label}
               </div>
             ))}
+            {hasFileSubfield && (
+              <div className="bg-[#f4f0e6] px-2 py-1.5 truncate">Preview</div>
+            )}
             <div className="bg-[#f4f0e6] px-2 py-1.5" />
           </div>
           {displayRows.map((row, i) => (
@@ -1242,6 +1256,9 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
                   rootRef={i === 0 && j === 0 ? ref : undefined}
                 />
               ))}
+              {hasFileSubfield && (
+                <RepeaterThumb slot={row?.[fileSubfield.id]} />
+              )}
               <button
                 type="button"
                 onClick={() => removeRow(i)}
@@ -1524,6 +1541,44 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
       placeholder={subfield.placeholder}
       className="bg-[#f4f0e6] px-2 py-2 text-sm outline-none placeholder:italic placeholder:text-stone-400"
     />
+  );
+}
+
+// Tiny tappable preview shown in the "Preview" column of repeaters
+// that have a file subfield. Clicking pops the upload open in a new
+// tab so the student can verify it without leaving the page. Empty /
+// in-flight rows render as a blank cell of the same height to keep the
+// row's grid track aligned.
+function RepeaterThumb({ slot }) {
+  const url = slot?.uploadedUrl;
+  const isReady =
+    isFileUploaded(slot) && url && !url.startsWith("stub://");
+  if (!isReady) {
+    return <div className="bg-[#f4f0e6]" aria-hidden="true" />;
+  }
+  const type = slot?.type || "";
+  const name = slot?.name || "uploaded file";
+  const isImage = type.startsWith("image/");
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={`Open ${name} in a new tab`}
+      className="flex items-center justify-center overflow-hidden bg-[#f4f0e6] p-1 transition hover:bg-stone-200"
+    >
+      {isImage ? (
+        <img
+          src={url}
+          alt={name}
+          className="block h-10 w-full object-cover"
+        />
+      ) : (
+        <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-600">
+          PDF ↗
+        </span>
+      )}
+    </a>
   );
 }
 
