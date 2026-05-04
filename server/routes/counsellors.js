@@ -186,6 +186,27 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
     const validationError = validateCounsellorInput(req.body, { mode: "patch" });
     if (validationError) return res.status(400).json({ error: validationError });
 
+    // Channel-merge invariant: counsellor must remain reachable on at
+    // least one of whatsapp/email after the patch lands. Without this
+    // check, PATCH {"email": ""} on a counsellor with no whatsapp left
+    // both columns NULL — notify routing then silently dropped any
+    // notification addressed to that counsellor. Load the existing row,
+    // compute the post-patch state, reject if both would be empty.
+    const touchesChannel = "whatsapp" in req.body || "email" in req.body;
+    if (touchesChannel) {
+      const cur = await pool.query("SELECT whatsapp, email FROM counsellors WHERE id = $1", [id]);
+      if (cur.rows.length === 0) return res.status(404).json({ error: "counsellor not found" });
+      const nextWa = "whatsapp" in req.body
+        ? (req.body.whatsapp || null)
+        : cur.rows[0].whatsapp;
+      const nextEmail = "email" in req.body
+        ? ((req.body.email && req.body.email.trim()) || null)
+        : cur.rows[0].email;
+      if (!nextWa && !nextEmail) {
+        return res.status(400).json({ error: "at least one of whatsapp or email is required" });
+      }
+    }
+
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
       const v = req.body[f];

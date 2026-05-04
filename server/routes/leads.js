@@ -386,13 +386,19 @@ router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
       return res.status(400).json({ error: "invalid appointment id" });
     }
     if (!(await checkLeadAccess(req, res, leadId))) return;
-    const { notes } = req.body;
-    if (notes) {
-      if (!isString(notes) || notes.length > 2000) {
-        return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
-      }
+    // Only touch `notes` when the request explicitly sends it. Earlier
+    // version unconditionally SET notes = $3, so a PATCH {} (or any
+    // partial PATCH that omitted notes — none yet but inevitable as
+    // this route grows) silently NULLed any existing notes. Reject
+    // empty-body PATCH outright to make the contract explicit.
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "notes")) {
+      return res.status(400).json({ error: "no fields to update" });
     }
-    const cleanNotes = notes && notes.trim() ? notes.trim() : null;
+    const { notes } = req.body;
+    if (notes != null && (!isString(notes) || notes.length > 2000)) {
+      return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
+    }
+    const cleanNotes = isString(notes) && notes.trim() ? notes.trim() : null;
 
     const { rows } = await pool.query(
       `UPDATE lead_appointments

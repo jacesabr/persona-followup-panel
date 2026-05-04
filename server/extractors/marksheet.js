@@ -50,16 +50,20 @@ const SCHEMA = {
         properties: {
           code: { type: Type.STRING, nullable: true },
           name: { type: Type.STRING },
-          max_marks: { type: Type.INTEGER, nullable: true },
-          marks_obtained: { type: Type.INTEGER, nullable: true },
+          // NUMBER not INTEGER: some Indian boards publish decimal
+          // practical marks (e.g. 97.5/100 in CISCE practical
+          // components). INTEGER silently truncated those — quality
+          // QA flagged the loss as a P1.
+          max_marks: { type: Type.NUMBER, nullable: true },
+          marks_obtained: { type: Type.NUMBER, nullable: true },
           grade: { type: Type.STRING, nullable: true },
         },
         required: ["name"],
         propertyOrdering: ["code", "name", "max_marks", "marks_obtained", "grade"],
       },
     },
-    total_max: { type: Type.INTEGER, nullable: true },
-    total_obtained: { type: Type.INTEGER, nullable: true },
+    total_max: { type: Type.NUMBER, nullable: true },
+    total_obtained: { type: Type.NUMBER, nullable: true },
     percentage: { type: Type.NUMBER, nullable: true },
     overall_grade: { type: Type.STRING, nullable: true },
     issue_date: { type: Type.STRING, nullable: true, description: "ISO date if present, else null" },

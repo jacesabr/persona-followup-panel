@@ -62,6 +62,12 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     if (!/^[a-zA-Z0-9_.-]+$/.test(username.trim())) {
       return res.status(400).json({ error: "username may only contain letters, digits, _ . -" });
     }
+    // Require at least one alphanumeric so usernames like "...", ".",
+    // ".._.." aren't accepted. Without this the dot/dash-only namespace
+    // is reachable and creates unreadable login screens.
+    if (!/[a-zA-Z0-9]/.test(username.trim())) {
+      return res.status(400).json({ error: "username must contain at least one letter or digit" });
+    }
     if (lead_id != null && !isString(lead_id)) {
       return res.status(400).json({ error: "lead_id must be a string" });
     }
@@ -405,16 +411,33 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
   try {
     const { data, intakeComplete, expectedUpdatedAt } = req.body || {};
 
+    // Reject anything that isn't a plain object — the field is jsonb
+    // and the SET clause stringifies whatever lands here. Without this
+    // guard, `data: "stringy"` or `data: null` round-trips into the DB
+    // and breaks the next client read (which expects an object). Arrays
+    // pass typeof === "object" so block them too.
+    if (data !== undefined && (data === null || typeof data !== "object" || Array.isArray(data))) {
+      return res.status(400).json({ error: "data must be a JSON object" });
+    }
+
     // The conflict-detecting UPDATE: filter on student_id AND on the
     // optional expectedUpdatedAt. If expectedUpdatedAt is null/undefined
     // we skip the precondition (initial save, mock data autofill, etc).
+    //
+    // Compare via date_trunc to milliseconds: Postgres timestamptz has
+    // microsecond precision, but the `updated_at` we hand the client
+    // is JSON-serialised which truncates to milliseconds. A naive
+    // `updated_at = $4::timestamptz` therefore NEVER matches because
+    // the µs digits round-tripped through JSON are gone — every PUT
+    // returned 409 even on a fresh value. Truncating both sides to ms
+    // makes the round-trip equality work as the API caller expects.
     const sql = expectedUpdatedAt
       ? `UPDATE intake_students
             SET data = $1::jsonb,
                 intake_complete = $2,
                 updated_at = NOW()
           WHERE student_id = $3
-            AND updated_at = $4::timestamptz
+            AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $4::timestamptz)
           RETURNING student_id, intake_complete, updated_at`
       : `UPDATE intake_students
             SET data = $1::jsonb,
@@ -478,13 +501,39 @@ const multerStorage = multer.diskStorage({
 });
 const upload = multer({ storage: multerStorage, limits: { fileSize: MAX_FILE_MB * 1024 * 1024 } });
 
-router.post("/me/upload", requireStudent, upload.single("file"), async (req, res, next) => {
+// Wrap multer.single() so size-limit failures translate to 413 (the
+// HTTP status that actually means "payload too large") instead of
+// escaping to the global error middleware as a 500. Matches the QA
+// expectation and surfaces a usable error message to the client.
+function uploadOne(req, res, next) {
+  upload.single("file")(req, res, (err) => {
+    if (err && err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: `file exceeds ${MAX_FILE_MB} MB limit` });
+    }
+    if (err) return next(err);
+    next();
+  });
+}
+
+// fieldId is the routing key for the extractor (server/extractors/index.js)
+// and a partition key for intake_files. Without a shape check we accepted
+// arbitrary strings — `../../etc/passwd`, 5000-char blobs, anything.
+// Tighter rule: alphanumeric + underscore, optionally followed by an
+// indexed-list suffix `[N].fieldname` (the activities_list[3].proof
+// pattern). Caps at 64 chars.
+const FIELD_ID_RE = /^[a-zA-Z0-9_]{1,40}(?:\[\d{1,3}\]\.[a-zA-Z0-9_]{1,20})?$/;
+
+router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded." });
     const { fieldId, rowIndex, accept } = req.body;
     if (!fieldId) {
       try { fs.unlinkSync(req.file.path); } catch {}
       return res.status(400).json({ error: "fieldId is required." });
+    }
+    if (!FIELD_ID_RE.test(fieldId)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: "fieldId must be alphanumeric (optionally suffixed with [N].name)" });
     }
     const v = validateUploadedFile(req.file.path, accept || "application/pdf");
     if (!v.ok) {
@@ -881,6 +930,30 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
     }
     if (specs.length > 5) {
       return res.status(400).json({ error: "max 5 resumes per batch" });
+    }
+    // Per-spec validation. Without this, length_pages: "two" reached
+    // the INSERT bind and surfaced as a 500 leaking the Postgres error
+    // text; length_pages: 0 / -5 inserted rows that the generator then
+    // tried to honour. Cap at 10 pages (longer than any actual resume
+    // would be useful for).
+    for (let i = 0; i < specs.length; i++) {
+      const s = specs[i];
+      if (!s || typeof s !== "object") {
+        return res.status(400).json({ error: `specs[${i}] must be an object` });
+      }
+      if (s.length_pages != null) {
+        if (!Number.isInteger(s.length_pages) || s.length_pages < 1 || s.length_pages > 10) {
+          return res.status(400).json({ error: `specs[${i}].length_pages must be an integer between 1 and 10` });
+        }
+      }
+      if (s.length_words != null) {
+        if (!Number.isInteger(s.length_words) || s.length_words < 50 || s.length_words > 5000) {
+          return res.status(400).json({ error: `specs[${i}].length_words must be an integer between 50 and 5000` });
+        }
+      }
+      if (s.label != null && (typeof s.label !== "string" || s.label.length > 200)) {
+        return res.status(400).json({ error: `specs[${i}].label must be a string up to 200 chars` });
+      }
     }
 
     // Precondition: ≥1 confirmed extraction. The generator pulls facts
