@@ -11,6 +11,7 @@
     "start": "node server/index.js",
     "wipe": "node server/wipe.js",
     "import-examples": "node server/scripts/import-examples.js",
+    "seed-student": "node server/scripts/seed-test-student.js",
     "test": "node --test lib/*.test.js"
   },
   "dependencies": {
