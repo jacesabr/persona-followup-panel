@@ -10,6 +10,8 @@ import {
   Undo2,
   History,
   Pencil,
+  Calendar,
+  Star,
 } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
@@ -71,6 +73,10 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   const [calendarLead, setCalendarLead] = useState(null);
   // The lead whose history popup is currently open (null = closed).
   const [historyLead, setHistoryLead] = useState(null);
+  // The lead whose Session popup is open. When set we pass the upcoming
+  // appointment (id + scheduled_for from the leads list response) into
+  // the popup so it can scope notes + tasks to that one session.
+  const [sessionLead, setSessionLead] = useState(null);
 
   // counsellorId scopes server-side when admin is impersonating so the
   // wire response only carries that counsellor's leads. For a counsellor
@@ -550,13 +556,28 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
-              <button
-                onClick={() => setHistoryLead(lead)}
-                title="View appointment history"
-                className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[11px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
-              >
-                <History className="h-3.5 w-3.5" /> View
-              </button>
+              <span className="flex flex-col gap-1">
+                <button
+                  onClick={() => setHistoryLead(lead)}
+                  title="View appointment history"
+                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[11px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                >
+                  <History className="h-3.5 w-3.5" /> View
+                </button>
+                {/* Session button — only when there's an upcoming
+                    appointment to work against. Opens a popup that
+                    captures session notes + creates tasks linked to
+                    this specific appointment_id. */}
+                {lead.next_appointment_id && (
+                  <button
+                    onClick={() => setSessionLead(lead)}
+                    title="Open session notes + tasks for the upcoming appointment"
+                    className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[11px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
+                  >
+                    <Calendar className="h-3.5 w-3.5" /> Session
+                  </button>
+                )}
+              </span>
               <span className="text-[13px] text-stone-700">
                 {counsellorNameById.get(lead.counsellor_id) ||
                   lead.counsellor_name ||
@@ -593,6 +614,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         <HistoryPopup
           lead={historyLead}
           onClose={() => setHistoryLead(null)}
+        />
+      )}
+
+      {sessionLead && (
+        <SessionPopup
+          lead={sessionLead}
+          onClose={() => setSessionLead(null)}
         />
       )}
     </>
@@ -1406,6 +1434,269 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Session popup
+// ============================================================
+// Opens against ONE specific appointment (the lead's next upcoming one,
+// surfaced via lead.next_appointment_id from the leads list response).
+// Two stacked sections:
+//   1. Notes — textarea bound to lead_appointments.notes. Save button
+//      writes back via PATCH /leads/:id/appointments/:apptId.
+//   2. Tasks from this session — lists every counsellor_task with
+//      appointment_id = this one, plus an inline "add task" form. New
+//      tasks get appointment_id set on the server, so they later render
+//      a "from session of <date>" badge in the tasks panel.
+//
+// Auto-assigns new tasks to the lead's counsellor_id (the person who
+// runs the session). Counsellor sessions: server clamps assignee_id to
+// self anyway, so the body field is moot. Admin sessions: the lead's
+// counsellor is the right default; admin can reassign in the tasks
+// panel afterward if needed.
+function SessionPopup({ lead, onClose }) {
+  const apptId = lead.next_appointment_id;
+  const apptDate = lead.next_appointment_scheduled_for;
+
+  const [notes, setNotes] = useState("");
+  const [notesLoaded, setNotesLoaded] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesErr, setNotesErr] = useState(null);
+
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksErr, setTasksErr] = useState(null);
+
+  const [newText, setNewText] = useState("");
+  const [newDue, setNewDue] = useState(() =>
+    utcIsoToIstInput(new Date().toISOString()).slice(0, 10)
+  );
+  const [newPriority, setNewPriority] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [createErr, setCreateErr] = useState(null);
+
+  // Load notes (from the appointment row) + tasks-for-this-session in
+  // parallel on open. listAppointments returns every appointment for the
+  // lead; filter to the one we care about. Cheaper than a new endpoint.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.listAppointments(lead.id), api.listTasks({ appointmentId: apptId })])
+      .then(([appts, ts]) => {
+        if (cancelled) return;
+        const me = appts.find((a) => String(a.id) === String(apptId));
+        setNotes(me?.notes || "");
+        setNotesLoaded(true);
+        setTasks(ts);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (!notesLoaded) setNotesErr(e.message);
+        setTasksErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id, apptId]);
+
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    setNotesErr(null);
+    try {
+      await api.updateAppointment(lead.id, apptId, {
+        notes: notes.trim() || null,
+      });
+    } catch (e) {
+      setNotesErr(e.message);
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const submitTask = async () => {
+    const text = newText.trim();
+    if (!text) {
+      setCreateErr("Task text is required.");
+      return;
+    }
+    setCreatingTask(true);
+    setCreateErr(null);
+    try {
+      const created = await api.createTask({
+        lead_id: lead.id,
+        appointment_id: apptId,
+        text,
+        due_date: newDue,
+        priority: newPriority,
+        // Server clamps to self for counsellor sessions; for admin we
+        // pass the lead's counsellor as the natural assignee. Empty
+        // string would fail validation, so fall back to undefined and
+        // let the server reject if a lead with no counsellor is hit.
+        assignee_id: lead.counsellor_id || undefined,
+      });
+      setTasks((p) => [...p, created]);
+      setNewText("");
+      setNewPriority(false);
+    } catch (e) {
+      setCreateErr(e.message);
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div
+        className="absolute inset-0 bg-stone-900/30"
+        onClick={savingNotes || creatingTask ? undefined : onClose}
+      />
+      <div className="relative z-10 flex max-h-[85vh] w-full max-w-xl flex-col border border-stone-300 bg-white shadow-xl">
+        <header className="flex items-start justify-between border-b border-stone-200 px-5 py-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
+              Session
+            </p>
+            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-stone-900">
+              {lead.name}
+            </h3>
+            <p className="text-[14px] text-stone-600">
+              {apptDate ? formatDateInIst(apptDate) : "—"}
+              {apptDate && (
+                <span className="ml-2 tabular-nums text-stone-500">
+                  {formatTimeInIst(apptDate)}
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={savingNotes || creatingTask}
+            className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <section>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+              Notes
+            </p>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="What was discussed, next steps, anything to remember…"
+              rows={5}
+              maxLength={2000}
+              disabled={!notesLoaded}
+              className="w-full resize-y border border-stone-300 bg-white px-3 py-2 text-[14px] outline-none focus:border-[#cc785c]"
+            />
+            {notesErr && (
+              <p className="mt-1 text-xs text-red-700">{notesErr}</p>
+            )}
+            <div className="mt-2 flex justify-end">
+              <button
+                onClick={saveNotes}
+                disabled={!notesLoaded || savingNotes}
+                className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+              >
+                {savingNotes && <Loader2 className="h-3 w-3 animate-spin" />}
+                Save notes
+              </button>
+            </div>
+          </section>
+
+          <section className="mt-6 border-t border-stone-200 pt-5">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+              Tasks from this session
+            </p>
+
+            {tasksLoading ? (
+              <div className="flex items-center justify-center py-4 text-stone-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+            ) : tasksErr ? (
+              <p className="text-xs text-red-700">{tasksErr}</p>
+            ) : tasks.length === 0 ? (
+              <p className="text-[13px] italic text-stone-500">
+                None yet — add the first one below.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {tasks.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex items-start gap-2 border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-[13px]"
+                  >
+                    {t.priority && (
+                      <Star
+                        className="mt-0.5 h-3 w-3 shrink-0 text-[#cc785c]"
+                        fill="currentColor"
+                      />
+                    )}
+                    <span className="flex-1 text-stone-800">{t.text}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-stone-500">
+                      due {formatDateInIst(t.due_date)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-3 border border-stone-200 bg-white px-3 py-2.5">
+              <input
+                type="text"
+                value={newText}
+                onChange={(e) => setNewText(e.target.value)}
+                placeholder="Add a task from this session…"
+                maxLength={1000}
+                className="w-full border-b border-stone-300 bg-transparent py-1 text-[14px] outline-none focus:border-[#cc785c]"
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                  Due
+                  <input
+                    type="date"
+                    value={newDue}
+                    onChange={(e) => setNewDue(e.target.value)}
+                    className="border border-stone-300 bg-white px-2 py-1 text-[12px] tabular-nums outline-none focus:border-[#cc785c]"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                  <input
+                    type="checkbox"
+                    checked={newPriority}
+                    onChange={(e) => setNewPriority(e.target.checked)}
+                    className="h-3.5 w-3.5 cursor-pointer accent-[#cc785c]"
+                  />
+                  Priority
+                </label>
+                <button
+                  onClick={submitTask}
+                  disabled={creatingTask || !newText.trim()}
+                  className="ml-auto inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                >
+                  {creatingTask ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Plus className="h-3 w-3" />
+                  )}
+                  Add task
+                </button>
+              </div>
+              {createErr && (
+                <p className="mt-1 text-xs text-red-700">{createErr}</p>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

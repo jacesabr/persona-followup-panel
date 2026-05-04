@@ -532,11 +532,20 @@ export default function CounsellorTasks({
                 {task.lead_name || task.student_name || "—"}
               </span>
               <span
-                className={`text-[15px] leading-snug ${
+                className={`flex flex-col text-[15px] leading-snug ${
                   task.completed ? "line-through text-stone-500" : "text-stone-800"
                 }`}
               >
-                {task.text}
+                <span>{task.text}</span>
+                {/* Provenance pill — appears when the task was logged
+                    inside a Session popup. The join in tasks.js
+                    surfaces appointment_scheduled_for so we don't need
+                    a second round-trip per row. */}
+                {task.appointment_scheduled_for && (
+                  <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
+                    from session · {formatDateInIst(task.appointment_scheduled_for)}
+                  </span>
+                )}
               </span>
               {!isScoped && (
                 <span className="text-[14px] text-stone-700">

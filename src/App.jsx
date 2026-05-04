@@ -181,11 +181,14 @@ export default function App() {
   // /api/auth/logout flow.
   if (session.role === "student") {
     return (
-      <StudentIntake
-        studentName={session.studentName || "student"}
-        onExit={onSignOut}
-        onComplete={() => { /* server-side intake_complete flag flips inside the intake UI */ }}
-      />
+      <>
+        <VersionBanner />
+        <StudentIntake
+          studentName={session.studentName || "student"}
+          onExit={onSignOut}
+          onComplete={() => { /* server-side intake_complete flag flips inside the intake UI */ }}
+        />
+      </>
     );
   }
 
@@ -196,34 +199,43 @@ export default function App() {
     const staffName =
       counsellors.find((c) => c.id === impersonating.counsellorId)?.name || "—";
     return (
-      <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
-        <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
-        <SimplePanel
-          role="counsellor"
-          scopedCounsellorId={impersonating.counsellorId}
-        />
-      </Frame>
+      <>
+        <VersionBanner />
+        <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
+          <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
+          <SimplePanel
+            role="counsellor"
+            scopedCounsellorId={impersonating.counsellorId}
+          />
+        </Frame>
+      </>
     );
   }
 
   if (session.role === "admin") {
     return (
-      <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
-        <AdminPanel
-          onImpersonate={(counsellorId) => setImpersonating({ counsellorId })}
-        />
-      </Frame>
+      <>
+        <VersionBanner />
+        <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
+          <AdminPanel
+            onImpersonate={(counsellorId) => setImpersonating({ counsellorId })}
+          />
+        </Frame>
+      </>
     );
   }
 
   // session.role === "counsellor"
   return (
-    <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
-      <SimplePanel
-        role="counsellor"
-        scopedCounsellorId={session.counsellorId}
-      />
-    </Frame>
+    <>
+      <VersionBanner />
+      <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
+        <SimplePanel
+          role="counsellor"
+          scopedCounsellorId={session.counsellorId}
+        />
+      </Frame>
+    </>
   );
 }
 
