@@ -51,9 +51,39 @@ export async function generateStructured(req) {
     const r = await generateWithAnthropic(req);
     return { ...r, provider: "anthropic" };
   }
-  // Default: gemini.
-  const r = await generateWithGemini(req);
-  return { ...r, provider: "gemini" };
+  // Default: gemini, with automatic failover to Anthropic on quota
+  // exhaustion if ANTHROPIC_API_KEY is set. The live QA pass discovered
+  // the production Gemini key is on free-tier with limit:0 — every call
+  // 429s. Without failover, a single dead key takes the whole pipeline
+  // down and the user discovers it by uploading and waiting for a
+  // 'failed' row. With failover + a funded Anthropic key, generation
+  // degrades to the secondary provider transparently.
+  try {
+    const r = await generateWithGemini(req);
+    return { ...r, provider: "gemini" };
+  } catch (e) {
+    if (isQuotaError(e) && process.env.ANTHROPIC_API_KEY) {
+      console.warn(
+        `[llm] Gemini quota exhausted (${e.message?.slice(0, 200)}); failing over to Anthropic for purpose=${req.purpose || "unknown"}`
+      );
+      const r = await generateWithAnthropic(req);
+      return { ...r, provider: "anthropic", failedOver: true };
+    }
+    throw e;
+  }
+}
+
+// Detect Gemini's quota-exhausted error shape. The @google/genai SDK
+// surfaces the upstream HTTP status as `.status` (number) on its
+// ApiError, but quota errors also embed `"code":429` and
+// `"status":"RESOURCE_EXHAUSTED"` in the message string. Match any of
+// those — false positives here just trigger an extra Anthropic call,
+// which is the safer failure mode.
+function isQuotaError(e) {
+  if (!e) return false;
+  if (e.status === 429 || e.code === 429) return true;
+  const msg = String(e.message || "");
+  return msg.includes("RESOURCE_EXHAUSTED") || msg.includes('"code":429');
 }
 
 // ----------------------------------------------------------------

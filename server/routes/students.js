@@ -883,6 +883,24 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
       return res.status(400).json({ error: "max 5 resumes per batch" });
     }
 
+    // Precondition: ≥1 confirmed extraction. The generator pulls facts
+    // exclusively from confirmed_data; with zero confirmed extractions
+    // every section call would emit empty bullets and the validator
+    // would reject them all. The previous version happily scheduled the
+    // generation, burned ~$0.20 of LLM budget per resume, and produced
+    // a junk artefact. Gate explicitly so the failure surfaces before
+    // any provider call.
+    const reviewCheck = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM intake_extractions
+        WHERE student_id = $1 AND confirmed_at IS NOT NULL`,
+      [req.user.studentId]
+    );
+    if ((reviewCheck.rows[0]?.n || 0) === 0) {
+      return res.status(400).json({
+        error: "confirm at least one extraction before generating a resume",
+      });
+    }
+
     // Atomic gate: take the per-student advisory lock, recount, and
     // insert all N rows inside one transaction. Concurrent POSTs from
     // the same student serialise on the lock; the cap is honoured even
