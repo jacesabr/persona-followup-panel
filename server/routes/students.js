@@ -173,6 +173,29 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
     let row;
     try {
       await client.query("BEGIN");
+      // Ownership gate: a counsellor session must only be able to reset
+      // passwords for students THEY created. Without this gate the
+      // adversarial walkthrough demonstrated a full account takeover —
+      // counsellor A reset counsellor B's student's password and got the
+      // new plaintext back. SELECT first so we can 404 on both
+      // not-found AND not-yours (parity with peer-id-probe protection
+      // elsewhere in this file — counsellors should not be able to
+      // distinguish "doesn't exist" from "exists but not yours").
+      const own = await client.query(
+        `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+        [req.params.student_id]
+      );
+      if (own.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student not found" });
+      }
+      if (
+        req.user.kind === "counsellor" &&
+        own.rows[0].counsellor_id !== req.user.counsellorId
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student not found" });
+      }
       const u = await client.query(
         `UPDATE intake_students SET password_hash = $1
           WHERE student_id = $2

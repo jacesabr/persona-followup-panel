@@ -6,7 +6,7 @@ import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import pool from "./db.js";
-import { requireAuth, SLIDING_EXPIRY_DAYS } from "./middleware/auth.js";
+import { requireAuth, requireStaff, SLIDING_EXPIRY_DAYS } from "./middleware/auth.js";
 import leadsRouter from "./routes/leads.js";
 import counsellorsRouter from "./routes/counsellors.js";
 import tasksRouter from "./routes/tasks.js";
@@ -168,9 +168,17 @@ app.use("/api/auth", writeLimiter);
 // audit log coverage despite being in production. Students router has
 // inline audit() calls per-handler (more granular metadata) so it stays
 // without the wrapper.
-app.use("/api/leads", requireAuth, autoAudit("leads"), leadsRouter);
-app.use("/api/counsellors", requireAuth, autoAudit("counsellors"), counsellorsRouter);
-app.use("/api/tasks", requireAuth, autoAudit("counsellor_tasks"), tasksRouter);
+// requireStaff at the mount: leads/tasks/counsellors are admin+counsellor
+// surfaces. Without this gate the GET handlers in leads.js and tasks.js
+// fell through to the "no scope filter" branch for student sessions and
+// returned the full firm-wide roster (PII: contact, lead notes, due
+// dates, counsellor assignments). The /counsellors handler already
+// bottomed out at `return [].json([])` for students, but mounting
+// requireStaff makes the boundary explicit + uniform across all three
+// staff routes.
+app.use("/api/leads", requireAuth, requireStaff, autoAudit("leads"), leadsRouter);
+app.use("/api/counsellors", requireAuth, requireStaff, autoAudit("counsellors"), counsellorsRouter);
+app.use("/api/tasks", requireAuth, requireStaff, autoAudit("counsellor_tasks"), tasksRouter);
 app.use("/api/students", requireAuth, studentsRouter);
 app.use("/api/auth", authRouter);
 

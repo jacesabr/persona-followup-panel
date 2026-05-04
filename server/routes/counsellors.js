@@ -8,6 +8,22 @@ const router = express.Router();
 
 const isString = (v) => typeof v === "string";
 
+// Same denylist used in students.js — drawn from rockyou top-50
+// filtered to >=6 chars, plus admin/test/changeme variants. Counsellor
+// accounts shouldn't be the cheapest backdoor in the system.
+const COUNSELLOR_WEAK_PASSWORDS = new Set([
+  "123456", "1234567", "12345678", "123456789", "1234567890",
+  "111111", "000000", "222222", "121212", "654321",
+  "password", "password1", "password12", "passw0rd", "p@ssword",
+  "qwerty", "qwerty1", "qwerty12", "qwertyui", "qwertyuiop",
+  "abcdef", "abc123", "abcd1234", "asdfgh", "asdfghjkl",
+  "zxcvbn", "zxcvbnm", "letmein", "iloveyou", "trustno1",
+  "welcome", "welcome1", "monkey", "dragon", "master",
+  "admin", "admin1", "admin12", "admin123", "administrator",
+  "login", "guest", "test", "test123", "testing",
+  "default", "changeme", "secret", "shadow", "freedom",
+]);
+
 // Validate any subset of counsellor fields. mode = "create" requires name,
 // at-least-one channel (whatsapp/email), username, and password. mode =
 // "patch" only validates the fields that ARE present, since admin may
@@ -54,12 +70,23 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
   }
   if (isCreate || password !== undefined) {
     if (isCreate) {
-      if (!isString(password) || password.length < 1 || password.length > 100) {
-        return "password must be a non-empty string up to 100 chars";
+      if (!isString(password) || password.length < 6 || password.length > 100) {
+        // 6-char floor matches the student-create path. Counsellors have
+        // strictly more access than students; the prior floor (length<1
+        // — typo'd from <6) let admin provision a counsellor with
+        // password "a" and the adversarial walkthrough confirmed login
+        // worked end-to-end. Defence in depth.
+        return "password must be 6-100 characters";
+      }
+      if (COUNSELLOR_WEAK_PASSWORDS.has(password.toLowerCase())) {
+        return "password is too common; pick something else";
       }
     } else if (password !== null && password !== "") {
-      if (!isString(password) || password.length > 100) {
-        return "password must be a string up to 100 chars";
+      if (!isString(password) || password.length < 6 || password.length > 100) {
+        return "password must be 6-100 characters";
+      }
+      if (COUNSELLOR_WEAK_PASSWORDS.has(password.toLowerCase())) {
+        return "password is too common; pick something else";
       }
     }
   }
