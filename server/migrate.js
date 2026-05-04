@@ -143,6 +143,23 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS scheduled_deletion_at TIMES
 -- Schema version of the JSONB intake form data this row was filled against.
 -- The resume generator + admin views can branch on this when we evolve fields.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS schema_version INT NOT NULL DEFAULT 1;
+-- Pipeline phase: explicit state machine for the student-facing flow.
+--   'intake'     — filling the general form (identity, parents, story, uploads)
+--   'doc_review' — typing doc-derived values (marks %, scores, passport #) with
+--                  the relevant uploaded doc visible side-by-side
+--   'done'       — finished; one 300-word resume queued; lands on dashboard
+-- Replaces the prior derived-from-counts phase resolver. NULL legacy rows
+-- are coerced to 'intake' on read (back-compat for pre-migration accounts).
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS intake_phase TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'intake_students_phase_check'
+  ) THEN
+    ALTER TABLE intake_students
+      ADD CONSTRAINT intake_students_phase_check
+      CHECK (intake_phase IS NULL OR intake_phase IN ('intake', 'doc_review', 'done'));
+  END IF;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_students(LOWER(username)) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);
 CREATE INDEX IF NOT EXISTS idx_intake_students_counsellor ON intake_students(counsellor_id);

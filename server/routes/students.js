@@ -292,6 +292,7 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
     const sid = req.params.student_id;
     const studentRes = await pool.query(
       `SELECT s.student_id, s.username, s.display_name, s.intake_complete,
+              s.intake_phase,
               s.data, s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
               l.name AS lead_name,
               c.name AS counsellor_name
@@ -348,23 +349,16 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
 
 router.get("/me/record", requireStudent, async (req, res, next) => {
   try {
-    // One round-trip: pull the student row + the counts the phase
-    // resolver needs (extractions: total / unconfirmed; resumes:
-    // any-inflight / any-succeeded). LEFT JOIN against aggregates so
-    // brand-new students with zero rows still get the right shape.
+    // intake_phase is the explicit state column (intake / doc_review /
+    // done). Resume counts still pulled so the dashboard can show
+    // generation progress. Extraction counts kept at 0 — the auto-
+    // extract pipeline is dormant; the columns return for back-compat.
     const { rows } = await pool.query(
       `SELECT s.student_id, s.intake_complete, s.data, s.updated_at,
-              COALESCE(ex.total, 0) AS extractions_total,
-              COALESCE(ex.unconfirmed, 0) AS extractions_unconfirmed,
+              s.intake_phase,
               COALESCE(rs.inflight, 0) AS resumes_inflight,
               COALESCE(rs.succeeded, 0) AS resumes_succeeded
          FROM intake_students s
-         LEFT JOIN (
-           SELECT student_id,
-                  COUNT(*)::int AS total,
-                  SUM(CASE WHEN status = 'succeeded' AND confirmed_at IS NULL THEN 1 ELSE 0 END)::int AS unconfirmed
-             FROM intake_extractions GROUP BY student_id
-         ) ex ON ex.student_id = s.student_id
          LEFT JOIN (
            SELECT student_id,
                   SUM(CASE WHEN status IN ('pending','running') THEN 1 ELSE 0 END)::int AS inflight,
@@ -384,23 +378,16 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
       });
     }
 
-    // Phase resolver — single source of truth for which screen the
-    // student should land on after reload / sign-out / new device.
-    // Order matters: an in-flight generation always wins (otherwise
-    // we'd race the polling client). After that, any newly-uploaded
-    // doc that hasn't been confirmed yet pulls the student back to
-    // review — even if they previously generated a resume successfully.
-    // This handles the "generated 1 resume → uploaded a new marksheet"
-    // case the adversarial-on-change agent caught: previously the
-    // student stayed on 'done' and never saw the new extraction.
-    let phase = "intake";
-    if (row.intake_complete) {
-      if (row.resumes_inflight > 0) phase = "generating";
-      else if (row.extractions_unconfirmed > 0) phase = "review";
-      else if (row.resumes_succeeded > 0) phase = "done";
-      else phase = "config";
+    // Phase resolver — read the column directly. Legacy rows that were
+    // saved before the migration land here as NULL; coerce to 'intake'
+    // on read so they restart the new flow from the top.
+    let phase = row.intake_phase || "intake";
+    // Even with phase='done', if the auto-fired resume hasn't completed
+    // yet, surface 'generating' so the dashboard polls instead of
+    // showing an empty resume card.
+    if (phase === "done" && row.resumes_inflight > 0 && row.resumes_succeeded === 0) {
+      phase = "generating";
     }
-
     res.json({
       studentId: row.student_id,
       intakeComplete: row.intake_complete,
@@ -408,8 +395,10 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
       updatedAt: row.updated_at,
       phase,
       counts: {
-        extractions: row.extractions_total,
-        extractionsUnconfirmed: row.extractions_unconfirmed,
+        // extractions counts kept at 0 — pipeline is dormant; field
+        // retained for client compatibility.
+        extractions: 0,
+        extractionsUnconfirmed: 0,
         resumesInflight: row.resumes_inflight,
         resumesSucceeded: row.resumes_succeeded,
       },
@@ -495,6 +484,122 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
       intakeComplete: row.intake_complete,
       updatedAt: row.updated_at,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /api/students/me/intake/phase — explicit phase transitions.
+//   { phase: "doc_review" }  → from 'intake' (general form done, move to
+//                              the side-by-side doc verification step)
+//   { phase: "done" }        → from 'doc_review' (everything filled,
+//                              flip intake_complete + auto-fire one
+//                              300-word resume gen, navigate to dashboard)
+//
+// Allowed transitions are forward-only (intake → doc_review → done) so
+// a refresh-bouncing client can't accidentally rewind state. The
+// `done` transition is atomic: phase flip + resume insert happen in
+// one transaction so a crash mid-call leaves no half-state.
+router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, next) => {
+  try {
+    const { phase } = req.body || {};
+    if (phase !== "doc_review" && phase !== "done") {
+      return res.status(400).json({ error: "phase must be 'doc_review' or 'done'" });
+    }
+    const studentId = req.user.studentId;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const cur = await client.query(
+        `SELECT intake_phase FROM intake_students WHERE student_id = $1 FOR UPDATE`,
+        [studentId]
+      );
+      if (cur.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student row missing" });
+      }
+      const currentPhase = cur.rows[0].intake_phase || "intake";
+
+      // Forward-only transition rules.
+      if (phase === "doc_review" && currentPhase !== "intake") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: `cannot move to doc_review from '${currentPhase}'`,
+          currentPhase,
+        });
+      }
+      if (phase === "done" && currentPhase !== "doc_review") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: `cannot move to done from '${currentPhase}'`,
+          currentPhase,
+        });
+      }
+
+      // Apply the phase change. 'done' also flips intake_complete.
+      if (phase === "done") {
+        await client.query(
+          `UPDATE intake_students
+              SET intake_phase = 'done',
+                  intake_complete = TRUE,
+                  updated_at = NOW()
+            WHERE student_id = $1`,
+          [studentId]
+        );
+        // Auto-fire one 300-word resume in the same transaction. Hard-
+        // coded shape for v1 — multi-resume picker comes back later.
+        // Take the per-student inflight lock so a refresh-spam can't
+        // stack multiple auto-resumes.
+        await reserveInflightOrThrow(client, studentId, 1);
+        const ins = await client.query(
+          `INSERT INTO intake_resumes
+             (student_id, label, length_pages, length_words, style, domain, status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+           RETURNING id`,
+          [studentId, "auto-summary", null, 300, null, null]
+        );
+        const resumeId = ins.rows[0].id;
+        await client.query("COMMIT");
+        // Fire-and-forget after commit so a runner crash leaves the row
+        // in 'pending' for the boot sweeper, not orphaned-mid-tx.
+        executeResume({
+          resumeId,
+          spec: { label: "auto-summary", length_words: 300 },
+        }).catch((e) => console.error("[resume] auto-fire unhandled:", e));
+        audit(req, {
+          table: "intake_students",
+          id: studentId,
+          action: "intake_done",
+          diff: { resume_id: String(resumeId) },
+        });
+        return res.json({ phase: "done", resumeId: String(resumeId) });
+      }
+
+      // doc_review transition.
+      await client.query(
+        `UPDATE intake_students
+            SET intake_phase = 'doc_review', updated_at = NOW()
+          WHERE student_id = $1`,
+        [studentId]
+      );
+      await client.query("COMMIT");
+      audit(req, {
+        table: "intake_students",
+        id: studentId,
+        action: "intake_to_doc_review",
+      });
+      res.json({ phase: "doc_review" });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (e.code === "INFLIGHT_CAP") {
+        return res.status(429).json({
+          error: "a resume is already generating; refresh to see it",
+        });
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (e) {
     next(e);
   }
@@ -621,29 +726,16 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
       }
     }
 
-    let extraction = null;
-    try {
-      // CRITICAL: pass the storage backend's key (saved.key — R2 object key
-      // when STORAGE_BACKEND=s3, disk path when local), NOT multer's tmp
-      // path (which storage.save() already deleted). The DB row at
-      // intake_files.storage_path holds saved.key; the extractor reads
-      // through getStorage().openReadStream(key), which only works with
-      // the same opaque key. Passing req.file.path here was silently
-      // breaking every auto-extract on R2.
-      const sched = await scheduleExtraction({
-        id: doc.id,
-        student_id: studentId,
-        field_id: fieldId,
-        original_name: req.file.originalname,
-        storage_path: saved.key,
-        mime_type: v.actualType,
-      });
-      if (sched.supported) {
-        extraction = { id: sched.id, status: sched.status, extractor: sched.extractor };
-      }
-    } catch (e) {
-      console.error("[upload] auto-extract schedule failed:", e);
-    }
+    // Auto-extract on upload is intentionally disabled. The pipeline
+    // moved to manual entry: the student opens each uploaded doc in
+    // the doc-review step and types the doc-derived values (marks %,
+    // passport #, test scores) themselves. The extractor module +
+    // POST /me/extractions retry endpoint remain in the repo so the
+    // auto-fill flow can be re-enabled by un-commenting this block
+    // without code reshuffling. Suppressing here means upload.extraction
+    // is always null; the client treats a null extraction as "stored
+    // file, no auto-fill" — same path as truly unsupported field types.
+    const extraction = null;
 
     audit(req, {
       table: "intake_files",
@@ -998,18 +1090,21 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
     // generation, burned ~$0.20 of LLM budget per resume, and produced
     // a junk artefact. Gate explicitly so the failure surfaces before
     // any provider call.
-    // status='succeeded' is also enforced at the confirm endpoint, but
-    // belt+suspenders: even if a row got confirmed under earlier code,
-    // the gate now refuses to count anything that didn't actually
-    // succeed during extraction. Pairs with the confirm-time check.
-    const reviewCheck = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM intake_extractions
-        WHERE student_id = $1 AND confirmed_at IS NOT NULL AND status = 'succeeded'`,
+    // Precondition: the student must have completed both intake +
+    // doc-review (intake_phase = 'done'). The auto-fire on the phase
+    // transition handles the happy-path first resume; this manual
+    // route is now only for regenerate-from-dashboard scenarios. A
+    // student rapid-POSTing this endpoint before finishing intake
+    // gets a clear 400 (was: a junk resume against an empty data
+    // bundle when the gate counted confirmed extractions, which
+    // are no longer collected).
+    const phaseCheck = await pool.query(
+      `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
       [req.user.studentId]
     );
-    if ((reviewCheck.rows[0]?.n || 0) === 0) {
+    if ((phaseCheck.rows[0]?.intake_phase || "intake") !== "done") {
       return res.status(400).json({
-        error: "confirm at least one extraction before generating a resume",
+        error: "finish intake + document review before generating a resume",
       });
     }
 
