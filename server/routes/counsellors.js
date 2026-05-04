@@ -2,7 +2,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, SESSION_COOKIE_NAME } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -234,6 +234,65 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       }
       throw e;
     }
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/counsellors/me/change-password — counsellor-side analogue
+// of the student endpoint. Without this route a counsellor who suspects
+// credential compromise had to ask admin out-of-band, leaving the
+// leaked credential live for the entire turnaround. Mirrors the
+// students.js semantics: validates new password (≥6 + denylist),
+// updates the row, drops every OTHER session for this counsellor (the
+// requesting cookie keeps working). autoAudit at the mount logs the
+// change automatically with the password key scrubbed.
+router.post("/me/change-password", express.json(), async (req, res, next) => {
+  try {
+    if (req.user?.kind !== "counsellor") {
+      return res.status(403).json({ error: "counsellor only" });
+    }
+    const { newPassword } = req.body || {};
+    if (!isString(newPassword) || newPassword.length < 6 || newPassword.length > 100) {
+      return res.status(400).json({ error: "password must be 6-100 chars" });
+    }
+    if (COUNSELLOR_WEAK_PASSWORDS.has(newPassword.toLowerCase())) {
+      return res.status(400).json({ error: "password is too common; pick something else" });
+    }
+
+    // UUID-validate the cookie before letting it touch the SQL cast,
+    // same defensive pattern as the student version: a non-UUID cookie
+    // value would either crash the cast or, via NULL semantics, silently
+    // bypass the "drop OTHER sessions" filter and leave stale sessions
+    // alive. Coerce to null on bad input + IS DISTINCT FROM so the NULL
+    // case purges everything (correct: if we can't identify the current
+    // cookie, treat it as compromised).
+    const rawSid = req.cookies?.[SESSION_COOKIE_NAME];
+    const isUuid = (s) =>
+      typeof s === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    const currentSid = isUuid(rawSid) ? rawSid : null;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE counsellors SET password = $1 WHERE id = $2`,
+        [hashPassword(newPassword), req.user.counsellorId]
+      );
+      await client.query(
+        `DELETE FROM sessions
+           WHERE counsellor_id = $1 AND id IS DISTINCT FROM $2::uuid`,
+        [req.user.counsellorId, currentSid]
+      );
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
