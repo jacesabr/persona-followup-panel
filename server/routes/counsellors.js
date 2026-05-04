@@ -98,13 +98,14 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
   return null;
 }
 
-// Explicit column list to keep `password` out of the wire response.
-// The login flow goes through POST /api/auth/login instead; nothing on
-// the client should ever see another counsellor's password. Exported
+// Explicit column list. password_hash is excluded — clients verify via
+// /api/auth/login, not by reading the hash. password_plain IS included:
+// admin + counsellor panels show it directly so support can read out a
+// password without resetting. Tradeoff acknowledged in migrate.js. Exported
 // so server/routes/auth.js can reuse the same allow-list — preventing
 // drift where one endpoint leaks a column the other hides.
 export const COUNSELLOR_PUBLIC_COLUMNS =
-  "id, name, whatsapp, email, username, created_at";
+  "id, name, whatsapp, email, username, password_plain, created_at";
 const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
 // GET /api/counsellors — admin sees the full roster (used by the
@@ -153,10 +154,10 @@ router.post("/", requireAdmin, async (req, res, next) => {
 
     try {
       const { rows } = await pool.query(
-        `INSERT INTO counsellors (id, name, whatsapp, email, username, password)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO counsellors (id, name, whatsapp, email, username, password, password_plain)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING ${PUBLIC_COLUMNS}`,
-        [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password)]
+        [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password), password]
       );
       res.status(201).json(rows[0]);
     } catch (e) {
@@ -205,19 +206,27 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       }
     }
 
-    const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
-    const values = [id, ...fields.map((f) => {
+    // Build the SET list. Password gets a paired write (hash + plaintext)
+    // tacked on at the end so admin/counsellor panels see the new value
+    // without a separate /api call.
+    const setParts = [];
+    const values = [id];
+    fields.forEach((f) => {
       const v = req.body[f];
-      if (f === "name" && typeof v === "string") return v.trim();
-      if (f === "email" && typeof v === "string") return v.trim().toLowerCase() || null;
-      // Lowercase usernames here too — same case-collision reason as POST.
-      if (f === "username" && typeof v === "string") return v.trim().toLowerCase() || null;
-      if (f === "whatsapp") return v || null;
-      // Hash on write so the DB never holds plaintext. Empty patch values
-      // are blocked by validateCounsellorInput above.
-      if (f === "password" && typeof v === "string") return hashPassword(v);
-      return v;
-    })];
+      let stored = v;
+      if (f === "name" && typeof v === "string") stored = v.trim();
+      else if (f === "email" && typeof v === "string") stored = v.trim().toLowerCase() || null;
+      else if (f === "username" && typeof v === "string") stored = v.trim().toLowerCase() || null;
+      else if (f === "whatsapp") stored = v || null;
+      else if (f === "password" && typeof v === "string") stored = hashPassword(v);
+      values.push(stored);
+      setParts.push(`${f} = $${values.length}`);
+    });
+    if (fields.includes("password")) {
+      values.push(req.body.password);
+      setParts.push(`password_plain = $${values.length}`);
+    }
+    const set = setParts.join(", ");
 
     const passwordChanged = fields.includes("password");
     try {
@@ -285,8 +294,8 @@ router.post("/me/change-password", express.json(), async (req, res, next) => {
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE counsellors SET password = $1 WHERE id = $2`,
-        [hashPassword(newPassword), req.user.counsellorId]
+        `UPDATE counsellors SET password = $1, password_plain = $2 WHERE id = $3`,
+        [hashPassword(newPassword), newPassword, req.user.counsellorId]
       );
       await client.query(
         `DELETE FROM sessions

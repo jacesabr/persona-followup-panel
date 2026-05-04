@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
   Plus,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
+import useAutoRefresh from "./useAutoRefresh.js";
 import {
   formatDateInIst,
   formatTimeInIst,
@@ -71,35 +72,38 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   // The lead whose history popup is currently open (null = closed).
   const [historyLead, setHistoryLead] = useState(null);
 
+  // counsellorId scopes server-side when admin is impersonating so the
+  // wire response only carries that counsellor's leads. For a counsellor
+  // session the server already enforces the same scope; the param is
+  // redundant but harmless. For unscoped admin (null) we get every lead.
+  const refresh = useCallback(async () => {
+    try {
+      const [l, c] = await Promise.all([
+        api.listLeads({
+          includeArchived: true,
+          counsellorId: isScoped ? scopedCounsellorId : null,
+        }),
+        api.listCounsellors(),
+      ]);
+      setLeads(l);
+      setCounsellors(c);
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    }
+  }, [isScoped, scopedCounsellorId]);
+
   useEffect(() => {
-    let cancelled = false;
-    // counsellorId scopes server-side when admin is impersonating so the
-    // wire response only carries that counsellor's leads. For a counsellor
-    // session the server already enforces the same scope; the param is
-    // redundant but harmless. For unscoped admin (null) we get every lead.
-    Promise.all([
-      api.listLeads({
-        includeArchived: true,
-        counsellorId: isScoped ? scopedCounsellorId : null,
-      }),
-      api.listCounsellors(),
-    ])
-      .then(([l, c]) => {
-        if (cancelled) return;
-        setLeads(l);
-        setCounsellors(c);
-        setError(null);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    let active = true;
+    refresh().finally(() => {
+      if (active) setLoading(false);
+    });
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, []);
+  }, [refresh]);
+
+  useAutoRefresh(refresh);
 
   const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
 

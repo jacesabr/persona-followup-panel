@@ -25,9 +25,6 @@ import {
   validateFile,
   syncRecord,
   loadRecord,
-  fetchExtraction,
-  retryExtraction,
-  isExtractionTerminal,
   transitionPhase,
 } from "./intakeFiles.js";
 import DocReview from "./DocReview.jsx";
@@ -38,7 +35,7 @@ import StudentDashboard from "./StudentDashboard.jsx";
 // Every field on the legacy Dashboard is covered here so the
 // flow map is the single source of "things we ever ask".
 // ============================================================
-const CHAPTERS = [
+export const CHAPTERS = [
   {
     id: "personal",
     title: "Personal details",
@@ -244,7 +241,7 @@ const CHAPTERS = [
       {
         id: "p_activities",
         title: "Activities, clubs, awards",
-        helper: "Community service, art & culture, leadership, sports — anything that says something about you. Add up to 25.",
+        helper: "Community service, art & culture, leadership, sports — anything that says something about you. Only 1 is required; add up to 25 if you'd like.",
         fields: [
           {
             id: "activities_list",
@@ -377,117 +374,10 @@ const CHAPTERS = [
   },
 ];
 
-// ============================================================
-// DOC_REVIEW_GROUPS — manifest for the doc-review step. After the
-// general intake form completes, the student moves to a side-by-side
-// screen that shows each uploaded doc alongside the form fields whose
-// values are visible on that doc (marks %, passport #, test scores).
-// The student types those values directly while looking at the doc;
-// the auto-extraction worker is dormant in this build.
-//
-// Each entry:
-//   - docFieldId: the upload field id from CHAPTERS (e.g. "marks10sheet")
-//   - title:      heading shown above the doc viewer
-//   - fields:     form fields to render to the right of the viewer.
-//                 Empty fields means "verify-only" (no data to type;
-//                 the student just confirms the right doc is attached).
-//
-// Field shapes mirror the CHAPTERS field schema so the existing
-// FieldInput renderer can handle them without a separate code path.
-// ============================================================
-export const DOC_REVIEW_GROUPS = [
-  {
-    docFieldId: "photoFile",
-    title: "Profile photo",
-    helper: "Confirm this is the photo you want to use.",
-    fields: [],
-  },
-  {
-    docFieldId: "marks10sheet",
-    title: "Class 10 marksheet",
-    fields: [
-      { id: "marks10pct", label: "Overall percentage", type: "number", placeholder: "85" },
-    ],
-  },
-  {
-    docFieldId: "marks11sheet",
-    title: "Class 11 marksheet",
-    fields: [
-      { id: "marks11pct", label: "Overall percentage", type: "number" },
-    ],
-  },
-  {
-    docFieldId: "marks12sheet",
-    title: "Class 12 marksheet",
-    fields: [
-      { id: "marks12pct", label: "Overall percentage", type: "number", optional: true },
-    ],
-  },
-  {
-    docFieldId: "marks12predictedSheet",
-    title: "Class 12 predicted scores",
-    fields: [
-      { id: "marks12predicted", label: "Predicted score", type: "text", optional: true, placeholder: "e.g. 92% predicted" },
-    ],
-  },
-  {
-    docFieldId: "transcript",
-    title: "University transcript",
-    fields: [
-      { id: "cgpa", label: "CGPA", type: "text", placeholder: "8.5 / 10" },
-    ],
-  },
-  { docFieldId: "finalDegree", title: "Final degree", fields: [] },
-  { docFieldId: "semesterTranscripts", title: "Semester transcripts", fields: [] },
-  {
-    docFieldId: "passportFrontBack",
-    title: "Passport (front & back)",
-    helper: "Type the values shown on the passport.",
-    fields: [
-      { id: "passport", label: "Passport #", type: "text", placeholder: "A1234567" },
-      { id: "passportExpiry", label: "Expiry date", type: "date" },
-    ],
-  },
-  { docFieldId: "passportFront", title: "Passport — front page", fields: [] },
-  { docFieldId: "passportLast", title: "Passport — last page", fields: [] },
-  {
-    docFieldId: "ielts_result",
-    title: "IELTS result",
-    fields: [{ id: "ielts_score", label: "Overall score", type: "text", placeholder: "7.5" }],
-  },
-  {
-    docFieldId: "toefl_result",
-    title: "TOEFL result",
-    fields: [{ id: "toefl_score", label: "Total score", type: "text", placeholder: "108" }],
-  },
-  {
-    docFieldId: "sat_result",
-    title: "SAT / ACT result",
-    fields: [{ id: "sat_score", label: "Total score", type: "text", placeholder: "1480" }],
-  },
-  {
-    docFieldId: "ap_result",
-    title: "AP result",
-    fields: [{ id: "ap_score", label: "Scores (per subject)", type: "text", placeholder: "Calc BC: 5, Physics C: 5" }],
-  },
-  {
-    docFieldId: "other_result",
-    title: "Other test result",
-    fields: [{ id: "other_score", label: "Score", type: "text", optional: true }],
-  },
-  // Verify-only docs: no fields to type, student just confirms attachment.
-  { docFieldId: "lor1", title: "Letter of recommendation 1", fields: [] },
-  { docFieldId: "lor2", title: "Letter of recommendation 2", fields: [] },
-  { docFieldId: "lor3", title: "Letter of recommendation 3", fields: [] },
-  { docFieldId: "internship1", title: "Internship 1", fields: [] },
-  { docFieldId: "internship2", title: "Internship 2", fields: [] },
-  { docFieldId: "internship3", title: "Internship 3", fields: [] },
-  { docFieldId: "sop", title: "Statement of purpose", fields: [] },
-  { docFieldId: "resumeFile", title: "Existing resume", fields: [] },
-];
-export const DOC_REVIEW_BY_FIELD = Object.fromEntries(
-  DOC_REVIEW_GROUPS.map((g) => [g.docFieldId, g])
-);
+// Doc-review manifest lives in lib/docReviewManifest.js so the server
+// can validate against the same shape on the phase=done transition.
+// Re-exported here for back-compat with prior imports.
+export { DOC_REVIEW_GROUPS, DOC_REVIEW_BY_FIELD } from "../lib/docReviewManifest.js";
 
 const ALL_PAGES = CHAPTERS.flatMap((c) =>
   c.pages.map((p) => ({ ...p, chapterId: c.id, chapterTitle: c.title }))
@@ -1128,8 +1018,8 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   //   "generating"  → resume auto-fired by the doc_review→done
   //                   transition; dashboard polls
   //   "done"        → resume ready; dashboard renders it
-  // Old "review" / "config" branches are gone — extraction is dormant
-  // and there's only one resume (no picker) for v1.
+  // The student types doc values manually in doc_review and only one
+  // resume is generated (no picker, no extraction).
   const [phase, setPhase] = useState("intake");
   // Phase is now set inside the hydrate useEffect from the server's
   // resolved phase field — see the loadRecord block above. The previous
@@ -1205,9 +1095,6 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
       <TopBar onExit={onExit} onAutofill={fillMock} saveState={saveState} />
 
       <section className="mx-auto max-w-3xl px-6 pt-28 pb-12">
-        <p className="mb-2 text-[10px] uppercase tracking-[0.3em] text-stone-500">
-          Live view
-        </p>
         <div className="min-h-[420px] border border-stone-900/15 bg-white/40 px-8 py-2">
           {isWelcome && <Welcome name={studentName} onStart={() => setStep(0)} />}
           {currentPage && (
@@ -1376,7 +1263,7 @@ function Welcome({ name, onStart }) {
       </h1>
       <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
         We'll walk through your profile a page at a time. We save as you go, so come
-        back any time. Skip what doesn't apply — your counsellor will fill the gaps.
+        back any time. Skip what doesn't apply.
       </p>
       <div className="mt-10 flex items-center gap-4">
         <button
@@ -1707,61 +1594,6 @@ const FileSlot = forwardRef(function FileSlot(
   const slot = isFileSlot(value) ? value : null;
   const status = slot?.status || "empty";
 
-  // Latest slot in a ref so the polling effect's closure can spread the
-  // current shape into onChange even if React state has moved on.
-  const slotRef = useRef(slot);
-  useEffect(() => { slotRef.current = slot; }, [slot]);
-
-  // Poll extraction status while non-terminal. Triggered any time the
-  // extractionId changes (new upload or retry). Aborts on unmount /
-  // before re-runs.
-  const extractionId = slot?.extractionId || null;
-  useEffect(() => {
-    if (!extractionId) return;
-    const initial = slotRef.current?.extractionStatus;
-    if (initial && isExtractionTerminal(initial)) return;
-
-    let cancelled = false;
-    let timer = null;
-    const ctrl = new AbortController();
-
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const res = await fetchExtraction(extractionId, { signal: ctrl.signal });
-        if (cancelled) return;
-        const cur = slotRef.current;
-        // If the user replaced the file mid-poll, the slot's extractionId
-        // changed underneath us — bail and let the new effect take over.
-        if (!cur || cur.extractionId !== extractionId) return;
-        if (res.status !== cur.extractionStatus) {
-          onChange({
-            ...cur,
-            extractionStatus: res.status,
-            extractionError: res.error || null,
-          });
-          onBlur?.();
-        }
-        if (!isExtractionTerminal(res.status)) {
-          timer = setTimeout(tick, 3000);
-        }
-      } catch (e) {
-        if (e.name !== "AbortError") {
-          console.warn("[extract poll]", e);
-          // Back off + retry on transient errors.
-          if (!cancelled) timer = setTimeout(tick, 8000);
-        }
-      }
-    };
-    tick();
-
-    return () => {
-      cancelled = true;
-      ctrl.abort();
-      if (timer) clearTimeout(timer);
-    };
-  }, [extractionId]);
-
   const handleFile = async (file) => {
     const base = fileMeta(file);
 
@@ -1775,7 +1607,7 @@ const FileSlot = forwardRef(function FileSlot(
 
     onChange({ ...base, status: "uploading" });
     try {
-      const { url, uploadedAt, fileId: uploadedFileId, extraction } = await uploadFile(
+      const { url, uploadedAt, fileId: uploadedFileId } = await uploadFile(
         file,
         { fieldId }
       );
@@ -1785,32 +1617,11 @@ const FileSlot = forwardRef(function FileSlot(
         uploadedUrl: url,
         uploadedAt,
         fileId: uploadedFileId,
-        // Auto-extraction kicked off server-side iff this field has a
-        // registered extractor; if not, these stay null.
-        extractionId: extraction?.id || null,
-        extractionStatus: extraction?.status || null,
-        extractionError: null,
       });
       onBlur?.();
     } catch (err) {
       onChange({ ...base, status: "error", error: err?.message || "Upload failed." });
       onBlur?.();
-    }
-  };
-
-  const handleRetryExtraction = async () => {
-    if (!slot?.fileId) return;
-    try {
-      const r = await retryExtraction(slot.fileId);
-      onChange({
-        ...slot,
-        extractionId: r.id,
-        extractionStatus: r.status,
-        extractionError: null,
-      });
-      onBlur?.();
-    } catch (e) {
-      console.warn("[extract retry]", e);
     }
   };
 
@@ -1867,20 +1678,12 @@ const FileSlot = forwardRef(function FileSlot(
           </span>
         )}
         {status === "uploaded" && (
-          <span className="block min-w-0">
-            <span className={`inline-flex w-full items-center gap-1.5 truncate text-stone-900 ${textCls}`}>
-              <Check className="h-3 w-3 shrink-0 text-emerald-700" />
-              <span className="min-w-0 flex-1 truncate">{slot?.name}</span>
-              <span className="shrink-0 text-[9px] uppercase tracking-[0.15em] text-stone-400">
-                {humanSize(slot?.size)}
-              </span>
+          <span className={`inline-flex w-full items-center gap-1.5 truncate text-stone-900 ${textCls}`}>
+            <Check className="h-3 w-3 shrink-0 text-emerald-700" />
+            <span className="min-w-0 flex-1 truncate">{slot?.name}</span>
+            <span className="shrink-0 text-[9px] uppercase tracking-[0.15em] text-stone-400">
+              {humanSize(slot?.size)}
             </span>
-            <ExtractionStatus
-              extractionStatus={slot?.extractionStatus}
-              extractionError={slot?.extractionError}
-              onRetry={handleRetryExtraction}
-              compact={compact}
-            />
           </span>
         )}
         {status === "error" && (
@@ -1923,50 +1726,6 @@ const FileSlot = forwardRef(function FileSlot(
     </div>
   );
 });
-
-// Inline extraction state shown under an uploaded file's name. Hidden
-// for fields with no registered extractor (extractionStatus is null).
-function ExtractionStatus({ extractionStatus, extractionError, onRetry, compact }) {
-  if (!extractionStatus) return null;
-
-  const tx = compact ? "text-[9px]" : "text-[10px]";
-  const cls = `mt-0.5 inline-flex items-center gap-1 ${tx} uppercase tracking-[0.15em]`;
-
-  if (extractionStatus === "pending" || extractionStatus === "running") {
-    return (
-      <span className={`${cls} text-stone-500`}>
-        <Loader2 className="h-2.5 w-2.5 animate-spin" />
-        reading document…
-      </span>
-    );
-  }
-  if (extractionStatus === "succeeded") {
-    return (
-      <span className={`${cls} text-emerald-700`}>
-        <Check className="h-2.5 w-2.5" /> read
-      </span>
-    );
-  }
-  if (extractionStatus === "failed") {
-    return (
-      <span className={`${cls} text-red-700`}>
-        <AlertCircle className="h-2.5 w-2.5" />
-        couldn't read
-        <span className="ml-1 normal-case tracking-normal italic text-stone-500">
-          ({extractionError || "unknown error"})
-        </span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="ml-1 border border-stone-900/20 bg-white px-1 py-0.5 text-[9px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-900"
-        >
-          retry
-        </button>
-      </span>
-    );
-  }
-  return null;
-}
 
 function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
   if (subfield.type === "file") {
@@ -2036,7 +1795,7 @@ function FlowMap({ orderedPages, currentIdx, answers, onMove, onJump, onReset, o
         </div>
         <p className="mt-3 text-xs italic text-stone-500">
           Drag a card to reorder, or use the arrows. Click any card to jump there in
-          the live view above.
+          the preview above.
         </p>
 
         <div className="mt-8 flex flex-col items-stretch">

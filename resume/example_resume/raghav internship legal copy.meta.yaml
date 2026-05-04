@@ -1,0 +1,11 @@
+label:        "Raghav internship — single style anchor"
+length_pages: 1
+length_words: 300
+domain:       null
+style:        formal_compact
+voice_notes: |
+  This is the only style anchor in the corpus. Mirror its overall
+  shape, tone, and density when generating any 300-word summary.
+notes: |
+  Sole example fed to the section generator. Replacing this file
+  changes the look of every resume the system produces.

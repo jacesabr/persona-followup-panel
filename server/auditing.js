@@ -22,8 +22,8 @@ import { audit } from "./audit.js";
 //   - 3xx / 4xx / 5xx responses (we only log on success)
 //
 // Misses by design:
-//   - Background async jobs (extractor, generator) — audit() is called
-//     directly from those workers; this middleware only sees HTTP.
+//   - Background async jobs (generator) — audit() is called directly
+//     from those workers; this middleware only sees HTTP.
 export function autoAudit(table) {
   return function autoAuditMw(req, res, next) {
     if (req.method === "GET") return next();

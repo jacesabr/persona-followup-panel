@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import SimplePanel from "./SimplePanel.jsx";
 import { api } from "./api.js";
+import useAutoRefresh from "./useAutoRefresh.js";
 
 // Admin's landing page. The SimplePanel (Followup + Counsellor tasks +
 // Counsellors tabs) is the entire admin surface.
@@ -33,6 +34,10 @@ export default function AdminPanel({ onImpersonate }) {
   useEffect(() => {
     refreshCounsellors();
   }, [refreshCounsellors]);
+
+  // Refetch on tab focus + slow polling so a second admin tab sees new
+  // counsellors created elsewhere without a hard refresh.
+  useAutoRefresh(refreshCounsellors);
 
   return (
     <SimplePanel

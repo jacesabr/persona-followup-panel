@@ -1,7 +1,7 @@
-// Plan call — runs once per student (cached via the `intake_insights`
-// row, reused across all per-resume / per-section generation calls).
+// Plan call — runs once per resume.
 //
-// Inputs : the student's intake form data + every CONFIRMED extraction.
+// Inputs : the student's intake form data (general intake + the doc-
+//          review values typed manually while looking at each doc).
 // Output : a structured "claim ledger" — every fact a resume could cite,
 //          tagged with the section it belongs in and a deterministic
 //          source_id (so later section calls can be rejected if they
@@ -20,7 +20,7 @@ const TIMEOUT_MS = parseInt(process.env.PLAN_TIMEOUT_MS || "120000", 10);
 const SYSTEM_PROMPT = `You are a senior admissions consultant building the source-of-truth fact ledger for an Indian student applying to universities abroad.
 
 Your job is NOT to write the resume. Your job is to:
-1. Read the student's intake form + every AI-confirmed document extraction.
+1. Read the student's intake form (general intake answers plus the values they typed manually while looking at each uploaded document).
 2. Produce a comprehensive "claim ledger" — every fact that could plausibly appear on a resume — with a stable id, the section it belongs in, a relevance score (0-100), and a pointer to where it came from.
 3. Produce a one-sentence narrative thesis tying the student together.
 4. Produce a recommended section ordering for the resume.
@@ -29,12 +29,12 @@ Hard rules:
 - Every fact must come from the inputs. NEVER invent new facts.
 - If the inputs say "AIR 412", emit "AIR 412 of 1.2M candidates" only if the denominator is also in the inputs. Never fabricate numbers.
 - Strip the Indian-CV defaults that hurt foreign applications: photograph, DOB, parents' names, religion, marital status, "Declaration", signature. These exist in the intake but MUST NOT appear in the ledger.
-- Always include Class X and Class XII board (CBSE/ICSE/state) and percentage when present in the extractions — foreign admissions need them to calibrate.
+- Always include Class X and Class XII board (CBSE/ICSE/state) and percentage when present — foreign admissions need them to calibrate.
 - Always contextualize ranks with denominators when the inputs allow (e.g. "AIR 412 of ~1.2M").
 - Section choices: Education, Experience, Research, Activities, Awards, Projects, Skills, Publications, Other.
 - relevance: 100 = headline-worthy (top award, top score), 70-90 = strong supporting, 40-70 = nice-to-have, <40 = filler.
 
-source_id format: "intake:<field_id>" for intake-form facts (e.g. "intake:marks10pct"), "extraction:<extraction_id>:<json_path>" for extracted facts (e.g. "extraction:42:subjects[0].marks_obtained"). Use the actual numeric id from the inputs. The generator MUST be able to look these up.`;
+source_id format: "intake:<field_id>" for any intake-form fact (e.g. "intake:marks10pct"). Use the actual field id from the inputs. The generator MUST be able to look these up.`;
 
 const SCHEMA = {
   type: Type.OBJECT,
@@ -72,7 +72,7 @@ const SCHEMA = {
           claim:     { type: Type.STRING, description: "The fact, written as a resume-ready phrase." },
           section:   { type: Type.STRING, description: "Education | Experience | Research | Activities | Awards | Projects | Skills | Publications | Other" },
           relevance: { type: Type.INTEGER, description: "0-100" },
-          source_id: { type: Type.STRING, description: "intake:<field_id> or extraction:<id>:<path>" },
+          source_id: { type: Type.STRING, description: "intake:<field_id> — e.g. intake:marks10pct, intake:passport." },
         },
         required: ["id", "claim", "section", "relevance", "source_id"],
         propertyOrdering: ["id", "claim", "section", "relevance", "source_id"],
@@ -88,19 +88,12 @@ const SCHEMA = {
   propertyOrdering: ["thesis", "section_order", "section_ratios", "facts", "headline_strengths"],
 };
 
-export async function buildPlan({ studentRecord, extractions }) {
-  // Compose the input bundle the model sees. Both intake answers and
-  // confirmed extractions, with stable ids the model can reference.
+export async function buildPlan({ studentRecord }) {
+  // Compose the input bundle the model sees. The student's intake
+  // answers carry both the general-intake values and the doc-review
+  // values typed against each uploaded document.
   const inputBundle = {
     intake_answers: studentRecord?.data?.answers || {},
-    extractions: (extractions || [])
-      .filter((e) => e.status === "succeeded")
-      .map((e) => ({
-        extraction_id: e.id,
-        extractor: e.extractor,
-        // Prefer student-edited version; fall back to AI's original.
-        data: e.confirmed_data || e.data,
-      })),
   };
 
   const { data: plan, model, elapsedMs, usage } = await generateStructured({

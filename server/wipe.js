@@ -11,9 +11,9 @@ import pool from "./db.js";
 // CI/dev never nukes a real prod DB. CASCADE handles the FKs:
 // counsellor_tasks + lead_appointments cascade off leads, sessions
 // cascade off counsellors. Intake tables: intake_resumes →
-// intake_files → intake_students; intake_extractions → intake_files;
-// intake_consents/intake_audit_log → standalone. RESTRICT FKs on
-// intake_* mean we must list them all so CASCADE can chain.
+// intake_files → intake_students; intake_consents/intake_audit_log →
+// standalone. RESTRICT FKs on intake_* mean we must list them all so
+// CASCADE can chain.
 async function main() {
   if (process.env.ALLOW_WIPE !== "1") {
     console.error(
@@ -38,7 +38,6 @@ async function main() {
          intake_consents,
          intake_resumes,
          intake_insights,
-         intake_extractions,
          intake_files,
          intake_students,
          intake_examples,

@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw } from "lucide-react";
 import { api } from "./api.js";
+import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
+import ResumeMarkdown from "./ResumeMarkdown.jsx";
+import useAutoRefresh from "./useAutoRefresh.js";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
 // Two purposes:
 //   1. Sign new students up: type username + optional lead link, get back a
 //      one-time generated password the counsellor copies and sends.
 //   2. Browse the roster + drill into each student's intake data, uploaded
-//      files, AI extractions, and (eventually) generated resumes.
+//      files, and generated resume.
 export default function StudentsAdmin({ role, leads = [] }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,20 +22,27 @@ export default function StudentsAdmin({ role, leads = [] }) {
   const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
 
-  const refresh = async () => {
-    setLoading(true);
+  const refresh = useCallback(async () => {
     try {
       const list = await api.listStudents();
       setStudents(list);
       setError(null);
     } catch (e) {
       setError(e.message);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    let active = true;
+    refresh().finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  useAutoRefresh(refresh);
 
   const onCreated = (account) => {
     setCredentialsModal(account);
@@ -60,6 +70,8 @@ export default function StudentsAdmin({ role, leads = [] }) {
   return (
     <div>
       <CreateStudentForm role={role} leads={leads} onCreated={onCreated} />
+
+      {role === "admin" && <ImportExamplesButton />}
 
       <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-stone-700">
@@ -408,12 +420,99 @@ function CredField({ label, value, onCopy, copied, mono }) {
   );
 }
 
+// Progress text per row — phase + specific step counts. Computed
+// client-side from the `data` jsonb so the manifest stays a single
+// source of truth in StudentIntake.jsx.
+function ProgressLabel({ row }) {
+  const { label, tone } = progressFor(row);
+  return <span className={TONE_CLASSES[tone] || ""}>{label}</span>;
+}
+
+// Admin-only: re-import the resume style corpus from disk into
+// intake_examples. Surfaced here because resume generation hard-fails
+// when the table is empty (fresh DB, post-deploy, or after the
+// example file was swapped on disk). One-click recovery instead of
+// SSHing to the server to run npm run import-examples.
+function ImportExamplesButton() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const onClick = async () => {
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const r = await api.importExamples();
+      setResult(r);
+    } catch (e) {
+      setErr(e?.message || "Import failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 border border-stone-300 bg-white px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">
+            Resume style corpus
+          </p>
+          <p className="mt-0.5 text-xs text-stone-500">
+            Re-imports <span className="font-mono">resume/example_resume/</span> into the database. Run after replacing the example file or on a fresh deploy.
+          </p>
+        </div>
+        <button
+          onClick={onClick}
+          disabled={busy}
+          className="inline-flex shrink-0 items-center gap-1 border border-stone-700 bg-stone-900 px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-white transition hover:bg-stone-700 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          {busy ? "Importing…" : "Re-import corpus"}
+        </button>
+      </div>
+      {err && (
+        <p className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
+          <AlertCircle className="h-3 w-3" /> {err}
+        </p>
+      )}
+      {result && (
+        <ul className="mt-2 space-y-0.5 text-[11px] text-stone-600">
+          {result.results.map((r, i) => (
+            <li key={i} className="font-mono">
+              <span className={
+                r.action === "inserted" ? "text-emerald-700"
+                : r.action === "updated" ? "text-stone-700"
+                : r.action === "deactivated" ? "text-amber-700"
+                : "text-red-700"
+              }>{r.action}</span>
+              {" "}{r.label || r.file}
+              {r.word_count ? <span className="ml-1 text-stone-400">· {r.word_count}w</span> : null}
+              {r.reason ? <span className="ml-1 text-red-700">— {r.reason}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ============================================================
 // StudentRow — collapsed roster row + expandable detail view.
 // ============================================================
 function StudentRow({ row, expanded, onToggle, onResetPassword }) {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const refreshDetail = useCallback(async () => {
+    try {
+      const d = await api.getStudent(row.student_id);
+      setDetail(d);
+    } catch (e) {
+      setDetail({ error: e.message });
+    }
+  }, [row.student_id]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -425,6 +524,19 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [expanded, row.student_id]);
+
+  // Auto-poll the detail while any resume is mid-generation. Lets the
+  // counsellor's view update in place after they hit the staff-side
+  // Regenerate button without having to manually re-expand the row.
+  useEffect(() => {
+    if (!expanded || !detail || detail.error) return;
+    const inflight = (detail.resumes || []).some(
+      (r) => r.status === "pending" || r.status === "running"
+    );
+    if (!inflight) return;
+    const t = setInterval(refreshDetail, 4000);
+    return () => clearInterval(t);
+  }, [expanded, detail, refreshDetail]);
 
   const resetPassword = async (e) => {
     e.stopPropagation();
@@ -456,19 +568,28 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
             )}
           </p>
           <p className="mt-0.5 text-xs text-stone-500">
-            <span className={
-              row.intake_complete
-                ? "text-emerald-700"
-                : "text-stone-500"
-            }>
-              {row.intake_complete ? "✓ intake complete" : "intake in progress"}
-            </span>
+            <ProgressLabel row={row} />
             {" · "}
             {row.file_count} files{" · "}
             {row.resume_count} resumes
+            {" · "}
+            <span className="text-stone-400">{activityLabel(row)}</span>
             {row.lead_name && <> {" · "} from lead: <span className="text-stone-700">{row.lead_name}</span></>}
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
+          {/* Plain-text login credential. Operator opted in — see
+              migrate.js password_plain column comment. */}
+          {row.password_plain && (
+            <p className="mt-1 text-[11px] text-stone-500">
+              pw:{" "}
+              <span
+                className="select-all font-mono text-stone-800"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.password_plain}
+              </span>
+            </p>
+          )}
         </div>
         <button
           onClick={resetPassword}
@@ -486,7 +607,9 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
           {detail?.error && (
             <p className="text-xs text-red-700">{detail.error}</p>
           )}
-          {detail && !detail.error && <StudentDetail detail={detail} />}
+          {detail && !detail.error && (
+            <StudentDetail detail={detail} onRefresh={refreshDetail} />
+          )}
         </div>
       )}
     </div>
@@ -494,12 +617,26 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
 }
 
 // ============================================================
-// StudentDetail — shows the raw data Gemini extracted + uploaded
-// files + any generated resumes. Read-only for now; resume gen
-// trigger lands in slice 3.
+// StudentDetail — read-only view of intake answers + uploaded files
+// + any generated resumes for one student. Staff can also trigger
+// a regenerate per resume row (no read-write surface beyond that).
 // ============================================================
-function StudentDetail({ detail }) {
-  const { student, files, extractions, resumes } = detail;
+function StudentDetail({ detail, onRefresh }) {
+  const { student, files, resumes } = detail;
+  const [regen, setRegen] = useState({}); // { [resumeId]: { busy, err } }
+  const handleRegen = useCallback(async (resumeId) => {
+    if (!confirm("Regenerate this resume against the student's current data? Takes 30–60 seconds.")) return;
+    setRegen((p) => ({ ...p, [resumeId]: { busy: true, err: null } }));
+    try {
+      await api.staffRegenerateResume(student.student_id, resumeId);
+      // Refresh once now; the polling effect on the parent picks up
+      // the now-pending status and continues to refresh until terminal.
+      if (onRefresh) await onRefresh();
+      setRegen((p) => ({ ...p, [resumeId]: { busy: false, err: null } }));
+    } catch (e) {
+      setRegen((p) => ({ ...p, [resumeId]: { busy: false, err: e?.message || "Regenerate failed." } }));
+    }
+  }, [student.student_id, onRefresh]);
   // Phase pill: explicit signal of where the student is in the
   // pipeline. Replaces the implicit-from-counts indicator.
   const phaseLabel = ({
@@ -551,67 +688,82 @@ function StudentDetail({ detail }) {
         )}
       </Section>
 
-      {/* AI extractions section hidden when empty — auto-extract is
-          dormant in this build, so most students will have no rows. */}
-      {extractions?.length > 0 && (
-        <Section title={`AI extractions (${extractions.length})`}>
-          <div className="space-y-2">
-            {extractions.map((e) => (
-              <details key={e.id} className="border border-stone-200 bg-white">
-                <summary className="cursor-pointer px-3 py-2 hover:bg-stone-50">
-                  <span className="font-mono text-[10px] text-stone-400">{e.extractor}</span>
-                  {" "}
-                  <span className={`text-[10px] uppercase tracking-[0.15em] ${
-                    e.status === "succeeded" ? "text-emerald-700"
-                    : e.status === "failed" ? "text-red-700"
-                    : "text-stone-500"
-                  }`}>{e.status}</span>
-                  {e.error && <span className="ml-2 text-[10px] text-red-700">— {e.error}</span>}
-                  {e.confirmed_at && <span className="ml-2 text-[10px] text-emerald-700">✓ confirmed</span>}
-                </summary>
-                <pre className="max-h-64 overflow-auto bg-stone-50 p-3 text-[10px] text-stone-800">
-                  {JSON.stringify(e.confirmed_data || e.data, null, 2)}
-                </pre>
-              </details>
-            ))}
-          </div>
-        </Section>
-      )}
-
       <Section title={`Generated resumes (${resumes?.length || 0})`}>
         {resumes?.length ? (
           <div className="space-y-3">
-            {resumes.map((r) => (
+            {resumes.map((r) => {
+              const snapshot = parseSnapshot(r.source_snapshot);
+              const stale =
+                r.status === "succeeded" &&
+                student?.updated_at &&
+                r.created_at &&
+                new Date(student.updated_at).getTime() > new Date(r.created_at).getTime() + 5_000;
+              return (
               <div key={r.id} className="border border-stone-200 bg-white">
-                <header className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
+                <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
                   <span className="text-stone-900">
                     {r.label || `Resume #${r.id}`}
+                    {stale && (
+                      <span
+                        className="ml-2 rounded-sm bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-amber-800"
+                        title={`Student edited their data after this resume was generated (${humanRelative(student.updated_at)} vs ${humanRelative(r.created_at)})`}
+                      >
+                        may be stale
+                      </span>
+                    )}
                   </span>
-                  <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
-                    {r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
-                    {" · "}
-                    <span className={
-                      r.status === "succeeded" ? "text-emerald-700"
-                      : r.status === "failed" ? "text-red-700"
-                      : "text-amber-700"
-                    }>{r.status}</span>
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+                      {snapshot?.actual_words && snapshot?.target_words
+                        ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
+                            {snapshot.actual_words}w / {snapshot.target_words}w target
+                          </span>
+                        : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
+                      {" · "}
+                      <span className={
+                        r.status === "succeeded" ? "text-emerald-700"
+                        : r.status === "failed" ? "text-red-700"
+                        : "text-amber-700"
+                      }>{r.status}</span>
+                    </span>
+                    {(r.status === "succeeded" || r.status === "failed") && (
+                      <button
+                        type="button"
+                        onClick={() => handleRegen(r.id)}
+                        disabled={regen[r.id]?.busy}
+                        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700 hover:text-stone-900 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${regen[r.id]?.busy ? "animate-spin" : ""}`} />
+                        {regen[r.id]?.busy ? "Starting…" : "Regenerate"}
+                      </button>
+                    )}
+                  </div>
                 </header>
-                {/* Render the resume markdown inline as preformatted
-                    text — keeps line breaks + headings legible without
-                    a markdown renderer dependency. Capped height with
-                    overflow so a 2-page resume doesn't dominate. */}
+                {regen[r.id]?.err && (
+                  <p className="border-b border-stone-100 bg-red-50 px-3 py-1.5 text-[10px] text-red-700">
+                    {regen[r.id].err}
+                  </p>
+                )}
+                {snapshot?.length_warning && (
+                  <p className="border-b border-stone-100 bg-amber-50 px-3 py-1.5 text-[10px] text-amber-800">
+                    ⚠ {snapshot.length_warning}
+                  </p>
+                )}
+                {/* Same renderer the student sees on their dashboard.
+                    Capped height with overflow so a 2-page resume
+                    doesn't dominate the row. */}
                 {r.content_md ? (
-                  <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap bg-white px-4 py-3 font-serif text-[12px] leading-relaxed text-stone-800">
-                    {r.content_md}
-                  </pre>
+                  <div className="max-h-[600px] overflow-auto bg-white px-4 py-3">
+                    <ResumeMarkdown>{r.content_md}</ResumeMarkdown>
+                  </div>
                 ) : r.error ? (
                   <p className="px-3 py-2 text-[10px] text-red-700">{String(r.error).slice(0, 300)}</p>
                 ) : (
                   <p className="px-3 py-2 text-[10px] italic text-stone-500">Generation in progress…</p>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="italic text-stone-500">No resumes generated yet.</p>
@@ -619,6 +771,51 @@ function StudentDetail({ detail }) {
       </Section>
     </div>
   );
+}
+
+// Best-effort decode of the source_snapshot column: server stringifies
+// it on write but node-postgres may return it pre-parsed (jsonb) or
+// as a string depending on driver settings. Handle both. Logging on
+// failure (rather than swallowing) so a corrupt row doesn't silently
+// hide the word-count + stale signals from staff.
+function parseSnapshot(s) {
+  if (!s) return null;
+  if (typeof s === "object") return s;
+  try { return JSON.parse(s); } catch (e) {
+    console.warn("[StudentsAdmin] source_snapshot parse failed:", e?.message);
+    return null;
+  }
+}
+
+// Activity label per row. The list endpoint's `updated_at` is set
+// even on row-creation, so a brand-new student would otherwise read
+// as "last active just now" before they've ever logged in. Detect
+// the never-touched case (no answers in data) and surface the row's
+// creation time instead.
+function activityLabel(row) {
+  const answers = row?.data?.answers;
+  const hasAnyActivity = answers && typeof answers === "object" && Object.keys(answers).length > 0;
+  if (!hasAnyActivity) return `Created ${humanRelative(row.created_at || row.updated_at)}`;
+  return `Last active ${humanRelative(row.updated_at)}`;
+}
+
+// "5m ago" / "3h ago" / "2d ago". Compact enough to fit on a row
+// without breaking the layout. Falls back to "—" for missing input
+// and clamps clock-skew futures to "just now" instead of "-5m ago".
+function humanRelative(iso) {
+  if (!iso) return "—";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return "—";
+  if (ms < 60_000) return "just now";
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.round(hr / 24);
+  if (d < 30) return `${d}d ago`;
+  const mo = Math.round(d / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.round(mo / 12)}y ago`;
 }
 
 // IntakeAnswers — render the student.data blob as human-readable

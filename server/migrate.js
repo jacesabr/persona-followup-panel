@@ -14,6 +14,12 @@ CREATE TABLE IF NOT EXISTS counsellors (
   password TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- Plaintext copy stored alongside the scrypt hash so admin (and the
+-- counsellor themselves) can see the password on the panel — explicit
+-- product call by the operator. Tradeoff acknowledged: anyone with admin
+-- session OR DB read can see all passwords. Hash stays the source of
+-- truth for login.
+ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS password_plain TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_counsellors_username ON counsellors(username) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS leads (
@@ -129,6 +135,9 @@ CREATE INDEX IF NOT EXISTS idx_intake_students_complete ON intake_students(intak
 -- Per-student account credentials + provenance (lead origin + creating counsellor).
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS username       TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_hash  TEXT;
+-- Plaintext counterpart to password_hash — see counsellors.password_plain
+-- for the same product-call rationale + tradeoff.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_plain TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS lead_id        TEXT REFERENCES leads(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS counsellor_id  TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS display_name   TEXT;
@@ -187,23 +196,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_files_one_active
   ON intake_files(student_id, field_id, COALESCE(row_index, -1))
   WHERE superseded_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS intake_extractions (
-  id              BIGSERIAL PRIMARY KEY,
-  file_id         BIGINT NOT NULL REFERENCES intake_files(id) ON DELETE RESTRICT,
-  student_id      TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE RESTRICT,
-  extractor       TEXT NOT NULL,
-  model           TEXT,
-  status          TEXT NOT NULL DEFAULT 'pending',
-  data            JSONB,
-  confirmed_data  JSONB,
-  confirmed_at    TIMESTAMPTZ,
-  error           TEXT,
-  cost_cents      INT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_intake_extractions_file    ON intake_extractions(file_id);
-CREATE INDEX IF NOT EXISTS idx_intake_extractions_student ON intake_extractions(student_id);
-CREATE INDEX IF NOT EXISTS idx_intake_extractions_status  ON intake_extractions(status);
+-- Auto-extraction was retired in favour of manual entry on the
+-- doc-review screen. Drop the table + its indexes if present so the
+-- DB reflects the live code surface.
+DROP TABLE IF EXISTS intake_extractions CASCADE;
 
 CREATE TABLE IF NOT EXISTS intake_insights (
   id              BIGSERIAL PRIMARY KEY,

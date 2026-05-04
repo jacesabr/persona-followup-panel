@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Loader2,
   Plus,
@@ -11,6 +11,7 @@ import {
 import { api } from "./api.js";
 import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
 import ArchivedSection from "./ArchivedSection.jsx";
+import useAutoRefresh from "./useAutoRefresh.js";
 
 function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
@@ -55,49 +56,51 @@ export default function CounsellorTasks({
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
+  // Skip the counsellors fetch when AdminPanel already supplies the
+  // shared roster — saves a round trip and keeps the assignee dropdown
+  // in sync with admin's "+ New counsellor" automatically.
+  //
+  // includeArchived: true on listLeads is load-bearing for the
+  // visibility filter below: a task pinned to a student whose lead has
+  // since been archived must still surface for the counsellor. Without
+  // the archived row in `leads`, myLeadIds would miss it and the task
+  // would silently vanish.
+  //
+  // counsellorId scopes server-side when an admin is impersonating so
+  // the wire response only carries that counsellor's leads. For a
+  // counsellor session the server already scopes; the param is
+  // redundant but harmless.
+  const refresh = useCallback(async () => {
+    try {
+      const fetches = [
+        api.listTasks({ includeArchived: true }),
+        api.listLeads({
+          includeArchived: true,
+          counsellorId: isScoped ? scopedCounsellorId : null,
+        }),
+      ];
+      if (counsellorsProp == null) fetches.push(api.listCounsellors());
+      const [t, l, c] = await Promise.all(fetches);
+      setTasks(t);
+      setLeads(l);
+      if (c) setCounsellorsLocal(c);
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    }
+  }, [isScoped, scopedCounsellorId, counsellorsProp]);
+
   useEffect(() => {
-    let cancelled = false;
-    // Skip the counsellors fetch when AdminPanel already supplies the
-    // shared roster — saves a round trip and keeps the assignee dropdown
-    // in sync with admin's "+ New counsellor" automatically.
-    //
-    // includeArchived: true on listLeads is load-bearing for the
-    // visibility filter below: a task pinned to a student whose lead has
-    // since been archived must still surface for the counsellor. Without
-    // the archived row in `leads`, myLeadIds would miss it and the task
-    // would silently vanish.
-    //
-    // counsellorId scopes server-side when an admin is impersonating so
-    // the wire response only carries that counsellor's leads. For a
-    // counsellor session the server already scopes; the param is
-    // redundant but harmless.
-    const fetches = [
-      api.listTasks({ includeArchived: true }),
-      api.listLeads({
-        includeArchived: true,
-        counsellorId: isScoped ? scopedCounsellorId : null,
-      }),
-    ];
-    if (counsellorsProp == null) fetches.push(api.listCounsellors());
-    Promise.all(fetches)
-      .then((results) => {
-        if (cancelled) return;
-        const [t, l, c] = results;
-        setTasks(t);
-        setLeads(l);
-        if (c) setCounsellorsLocal(c);
-        setError(null);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    let active = true;
+    refresh().finally(() => {
+      if (active) setLoading(false);
+    });
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, []);
+  }, [refresh]);
+
+  useAutoRefresh(refresh);
 
   // Counsellor scoping. Admin sees everything; counsellors see a task if
   // EITHER:

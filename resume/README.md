@@ -1,41 +1,37 @@
-# Resume corpus + generation assets
+# Resume corpus
 
-This folder holds the **style corpus** that feeds the resume generator's
-RAG layer, plus any future templates / Typst styles when we render to
-PDF. Anything sensitive (real student names, recommender names, etc.)
-should be sanitized before going live.
+This folder holds the single style example that feeds the resume
+generator's few-shot. Replacing the file changes the look of every
+resume the system produces.
 
 ## `example_resume/`
 
-Drop human-written example resumes here. Markdown, PDF, or DOCX.
-Recommended naming: `<domain>_<length>_<note>.<ext>`, e.g.
-`cs_1page_riya.md`, `liberal_arts_2page_anon.pdf`.
+Exactly one file lives here — `raghav internship legal copy.docx` —
+plus its `.meta.yaml` sidecar. The import script reads the `.docx`
+through `mammoth.convertToMarkdown` so headings, bold, and bullet
+structure survive into the prompt.
 
-For each example, optionally drop a sidecar `.meta.yaml` with the same
-basename so the import script (coming in the resume-gen push) can map
-each file to a row in `intake_examples`. Template:
+To replace the example:
 
-```yaml
-label:        "CS undergrad — 1 page"
-length_pages: 1
-length_words: 250
-domain:       cs            # cs | engineering | business | liberal_arts | medicine | law | mixed
-style:        formal_compact  # formal_compact | narrative | bullet_heavy | minimalist | creative
-voice_notes: |
-  Past-tense verbs, numbers everywhere, no soft skills, no objective.
-notes: |
-  Anything else worth knowing.
-```
+1. Drop a new `.md`, `.txt`, or `.docx` into this folder.
+2. Add a sidecar `<basename>.meta.yaml`:
+   ```yaml
+   label:        "Short label shown in admin"
+   length_pages: 1
+   length_words: 300
+   voice_notes: |
+     One or two sentences of guidance for the LLM.
+   ```
+3. Delete the previous file + its sidecar.
+4. Run `npm run import-examples` (or hit the admin import button).
+   The script upserts the new row and deactivates any row whose
+   `source_pdf_path` no longer exists on disk, so the few-shot only
+   ever sees what's in this folder.
 
-The import script will read each file + sidecar and INSERT a row into
-`intake_examples` (full_text + metadata). The retrieval layer then
-filters by `(domain, length_pages)` at generation time and few-shots
-the LLM with 3-5 randomly-sampled examples per section call.
+## What lives in `intake_examples` (the table) vs here
 
-## What lives in `intake_examples` (the table) vs here (this folder)
-
-- **This folder** = source of truth for the corpus, version-controlled
-  in git. Edit here, re-run the import script to push to DB.
+- **This folder** = source of truth, version-controlled. Edit here,
+  re-run the import script.
 - **`intake_examples` table** = what the running generator reads.
   Mirrors this folder; never edit directly.
 

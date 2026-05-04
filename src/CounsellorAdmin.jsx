@@ -3,9 +3,10 @@ import { Loader2, Plus, X, Check, KeyRound } from "lucide-react";
 import { api } from "./api.js";
 
 // Admin-only tab for managing counsellor accounts. Lists every counsellor
-// with their contact + username (passwords are NEVER returned to the
-// client — see server/routes/counsellors.js for the password-stripped
-// SELECT). Inline actions:
+// with their contact + username + plaintext password (the operator
+// explicitly opted in to plain-text visibility on the panel — see the
+// password_plain column comment in migrate.js for the tradeoff).
+// Inline actions:
 //   + New counsellor — name / WhatsApp / email / username / password
 //   Reset password   — opens an inline input on a row; PATCH writes the
 //                      new value but the response still omits it.
@@ -288,10 +289,16 @@ export default function CounsellorAdmin({
                   </>
                 ) : (
                   <>
-                    {/* Passwords are no longer returned by the API for
-                        security; show a fixed mask + a Reset action. */}
-                    <span className="font-mono text-[13px] text-stone-400">
-                      ••••••
+                    {/* Plain-text password from password_plain column.
+                        Legacy rows that pre-date the column show "—"
+                        until they log in once or admin resets. */}
+                    <span
+                      className="select-all truncate font-mono text-[13px] text-stone-800"
+                      title={c.password_plain || ""}
+                    >
+                      {c.password_plain || (
+                        <span className="italic text-stone-400">—</span>
+                      )}
                     </span>
                     <button
                       onClick={() => {

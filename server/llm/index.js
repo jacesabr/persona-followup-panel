@@ -1,6 +1,6 @@
 // Provider-agnostic LLM facade. Every server-side LLM call goes through
-// generateStructured() — extractor + plan + section all use the same
-// contract, so swapping providers is one env var.
+// generateStructured() — plan + section both use the same contract,
+// so swapping providers is one env var.
 //
 // Default provider: gemini (we have a funded Gemini key).
 // Fallback provider: anthropic (wired but currently dormant — flips on
@@ -9,13 +9,10 @@
 // When the user funds the Anthropic key:
 //   1. Set LLM_PROVIDER=anthropic on the Render service (env var only).
 //   2. Restart. All structured-LLM calls route to Claude.
-//   3. Once stable, the Gemini code path can be deleted.
 //
-// Choosing per-call: pass `purpose` ('extract' | 'plan' | 'section').
-// Today they all resolve to the same provider; in future we can route
-// vision (extract) to Gemini and text (plan/section) to Claude even
-// when both keys are funded — each provider has its own strength
-// per the audit research.
+// Choosing per-call: pass `purpose` ('plan' | 'section'). Today both
+// resolve to the same provider; per-purpose env overrides
+// (LLM_PROVIDER_PLAN=anthropic, etc.) let us mix later.
 
 import { generateWithGemini } from "./gemini.js";
 import { generateWithAnthropic } from "./anthropic.js";

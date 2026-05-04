@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
 import StudentsAdmin from "./StudentsAdmin.jsx";
 import { api } from "./api.js";
+import useAutoRefresh from "./useAutoRefresh.js";
 
 const TAB_KEY = "persona_simple_tab";
 
@@ -62,12 +63,21 @@ export default function SimplePanel({
     }
   }, [tab]);
 
-  useEffect(() => {
-    if (tab !== "students") return;
-    api.listLeads({ counsellorId: role === "counsellor" ? scopedCounsellorId : null })
+  const refreshLeadsForLink = useCallback(() => {
+    if (tab !== "students") return Promise.resolve();
+    return api
+      .listLeads({ counsellorId: role === "counsellor" ? scopedCounsellorId : null })
       .then(setLeadsForLink)
       .catch(() => setLeadsForLink([]));
   }, [tab, role, scopedCounsellorId]);
+
+  useEffect(() => {
+    refreshLeadsForLink();
+  }, [refreshLeadsForLink]);
+
+  // Keep the signup form's lead dropdown fresh while the Students tab is
+  // open — another admin adding a lead elsewhere should appear here too.
+  useAutoRefresh(refreshLeadsForLink);
 
   return (
     <>

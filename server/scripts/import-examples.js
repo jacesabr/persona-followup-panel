@@ -30,7 +30,11 @@ const SUPPORTED_EXTS = new Set([".md", ".markdown", ".txt", ".docx"]);
 async function readExampleText(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".docx") {
-    const { value } = await mammoth.extractRawText({ path: filePath });
+    // convertToMarkdown preserves headings, bold, and bullet structure
+    // — extractRawText would flatten them, leaving the few-shot with
+    // an unstructured wall of text and the LLM with no anchor for
+    // section layout.
+    const { value } = await mammoth.convertToMarkdown({ path: filePath });
     return value.trim();
   }
   return fs.readFileSync(filePath, "utf8").trim();
@@ -112,6 +116,12 @@ export async function upsertExample(meta, fullText, sourcePath) {
 // Walk the corpus directory, parse each example, upsert. Exported
 // for the admin route. Returns a manifest the caller can render.
 // Doesn't pool.end() — caller decides lifecycle.
+//
+// Also deactivates rows whose source_pdf_path no longer exists on
+// disk: the corpus shrank from five files to one, but the DB still
+// holds the earlier rows from prior imports. Without this sweep the
+// generator's pickExamples() would surface a deleted file's content
+// alongside the kept one, polluting the few-shot.
 export async function runImportFromCorpusDir(corpusDir) {
   if (!fs.existsSync(corpusDir)) {
     throw new Error(`corpus dir missing: ${corpusDir}`);
@@ -122,6 +132,7 @@ export async function runImportFromCorpusDir(corpusDir) {
     .filter((f) => SUPPORTED_EXTS.has(path.extname(f).toLowerCase()))
     .filter((f) => !/\.meta\.ya?ml$/i.test(f));
 
+  const importedPaths = new Set();
   const results = [];
   for (const fileName of files) {
     const filePath = path.join(corpusDir, fileName);
@@ -135,6 +146,7 @@ export async function runImportFromCorpusDir(corpusDir) {
       const defaults = inferDefaults(filePath, fullText);
       const meta = { ...defaults, ...(sidecar || {}) };
       const { action, id } = await upsertExample(meta, fullText, filePath);
+      importedPaths.add(filePath);
       results.push({
         file: fileName,
         action,
@@ -147,6 +159,22 @@ export async function runImportFromCorpusDir(corpusDir) {
       results.push({ file: fileName, action: "error", reason: e.message });
     }
   }
+
+  // Deactivate stale rows: anything still marked active whose
+  // source_pdf_path doesn't match a file we just imported.
+  const activeRes = await pool.query(
+    `SELECT id, label, source_pdf_path FROM intake_examples WHERE active = TRUE`
+  );
+  for (const row of activeRes.rows) {
+    if (!row.source_pdf_path || !importedPaths.has(row.source_pdf_path)) {
+      await pool.query(
+        `UPDATE intake_examples SET active = FALSE, updated_at = NOW() WHERE id = $1`,
+        [row.id]
+      );
+      results.push({ file: row.source_pdf_path || `(id ${row.id})`, action: "deactivated", label: row.label });
+    }
+  }
+
   return { dir: corpusDir, results };
 }
 
@@ -156,7 +184,7 @@ async function main() {
     process.exit(1);
   }
   const { results } = await runImportFromCorpusDir(CORPUS_DIR);
-  let inserted = 0, updated = 0, skipped = 0;
+  let inserted = 0, updated = 0, skipped = 0, deactivated = 0;
   for (const r of results) {
     if (r.action === "inserted") {
       inserted++;
@@ -164,12 +192,15 @@ async function main() {
     } else if (r.action === "updated") {
       updated++;
       console.log(`  EDIT ${r.file}  →  ${r.label} (${r.length_pages}p)`);
+    } else if (r.action === "deactivated") {
+      deactivated++;
+      console.log(`  GONE ${r.file}  →  ${r.label} (deactivated)`);
     } else {
       skipped++;
       console.log(`  ${r.action.toUpperCase()} ${r.file} — ${r.reason || ""}`);
     }
   }
-  console.log(`[import] done: ${inserted} new, ${updated} updated, ${skipped} skipped`);
+  console.log(`[import] done: ${inserted} new, ${updated} updated, ${deactivated} deactivated, ${skipped} skipped`);
   await pool.end();
 }
 

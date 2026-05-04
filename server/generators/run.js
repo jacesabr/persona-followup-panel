@@ -5,11 +5,10 @@
 // until status is terminal.
 //
 // Pipeline:
-//   1. Pull confirmed extractions + the latest intake answers.
-//   2. Run the Plan call ONCE per student per generation batch (we
-//      do it per-resume here for now; future optimisation: cache a
-//      Plan across multiple resumes generated from one click).
-//   3. For each section in plan.section_order: pick examples,
+//   1. Pull the latest intake answers (general form + doc-review
+//      typed values).
+//   2. Run the Plan call ONCE per resume.
+//   3. For each section in plan.section_order: pick the example,
 //      generate, validate, accumulate.
 //   4. Render Markdown + provenance manifest.
 //   5. UPDATE intake_resumes with status='succeeded' and the bytes.
@@ -41,16 +40,7 @@ async function loadStudentBundle(studentId) {
   );
   const student = sRes.rows[0];
   if (!student) throw new Error(`student not found: ${studentId}`);
-
-  const eRes = await pool.query(
-    `SELECT id, file_id, extractor, status, data, confirmed_data, confirmed_at
-       FROM intake_extractions
-      WHERE student_id = $1
-        AND status = 'succeeded'
-      ORDER BY created_at DESC`,
-    [studentId]
-  );
-  return { student, extractions: eRes.rows };
+  return { student };
 }
 
 function computeSectionBudgets({ ratios, totalWords }) {
@@ -77,20 +67,19 @@ export async function executeResume({ resumeId, spec }) {
   try {
     await update({ status: "running" });
 
-    // 1. Load the student + their confirmed extractions.
+    // 1. Load the student record (intake answers + doc-review values
+    //    all live in the same `data` jsonb).
     const studentRow = await pool.query(
       "SELECT student_id FROM intake_resumes WHERE id = $1",
       [resumeId]
     );
     const studentId = studentRow.rows[0]?.student_id;
     if (!studentId) throw new Error("resume row missing");
-    const { student, extractions } = await loadStudentBundle(studentId);
+    const { student } = await loadStudentBundle(studentId);
 
-    // 2. Plan call — one per resume for now. Future: cache across
-    //    same-student same-batch generations.
+    // 2. Plan call — one per resume.
     const planRes = await buildPlan({
       studentRecord: { data: student.data || {} },
-      extractions,
     });
     const { plan, factsById, usage: planUsage } = planRes;
 
@@ -103,12 +92,10 @@ export async function executeResume({ resumeId, spec }) {
       totalWords,
     });
 
-    // Pick the example resumes ONCE per resume so all sections see the
-    // same voice. The model uses them as style anchors only.
-    const { examples, example_ids } = await pickExamples({
-      length_pages: spec.length_pages,
-      domain: spec.domain || null,
-    });
+    // Pull the single style anchor from intake_examples. All sections
+    // see the same voice; the model uses it as a layout/tone reference
+    // only.
+    const { examples, example_ids } = await pickExamples();
 
     const sectionOrder = (plan.section_order || Object.keys(DEFAULT_SECTION_RATIOS))
       .filter((s) => s in sectionBudgets);
@@ -179,9 +166,33 @@ export async function executeResume({ resumeId, spec }) {
       factsById,
     });
 
+    // Word-count check — log + persist a warning if the generator
+    // overshot/undershot the budget. Resumes still ship; this is a
+    // signal to staff (rendered in the staff detail view) so they
+    // know whether to regenerate. Threshold ±20% — wider than first
+    // tried (±15%) because Gemini's stochastic output regularly
+    // grazes the ±15% band, producing alert fatigue. The unicode
+    // letter class `\p{L}` in the filter keeps non-ASCII names like
+    // "Müller" or "Français" from being undercounted.
+    const actualWords = md.replace(/[#*_>`~\[\]()|-]/g, " ")
+      .split(/\s+/)
+      .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+    const targetWords = totalWords;
+    const lo = Math.round(targetWords * 0.8);
+    const hi = Math.round(targetWords * 1.2);
+    const lengthWarning =
+      actualWords < lo
+        ? `Resume is ${actualWords} words; target was ${targetWords} (under by ${targetWords - actualWords}).`
+        : actualWords > hi
+        ? `Resume is ${actualWords} words; target was ${targetWords} (over by ${actualWords - targetWords}).`
+        : null;
+    if (lengthWarning) {
+      console.warn(`[resume ${resumeId}] ${lengthWarning}`);
+    }
+
     // 5. Persist. source_snapshot stores the inputs we generated from,
     //    enabling the staleness-detector to flag this resume if the
-    //    student's intake / extractions later drift away from it.
+    //    student's intake data later drifts away from it.
     await update({
       status: "succeeded",
       content_md: md,
@@ -203,6 +214,9 @@ export async function executeResume({ resumeId, spec }) {
         plan_facts_count: (plan.facts || []).length,
         examples_used: example_ids,
         generated_at: generatedAt,
+        actual_words: actualWords,
+        target_words: targetWords,
+        length_warning: lengthWarning,
       }),
     });
   } catch (err) {

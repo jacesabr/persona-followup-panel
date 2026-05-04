@@ -108,8 +108,8 @@ export async function uploadFile(file, { fieldId, rowIndex, accept } = {}) {
     throw new Error(msg);
   }
 
-  const { url, uploadedAt, fileId, extraction } = await res.json();
-  return { url, uploadedAt, fileId, extraction };
+  const { url, uploadedAt, fileId } = await res.json();
+  return { url, uploadedAt, fileId };
 }
 
 // Persist the form state. Backend is the source of truth — caller
@@ -158,78 +158,6 @@ export async function loadRecord() {
       const body = await res.json();
       if (body?.error) msg = body.error;
     } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-// ----------------------------------------------------------------
-// Extraction polling helpers. The upload response includes an
-// `extraction.id` when a registered extractor exists for the field;
-// FileSlot polls fetchExtraction() at ~3s intervals until the status
-// is terminal (succeeded / failed).
-// ----------------------------------------------------------------
-const TERMINAL_STATUSES = new Set(["succeeded", "failed"]);
-
-export async function fetchExtraction(id, { signal } = {}) {
-  const res = await fetch(`/api/students/me/extractions/${encodeURIComponent(id)}`, { signal });
-  if (!res.ok) {
-    let msg = `Extraction lookup failed (${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) msg = body.error;
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-// Re-trigger extraction on an already-uploaded file. Used when an
-// earlier extraction failed and the student clicks "retry".
-export async function retryExtraction(fileId) {
-  const res = await fetch("/api/students/me/extractions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileId: String(fileId) }),
-  });
-  if (!res.ok) {
-    let msg = `Retry failed (${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) msg = body.error;
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-export const isExtractionTerminal = (status) => TERMINAL_STATUSES.has(status);
-
-// List every extraction belonging to the current student. Drives the
-// "Review what we read" page — one card per extraction, grouped by file.
-export async function listExtractions() {
-  const res = await fetch("/api/students/me/extractions");
-  if (!res.ok) {
-    let msg = `Listing extractions failed (${res.status}).`;
-    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-// Mark an extraction as confirmed by the student. `data` is the
-// edited (or as-is) version; the server stores it in
-// intake_extractions.confirmed_data alongside the original data
-// blob — provenance preserved either way.
-export async function confirmExtraction(id, data) {
-  const res = await fetch(`/api/students/me/extractions/${encodeURIComponent(id)}/confirm`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data }),
-  });
-  if (!res.ok) {
-    let msg = `Confirm failed (${res.status}).`;
-    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
     throw new Error(msg);
   }
   return res.json();

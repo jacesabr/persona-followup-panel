@@ -37,30 +37,10 @@ async function pruneExpiredSessions() {
   }
 }
 
-// Boot-time sweeper for in-flight extraction rows. If the process died
-// mid-Gemini-call (Render redeploy, OOM, free-tier sleep cycle), the row
-// stays 'running' forever and the frontend FileSlot polls it forever
-// — the polling loop only stops on a terminal status. Mark them failed
-// so the student gets the retry button instead of an indefinite spinner.
-async function failOrphanedExtractions() {
-  try {
-    const { rowCount } = await pool.query(
-      `UPDATE intake_extractions
-          SET status = 'failed',
-              error  = COALESCE(error, 'Process restarted before extraction completed.')
-        WHERE status IN ('pending', 'running')`
-    );
-    if (rowCount > 0) {
-      console.log(`[extractions] swept ${rowCount} orphaned row(s) to failed`);
-    }
-  } catch (e) {
-    console.error("[extractions] orphan sweep failed:", e);
-  }
-}
-
-// Same problem for resumes + insights once those become async-execute.
-// Today both tables exist but no executor is wired; this is here so the
-// sweeper is in place when generation lands.
+// Boot-time sweeper for in-flight async jobs. If the process died
+// mid-LLM-call (Render redeploy, OOM, free-tier sleep cycle), the
+// row stays 'running' forever. Mark them failed so the dashboard
+// surfaces a retry path instead of an indefinite spinner.
 async function failOrphanedAsyncJobs() {
   for (const table of ["intake_resumes", "intake_insights"]) {
     try {
@@ -227,7 +207,6 @@ async function start() {
   // poll dead rows forever.
   await refuseIfPlaintextPasswordsPresent();
   await initStorage();
-  await failOrphanedExtractions();
   await failOrphanedAsyncJobs();
   await pruneExpiredSessions();
   setInterval(pruneExpiredSessions, SESSION_GC_INTERVAL_MS).unref?.();

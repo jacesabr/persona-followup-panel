@@ -124,7 +124,15 @@ export const api = {
   // Roster: admin sees all student accounts, counsellor sees only the
   // ones they created.
   listStudents: () => request("GET", "/api/students"),
-  // Detail: full intake data + extractions + resumes for one student.
-  // Same scoping rules as listStudents.
+  // Detail: full intake data + uploaded files + resumes for one
+  // student. Same scoping rules as listStudents.
   getStudent: (studentId) => request("GET", `/api/students/${studentId}`),
+  // Admin-only: re-import the resume style corpus from disk into
+  // intake_examples. Useful after replacing the example file.
+  importExamples: () => request("POST", "/api/students/admin/import-examples"),
+  // Staff-triggered regenerate. Used when the staff panel's "may be
+  // stale" badge fires on a resume — counsellor regenerates without
+  // having to ask the student to log in.
+  staffRegenerateResume: (studentId, resumeId) =>
+    request("POST", `/api/students/${studentId}/resumes/${resumeId}/regenerate`),
 };

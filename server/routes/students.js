@@ -7,11 +7,12 @@ import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
 import { validateUploadedFile } from "../middleware/validateFile.js";
-import { scheduleExtraction } from "../extractors/run.js";
 import { audit } from "../audit.js";
 import { getStorage } from "../storage.js";
 import { scheduleResume, executeResume } from "../generators/run.js";
+import { corpusHasExample } from "../generators/examples.js";
 import { runImportFromCorpusDir } from "../scripts/import-examples.js";
+import { validateDocReview } from "../../lib/docReviewManifest.js";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../middleware/auth.js";
 
@@ -135,10 +136,10 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     try {
       const { rows } = await pool.query(
         `INSERT INTO intake_students
-           (student_id, username, password_hash, lead_id, counsellor_id, display_name)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (student_id, username, password_hash, password_plain, lead_id, counsellor_id, display_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING student_id, username, display_name, lead_id, counsellor_id, created_at`,
-        [studentId, cleanUsername, password_hash, lead_id || null, counsellorId, display_name || null]
+        [studentId, cleanUsername, password_hash, password, lead_id || null, counsellorId, display_name || null]
       );
       const row = rows[0];
       audit(req, {
@@ -216,15 +217,15 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
       // Tight window (~ms) but trivial to close.
       const u = await client.query(
         req.user.kind === "counsellor"
-          ? `UPDATE intake_students SET password_hash = $1
-               WHERE student_id = $2 AND counsellor_id = $3
+          ? `UPDATE intake_students SET password_hash = $1, password_plain = $2
+               WHERE student_id = $3 AND counsellor_id = $4
                RETURNING student_id, username`
-          : `UPDATE intake_students SET password_hash = $1
-               WHERE student_id = $2
+          : `UPDATE intake_students SET password_hash = $1, password_plain = $2
+               WHERE student_id = $3
                RETURNING student_id, username`,
         req.user.kind === "counsellor"
-          ? [password_hash, req.params.student_id, req.user.counsellorId]
-          : [password_hash, req.params.student_id]
+          ? [password_hash, password, req.params.student_id, req.user.counsellorId]
+          : [password_hash, password, req.params.student_id]
       );
       if (u.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -258,15 +259,24 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
 
 // GET /api/students — list all student accounts (admin sees everyone,
 // counsellor sees only their own creations).
+//
+// Returns intake_phase + data so the staff panel can show specific
+// step-of-N progress per row without a second round-trip. The
+// auto-fired resume bumps intake_phase from 'done' back to a synthetic
+// 'generating' until the resume row terminates — same trick the
+// student-side /me/record uses.
 router.get("/", requireStaff, async (req, res, next) => {
   try {
     let sql = `
-      SELECT s.student_id, s.username, s.display_name, s.intake_complete,
+      SELECT s.student_id, s.username, s.password_plain, s.display_name,
+             s.intake_complete, s.intake_phase, s.data,
              s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
              l.name AS lead_name,
              c.name AS counsellor_name,
              (SELECT COUNT(*) FROM intake_files     f WHERE f.student_id = s.student_id) AS file_count,
-             (SELECT COUNT(*) FROM intake_resumes   r WHERE r.student_id = s.student_id) AS resume_count
+             (SELECT COUNT(*) FROM intake_resumes   r WHERE r.student_id = s.student_id) AS resume_count,
+             (SELECT COUNT(*) FROM intake_resumes   r WHERE r.student_id = s.student_id AND r.status IN ('pending','running'))::int AS resumes_inflight,
+             (SELECT COUNT(*) FROM intake_resumes   r WHERE r.student_id = s.student_id AND r.status = 'succeeded')::int AS resumes_succeeded
         FROM intake_students s
         LEFT JOIN leads       l ON l.id = s.lead_id
         LEFT JOIN counsellors c ON c.id = s.counsellor_id
@@ -278,6 +288,13 @@ router.get("/", requireStaff, async (req, res, next) => {
     }
     sql += ` ORDER BY s.created_at DESC`;
     const { rows } = await pool.query(sql, params);
+    // Synthesize 'generating' the same way /me/record does — keeps the
+    // student-side dashboard label and the staff list label in sync.
+    for (const r of rows) {
+      if (r.intake_phase === "done" && r.resumes_inflight > 0 && r.resumes_succeeded === 0) {
+        r.intake_phase = "generating";
+      }
+    }
     res.json(rows);
   } catch (e) {
     next(e);
@@ -285,8 +302,8 @@ router.get("/", requireStaff, async (req, res, next) => {
 });
 
 // GET /api/students/:student_id — full detail. Admin sees any; counsellor
-// sees only their own creations. Returns the intake data + extractions
-// + resumes for the admin "students panel" detail view.
+// sees only their own creations. Returns the intake data + uploaded
+// files + resumes for the admin "students panel" detail view.
 router.get("/:student_id", requireStaff, async (req, res, next) => {
   try {
     const sid = req.params.student_id;
@@ -315,17 +332,10 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
          ORDER BY field_id, created_at ASC`,
       [sid]
     );
-    const extractionsRes = await pool.query(
-      `SELECT id, file_id, extractor, model, status, data, confirmed_data,
-              confirmed_at, error, cost_cents, created_at
-         FROM intake_extractions WHERE student_id = $1
-         ORDER BY created_at DESC`,
-      [sid]
-    );
     const resumesRes = await pool.query(
       `SELECT id, label, length_pages, length_words, style, domain,
               status, content_md, content_html, pdf_file_id,
-              cost_cents, error, created_at, updated_at
+              cost_cents, error, source_snapshot, created_at, updated_at
          FROM intake_resumes WHERE student_id = $1
          ORDER BY created_at DESC`,
       [sid]
@@ -334,7 +344,6 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
     res.json({
       student,
       files: filesRes.rows,
-      extractions: extractionsRes.rows,
       resumes: resumesRes.rows,
     });
   } catch (e) {
@@ -350,9 +359,8 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
 router.get("/me/record", requireStudent, async (req, res, next) => {
   try {
     // intake_phase is the explicit state column (intake / doc_review /
-    // done). Resume counts still pulled so the dashboard can show
-    // generation progress. Extraction counts kept at 0 — the auto-
-    // extract pipeline is dormant; the columns return for back-compat.
+    // done). Resume counts pulled so the dashboard can show generation
+    // progress.
     const { rows } = await pool.query(
       `SELECT s.student_id, s.intake_complete, s.data, s.updated_at,
               s.intake_phase,
@@ -395,10 +403,6 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
       updatedAt: row.updated_at,
       phase,
       counts: {
-        // extractions counts kept at 0 — pipeline is dormant; field
-        // retained for client compatibility.
-        extractions: 0,
-        extractionsUnconfirmed: 0,
         resumesInflight: row.resumes_inflight,
         resumesSucceeded: row.resumes_succeeded,
       },
@@ -425,6 +429,23 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
     // pass typeof === "object" so block them too.
     if (data !== undefined && (data === null || typeof data !== "object" || Array.isArray(data))) {
       return res.status(400).json({ error: "data must be a JSON object" });
+    }
+
+    // Refuse edits once the student has finished doc-review. The UI
+    // doesn't expose a path back to the form after phase=done, but a
+    // tab left open in doc_review or a hand-crafted PUT could land
+    // here and silently drift the data behind the already-generated
+    // resume. Surface a 409 instead so the client can refresh and
+    // discover the dashboard.
+    const phaseProbe = await pool.query(
+      `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
+      [req.user.studentId]
+    );
+    if ((phaseProbe.rows[0]?.intake_phase || "intake") === "done") {
+      return res.status(409).json({
+        error: "intake is closed — no further edits accepted after phase=done",
+        currentPhase: "done",
+      });
     }
 
     // The conflict-detecting UPDATE: filter on student_id AND on the
@@ -538,6 +559,37 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
 
       // Apply the phase change. 'done' also flips intake_complete.
       if (phase === "done") {
+        // Defence-in-depth: refuse to flip phase if any non-optional
+        // doc-review field is empty for an uploaded doc. Client guards
+        // the same shape; without this check a hand-crafted PUT could
+        // fast-forward through doc-review and trigger resume gen
+        // against missing values (marks %, passport #, test scores).
+        const dataRes = await client.query(
+          `SELECT data FROM intake_students WHERE student_id = $1`,
+          [studentId]
+        );
+        const answers = dataRes.rows[0]?.data?.answers || {};
+        const { ok, missing } = validateDocReview(answers);
+        if (!ok) {
+          await client.query("ROLLBACK");
+          return res.status(422).json({
+            error: "doc-review fields still missing — fill them before finishing",
+            missing,
+          });
+        }
+        // Pre-flight: refuse to flip phase if the style corpus is empty.
+        // Without this the auto-fire would insert a 'pending' row,
+        // hit NoCorpusError in executeResume, and flip to 'failed'
+        // 30s later — confusing both student and staff. Catch it
+        // before the transaction commits so the student stays on the
+        // doc-review screen with an actionable message.
+        if (!(await corpusHasExample())) {
+          await client.query("ROLLBACK");
+          return res.status(503).json({
+            error: "Resume style corpus not loaded yet — your counsellor needs to import the example. Try again in a few minutes.",
+            code: "NO_CORPUS",
+          });
+        }
         await client.query(
           `UPDATE intake_students
               SET intake_phase = 'done',
@@ -607,9 +659,9 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
 
 // ============================================================
 // FILE UPLOAD — student uploads a document. Multer disk storage,
-// magic-byte recheck, FK row inserted, then auto-trigger extraction
-// in the background and surface the extraction id so the client can
-// poll /me/extractions/:id immediately.
+// magic-byte recheck, FK row inserted. The student types any doc-
+// derived values (marks %, passport #, test scores) by hand in the
+// doc-review step.
 // ============================================================
 
 // Multer always lands in tmpRoot — we move (or upload) to the configured
@@ -638,12 +690,11 @@ function uploadOne(req, res, next) {
   });
 }
 
-// fieldId is the routing key for the extractor (server/extractors/index.js)
-// and a partition key for intake_files. Without a shape check we accepted
-// arbitrary strings — `../../etc/passwd`, 5000-char blobs, anything.
-// Tighter rule: alphanumeric + underscore, optionally followed by an
-// indexed-list suffix `[N].fieldname` (the activities_list[3].proof
-// pattern). Caps at 64 chars.
+// fieldId is a partition key for intake_files. Without a shape check
+// we accepted arbitrary strings — `../../etc/passwd`, 5000-char blobs,
+// anything. Tighter rule: alphanumeric + underscore, optionally
+// followed by an indexed-list suffix `[N].fieldname` (the
+// activities_list[3].proof pattern). Caps at 64 chars.
 const FIELD_ID_RE = /^[a-zA-Z0-9_]{1,40}(?:\[\d{1,3}\]\.[a-zA-Z0-9_]{1,20})?$/;
 
 router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
@@ -726,17 +777,6 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
       }
     }
 
-    // Auto-extract on upload is intentionally disabled. The pipeline
-    // moved to manual entry: the student opens each uploaded doc in
-    // the doc-review step and types the doc-derived values (marks %,
-    // passport #, test scores) themselves. The extractor module +
-    // POST /me/extractions retry endpoint remain in the repo so the
-    // auto-fill flow can be re-enabled by un-commenting this block
-    // without code reshuffling. Suppressing here means upload.extraction
-    // is always null; the client treats a null extraction as "stored
-    // file, no auto-fill" — same path as truly unsupported field types.
-    const extraction = null;
-
     audit(req, {
       table: "intake_files",
       id: doc.id,
@@ -749,7 +789,6 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
       uploadedAt: doc.created_at.toISOString(),
       actualType: v.actualType,
       size: req.file.size,
-      extraction,
     });
   } catch (err) {
     if (req.file?.path && fs.existsSync(req.file.path)) {
@@ -833,145 +872,88 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
   }
 });
 
-// ============================================================
-// EXTRACTIONS — student-side polling + confirm; staff-side read
-// is via the /:student_id detail endpoint above.
-// ============================================================
-
-router.get("/me/extractions/:id", requireStudent, async (req, res, next) => {
+// POST /api/students/:student_id/resumes/:id/regenerate — staff
+// triggers regeneration on a student's behalf. Used when the staff
+// panel surfaces the "may be stale" badge: counsellor sees the
+// student edited their data after the resume was generated, hits
+// regenerate without asking the student to log in.
+//
+// Same atomic gate as the student-side route: per-student lock,
+// inflight-cap check, CAS-flip on row status, all in one tx.
+router.post("/:student_id/resumes/:id/regenerate", requireStaff, async (req, res, next) => {
   try {
     if (!isPositiveInt(req.params.id)) {
       return res.status(400).json({ error: "invalid id" });
     }
+    const studentId = req.params.student_id;
     const { rows } = await pool.query(
-      `SELECT id, file_id, student_id, extractor, model, status, data,
-              confirmed_data, confirmed_at, error, cost_cents, created_at
-         FROM intake_extractions WHERE id = $1`,
+      `SELECT r.id, r.student_id, r.label, r.length_pages, r.length_words, r.style, r.domain,
+              s.counsellor_id
+         FROM intake_resumes r
+         JOIN intake_students s ON s.student_id = r.student_id
+        WHERE r.id = $1`,
       [Number(req.params.id)]
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ error: "not found" });
-    if (row.student_id !== req.user.studentId) {
-      return res.status(403).json({ error: "forbidden" });
+    if (row.student_id !== studentId) {
+      return res.status(403).json({ error: "resume does not belong to this student" });
     }
-    res.json({
-      id: String(row.id),
-      fileId: String(row.file_id),
-      extractor: row.extractor,
-      model: row.model,
-      status: row.status,
-      data: row.data || null,
-      confirmedData: row.confirmed_data || null,
-      confirmedAt: row.confirmed_at,
-      error: row.error,
-      costCents: row.cost_cents,
-      createdAt: row.created_at,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.get("/me/extractions", requireStudent, async (req, res, next) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT e.id, e.file_id, e.extractor, e.model, e.status,
-              e.data, e.confirmed_data, e.confirmed_at, e.error, e.created_at,
-              f.field_id, f.original_name
-         FROM intake_extractions e
-         JOIN intake_files f ON f.id = e.file_id
-        WHERE e.student_id = $1
-        ORDER BY e.created_at DESC`,
-      [req.user.studentId]
-    );
-    res.json(
-      rows.map((r) => ({
-        id: String(r.id),
-        fileId: String(r.file_id),
-        fieldId: r.field_id,
-        fileName: r.original_name,
-        extractor: r.extractor,
-        model: r.model,
-        status: r.status,
-        data: r.data || null,
-        confirmedData: r.confirmed_data || null,
-        confirmedAt: r.confirmed_at,
-        error: r.error,
-        createdAt: r.created_at,
-      }))
-    );
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.post("/me/extractions", requireStudent, express.json(), async (req, res, next) => {
-  try {
-    const { fileId } = req.body || {};
-    if (!isPositiveInt(fileId)) return res.status(400).json({ error: "fileId required" });
-
-    const { rows } = await pool.query(
-      `SELECT id, student_id, field_id, original_name, storage_path, mime_type
-         FROM intake_files WHERE id = $1`,
-      [Number(fileId)]
-    );
-    const file = rows[0];
-    if (!file) return res.status(404).json({ error: "file not found" });
-    if (file.student_id !== req.user.studentId) {
-      return res.status(403).json({ error: "forbidden" });
+    if (req.user.kind === "counsellor" && row.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
     }
-    const result = await scheduleExtraction(file);
-    if (!result.supported) {
-      return res.status(422).json({ error: `no extractor for field ${file.field_id}` });
-    }
-    res.json({
-      id: result.id,
-      status: result.status,
-      fileId: String(file.id),
-      extractor: result.extractor,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.put("/me/extractions/:id/confirm", requireStudent, express.json(), async (req, res, next) => {
-  try {
-    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
-    const { data } = req.body || {};
-    // Refuse to confirm a row whose extraction didn't succeed. Without
-    // this check the prior commit's resume-gate (which counts confirmed
-    // extractions) was trivially bypassable: confirm a failed row →
-    // confirmed_at = NOW() → resume gate passes → generator runs against
-    // an empty fact bundle. Audit-on-change journey agent reproduced
-    // this end-to-end. The conditional UPDATE handles the common path;
-    // the SELECT only fires on the rare miss to distinguish 404 (no
-    // such row) from 409 (row exists, wrong status).
-    const { rows } = await pool.query(
-      `UPDATE intake_extractions
-          SET confirmed_data = $1::jsonb, confirmed_at = NOW()
-        WHERE id = $2 AND student_id = $3 AND status = 'succeeded'
-        RETURNING id, confirmed_at`,
-      [JSON.stringify(data ?? null), Number(req.params.id), req.user.studentId]
-    );
-    const row = rows[0];
-    if (!row) {
-      const probe = await pool.query(
-        `SELECT status FROM intake_extractions WHERE id = $1 AND student_id = $2`,
-        [Number(req.params.id), req.user.studentId]
-      );
-      if (probe.rows.length === 0) return res.status(404).json({ error: "not found" });
-      return res.status(409).json({
-        error: `cannot confirm extraction with status '${probe.rows[0].status}' — only 'succeeded' rows can be confirmed`,
+    // Pre-flight: refuse to fire if the corpus is empty (same gate
+    // the student-side phase transition uses, for the same reason).
+    if (!(await corpusHasExample())) {
+      return res.status(503).json({
+        error: "Resume style corpus not loaded — re-import via the admin panel before regenerating.",
+        code: "NO_CORPUS",
       });
     }
-    audit(req, {
-      table: "intake_extractions",
-      id: row.id,
-      action: "confirm",
-      diff: data ? { confirmed: true, edited: true } : { confirmed: true, edited: false },
-    });
-    res.json({ id: String(row.id), confirmedAt: row.confirmed_at });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await reserveInflightOrThrow(client, row.student_id, 1);
+      const swap = await client.query(
+        `UPDATE intake_resumes
+            SET status = 'pending', error = NULL, updated_at = NOW()
+          WHERE id = $1
+            AND status NOT IN ('pending','running')
+          RETURNING id`,
+        [row.id]
+      );
+      if (swap.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "regeneration already in progress for this resume",
+        });
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (e.code === "INFLIGHT_CAP") {
+        return res.status(429).json({
+          error: `student has ${e.currentInflight} resume${e.currentInflight === 1 ? "" : "s"} still generating; wait for those to finish`,
+          currentInflight: e.currentInflight,
+          cap: e.cap,
+        });
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+    executeResume({
+      resumeId: row.id,
+      spec: {
+        label: row.label,
+        length_pages: row.length_pages,
+        length_words: row.length_words,
+        style: row.style,
+        domain: row.domain,
+      },
+    }).catch((e) => console.error("[resume] staff-regenerate unhandled:", e));
+    audit(req, { table: "intake_resumes", id: row.id, action: "staff_regenerate" });
+    res.status(202).json({ id: String(row.id), status: "pending" });
   } catch (e) {
     next(e);
   }
@@ -1083,21 +1065,10 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
       }
     }
 
-    // Precondition: ≥1 confirmed extraction. The generator pulls facts
-    // exclusively from confirmed_data; with zero confirmed extractions
-    // every section call would emit empty bullets and the validator
-    // would reject them all. The previous version happily scheduled the
-    // generation, burned ~$0.20 of LLM budget per resume, and produced
-    // a junk artefact. Gate explicitly so the failure surfaces before
-    // any provider call.
     // Precondition: the student must have completed both intake +
     // doc-review (intake_phase = 'done'). The auto-fire on the phase
     // transition handles the happy-path first resume; this manual
-    // route is now only for regenerate-from-dashboard scenarios. A
-    // student rapid-POSTing this endpoint before finishing intake
-    // gets a clear 400 (was: a junk resume against an empty data
-    // bundle when the gate counted confirmed extractions, which
-    // are no longer collected).
+    // route is now only for regenerate-from-dashboard scenarios.
     const phaseCheck = await pool.query(
       `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
       [req.user.studentId]
@@ -1263,7 +1234,7 @@ router.get("/me/resumes/:id", requireStudent, async (req, res, next) => {
 
 // POST /api/students/me/resumes/:id/regenerate — re-run generation
 // for an existing row (typically after a failure or after the student
-// edits an extraction). Reuses the row id so the polling client
+// edits their intake data). Reuses the row id so the polling client
 // stays subscribed.
 router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next) => {
   try {
@@ -1374,8 +1345,8 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE intake_students SET password_hash = $1 WHERE student_id = $2`,
-        [hashPassword(newPassword), req.user.studentId]
+        `UPDATE intake_students SET password_hash = $1, password_plain = $2 WHERE student_id = $3`,
+        [hashPassword(newPassword), newPassword, req.user.studentId]
       );
       // Drop every session row for this student that isn't the one
       // making the request right now. IS DISTINCT FROM handles NULL

@@ -1,7 +1,5 @@
 // Gemini adapter implementing the generateStructured contract.
-// Mirrors the call shape that was previously inlined in
-// server/extractors/marksheet.js + server/generators/{plan,section}.js
-// so the refactor is behaviour-preserving.
+// Mirrors the call shape used by server/generators/{plan,section}.js.
 
 import { GoogleGenAI } from "@google/genai";
 

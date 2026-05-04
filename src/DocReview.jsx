@@ -1,15 +1,15 @@
 // Side-by-side document review: for each uploaded document, the
 // student sees the doc on the left and the form fields whose values
 // appear on that doc on the right. They type the values manually
-// while looking at the doc — auto-extraction is dormant.
+// while looking at the doc.
 //
-// Driven by DOC_REVIEW_GROUPS (defined in StudentIntake.jsx). Skips
-// any group whose corresponding upload field has no uploaded file —
+// Driven by DOC_REVIEW_GROUPS (lib/docReviewManifest.js). Skips any
+// group whose corresponding upload field has no uploaded file —
 // students who didn't take a test don't see a "score" panel for it.
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, FileText, Check, Loader2 } from "lucide-react";
-import { DOC_REVIEW_GROUPS } from "./StudentIntake.jsx";
+import { DOC_REVIEW_GROUPS, validateDocReview } from "../lib/docReviewManifest.js";
 import { isFileUploaded } from "./intakeFiles.js";
 
 export default function DocReview({ answers, onChangeField, onSave, onBack, onFinish }) {
@@ -64,6 +64,23 @@ export default function DocReview({ answers, onChangeField, onSave, onBack, onFi
 
   async function handleFinish() {
     setError(null);
+    // Refuse to call onFinish() if any non-optional doc-review field
+    // is still empty for an uploaded doc. Server enforces the same
+    // rule (defence-in-depth) but this avoids the round-trip + the
+    // 422 error toast for the common "I forgot one" case.
+    const { ok, missing } = validateDocReview(answers);
+    if (!ok) {
+      const first = missing[0];
+      const target = DOC_REVIEW_GROUPS.findIndex((g) => g.docFieldId === first.docFieldId);
+      if (target >= 0) {
+        const visibleIdx = groups.findIndex((g) => g.docFieldId === first.docFieldId);
+        if (visibleIdx >= 0) setActiveIdx(visibleIdx);
+      }
+      setError(
+        `Fill the ${missing.length === 1 ? "field" : `${missing.length} fields`} still missing — starting with "${first.label}".`
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       // Save any pending edits before transitioning. onSave is the

@@ -1,41 +1,33 @@
-// Style-corpus retrieval — pick 3-5 example resumes from intake_examples
-// to few-shot the section calls. Per the audit research:
-//   - Filter by metadata first (target length pages + domain).
-//   - Random-sample within bucket so the model sees varied phrasing
-//     across calls instead of memorising the same 3 every time.
-//   - The exemplar block is large + reused — wrap with prompt caching
-//     when we add Anthropic.
+// Style-corpus retrieval. The corpus has a single active row (the
+// Raghav internship example), so this just returns it. The previous
+// implementation tier-scored on (length_pages, domain) and random-
+// sampled across the bucket — both meaningless when N=1.
 //
-// Returns: { examples: [{ id, full_text, label }], example_ids: [...] }
+// Returns: { examples: [{ id, full_text, label, ... }], example_ids: [...] }
 //
-// example_ids gets persisted on the intake_resumes row so we can audit
-// exactly which exemplars informed any given resume.
+// example_ids gets persisted on the intake_resumes row so we can
+// audit which exemplar informed any given resume.
 
 import pool from "../db.js";
 
-const TARGET_COUNT = 3;
-const MAX_COUNT = 5;
+export class NoCorpusError extends Error {
+  constructor() {
+    super(
+      "Resume style corpus is empty. An admin must run `npm run import-examples` (or hit POST /api/students/admin/import-examples) before any resume can be generated."
+    );
+    this.code = "NO_CORPUS";
+  }
+}
 
-export async function pickExamples({ length_pages, domain, limit = TARGET_COUNT }) {
-  const cap = Math.min(MAX_COUNT, Math.max(1, limit));
-
-  // Score: exact match on (length_pages, domain) > exact length only >
-  // exact domain only > anything active. ORDER BY a synthetic priority,
-  // then random within tier.
-  const sql = `
-    SELECT id, label, full_text, length_pages, domain, style, voice_notes,
-      CASE
-        WHEN length_pages = $1 AND ($2::text IS NULL OR domain = $2) THEN 3
-        WHEN length_pages = $1                                       THEN 2
-        WHEN $2::text IS NOT NULL AND domain = $2                    THEN 2
-        ELSE 1
-      END AS tier
-    FROM intake_examples
-    WHERE active = TRUE
-    ORDER BY tier DESC, random()
-    LIMIT $3
-  `;
-  const { rows } = await pool.query(sql, [length_pages || null, domain || null, cap]);
+export async function pickExamples() {
+  const { rows } = await pool.query(
+    `SELECT id, label, full_text, length_pages, domain, style, voice_notes
+       FROM intake_examples
+      WHERE active = TRUE
+      ORDER BY id ASC
+      LIMIT 1`
+  );
+  if (rows.length === 0) throw new NoCorpusError();
   return {
     examples: rows.map((r) => ({
       id: r.id,
@@ -48,4 +40,15 @@ export async function pickExamples({ length_pages, domain, limit = TARGET_COUNT 
     })),
     example_ids: rows.map((r) => r.id),
   };
+}
+
+// Cheap pre-flight check used by the phase transition: if the corpus
+// is empty the auto-fire would just fail. Surface a clear error
+// upstream instead of inserting a 'pending' row that's destined to
+// flip to 'failed' a few seconds later.
+export async function corpusHasExample() {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM intake_examples WHERE active = TRUE LIMIT 1`
+  );
+  return rows.length > 0;
 }
