@@ -66,6 +66,11 @@ export const api = {
   // throws 401 otherwise. App.jsx calls this on first paint to decide
   // whether to render the login form or the role-appropriate panel.
   me: () => request("GET", "/api/auth/me"),
+  // Build version — bumps on every Render redeploy (server captures
+  // process start time at boot). Client polls this and prompts a reload
+  // when it changes so users on a stale bundle don't miss schema/UI
+  // shipped under them.
+  getVersion: () => request("GET", "/api/version"),
   // Default returns only active leads. Pass { includeArchived: true } to
   // also receive archived rows. Counsellor sessions are server-scoped to
   // their own leads regardless of params; admin sessions can opt-in to a
@@ -97,11 +102,14 @@ export const api = {
     request("PATCH", `/api/leads/${leadId}/appointments/${apptId}`, body),
   // Counsellor task list (separate from per-lead actionables). Default
   // hides archived; pass includeArchived to retrieve both sets.
-  listTasks: ({ includeArchived = false } = {}) =>
-    request(
-      "GET",
-      `/api/tasks${includeArchived ? "?include_archived=true" : ""}`
-    ),
+  // appointmentId narrows the list to tasks logged inside one specific
+  // session — used by the SessionPopup.
+  listTasks: ({ includeArchived = false, appointmentId = null } = {}) => {
+    const qs = [];
+    if (includeArchived) qs.push("include_archived=true");
+    if (appointmentId != null) qs.push(`appointment_id=${encodeURIComponent(appointmentId)}`);
+    return request("GET", `/api/tasks${qs.length ? `?${qs.join("&")}` : ""}`);
+  },
   createTask: (data) => request("POST", "/api/tasks", data),
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
   archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),

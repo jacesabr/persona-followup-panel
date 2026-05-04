@@ -106,7 +106,22 @@ router.get("/", async (req, res, next) => {
       params.push(req.query.counsellor_id);
       where.push(`counsellor_id = $${params.length}`);
     }
-    const sql = `SELECT * FROM leads ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY service_date ASC NULLS LAST`;
+    // next_appointment_* columns let the followup row show a "Session"
+    // button without round-tripping per lead. Subqueries return NULL when
+    // the lead has no upcoming appointment — UI keys off the id being
+    // truthy.
+    const sql = `
+      SELECT leads.*,
+        (SELECT id FROM lead_appointments
+           WHERE lead_id = leads.id AND scheduled_for >= NOW()
+           ORDER BY scheduled_for ASC LIMIT 1) AS next_appointment_id,
+        (SELECT scheduled_for FROM lead_appointments
+           WHERE lead_id = leads.id AND scheduled_for >= NOW()
+           ORDER BY scheduled_for ASC LIMIT 1) AS next_appointment_scheduled_for
+      FROM leads
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY service_date ASC NULLS LAST
+    `;
     const { rows } = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {

@@ -5,6 +5,7 @@ import AdminPanel from "./AdminPanel.jsx";
 import StudentIntake from "./StudentIntake.jsx";
 import { api, setUnauthorizedHandler } from "./api.js";
 import { formatInIst } from "../lib/time.js";
+import VersionBanner from "./VersionBanner.jsx";
 
 // Impersonation is admin-only UI state — purely a view switch, no
 // security boundary (admin's session cookie is what authorizes the
@@ -155,16 +156,25 @@ export default function App() {
 
   if (session === "loading") {
     return (
-      <div
-        className="flex min-h-screen w-full items-center justify-center font-serif text-stone-600"
-        style={{ backgroundColor: "#faf9f5" }}
-      >
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
+      <>
+        <VersionBanner />
+        <div
+          className="flex min-h-screen w-full items-center justify-center font-serif text-stone-600"
+          style={{ backgroundColor: "#faf9f5" }}
+        >
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      </>
     );
   }
 
-  if (!session) return <Login onAuth={onAuth} />;
+  if (!session)
+    return (
+      <>
+        <VersionBanner />
+        <Login onAuth={onAuth} />
+      </>
+    );
 
   // Student session — render the intake form, no admin chrome. The
   // intake's TopBar provides its own sign-out path via the existing

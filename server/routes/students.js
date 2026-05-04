@@ -12,7 +12,7 @@ import { getStorage } from "../storage.js";
 import { scheduleResume, executeResume } from "../generators/run.js";
 import { corpusHasExample } from "../generators/examples.js";
 import { runImportFromCorpusDir } from "../scripts/import-examples.js";
-import { validateDocReview } from "../../lib/docReviewManifest.js";
+import { validateIntakeRequired } from "../../lib/intakeSchema.js";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../middleware/auth.js";
 
@@ -358,8 +358,9 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
 
 router.get("/me/record", requireStudent, async (req, res, next) => {
   try {
-    // intake_phase is the explicit state column (intake / doc_review /
-    // done). Resume counts pulled so the dashboard can show generation
+    // intake_phase is the explicit state column (intake / done; legacy
+    // rows may still read 'doc_review' until the migration coerces
+    // them). Resume counts pulled so the dashboard can show generation
     // progress.
     const { rows } = await pool.query(
       `SELECT s.student_id, s.intake_complete, s.data, s.updated_at,
@@ -431,12 +432,11 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
       return res.status(400).json({ error: "data must be a JSON object" });
     }
 
-    // Refuse edits once the student has finished doc-review. The UI
-    // doesn't expose a path back to the form after phase=done, but a
-    // tab left open in doc_review or a hand-crafted PUT could land
-    // here and silently drift the data behind the already-generated
-    // resume. Surface a 409 instead so the client can refresh and
-    // discover the dashboard.
+    // Refuse edits once the student has finished intake. The UI doesn't
+    // expose a path back to the form after phase=done, but a stale tab
+    // or a hand-crafted PUT could land here and silently drift the data
+    // behind the already-generated resume. Surface a 409 instead so the
+    // client can refresh and discover the dashboard.
     const phaseProbe = await pool.query(
       `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
       [req.user.studentId]
@@ -510,22 +510,25 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
   }
 });
 
-// PUT /api/students/me/intake/phase — explicit phase transitions.
-//   { phase: "doc_review" }  → from 'intake' (general form done, move to
-//                              the side-by-side doc verification step)
-//   { phase: "done" }        → from 'doc_review' (everything filled,
-//                              flip intake_complete + auto-fire one
-//                              300-word resume gen, navigate to dashboard)
+// PUT /api/students/me/intake/phase — explicit phase transition.
+//   { phase: "done" } → from 'intake' (general form done, including the
+//                       transcribed values from each upload page).
+//                       Flips intake_complete + auto-fires one 300-word
+//                       resume gen, navigates the client to the
+//                       dashboard.
 //
-// Allowed transitions are forward-only (intake → doc_review → done) so
-// a refresh-bouncing client can't accidentally rewind state. The
-// `done` transition is atomic: phase flip + resume insert happen in
-// one transaction so a crash mid-call leaves no half-state.
+// Forward-only (intake → done) so a refresh-bouncing client can't
+// accidentally rewind state. Atomic: phase flip + resume insert happen
+// in one transaction so a crash mid-call leaves no half-state.
+//
+// The legacy 'doc_review' phase has been folded into intake — uploads
+// and their transcribed values now live on the same page — so the
+// previous intake → doc_review → done two-step is collapsed.
 router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, next) => {
   try {
     const { phase } = req.body || {};
-    if (phase !== "doc_review" && phase !== "done") {
-      return res.status(400).json({ error: "phase must be 'doc_review' or 'done'" });
+    if (phase !== "done") {
+      return res.status(400).json({ error: "phase must be 'done'" });
     }
     const studentId = req.user.studentId;
     const client = await pool.connect();
@@ -541,15 +544,11 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
       }
       const currentPhase = cur.rows[0].intake_phase || "intake";
 
-      // Forward-only transition rules.
-      if (phase === "doc_review" && currentPhase !== "intake") {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          error: `cannot move to doc_review from '${currentPhase}'`,
-          currentPhase,
-        });
-      }
-      if (phase === "done" && currentPhase !== "doc_review") {
+      // Forward-only: only 'intake' can become 'done'. Legacy
+      // 'doc_review' rows are coerced back to 'intake' by the migration
+      // so they re-enter the merged flow; if one slips through here we
+      // refuse and ask the client to refresh.
+      if (currentPhase !== "intake") {
         await client.query("ROLLBACK");
         return res.status(409).json({
           error: `cannot move to done from '${currentPhase}'`,
@@ -557,90 +556,72 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
         });
       }
 
-      // Apply the phase change. 'done' also flips intake_complete.
-      if (phase === "done") {
-        // Defence-in-depth: refuse to flip phase if any non-optional
-        // doc-review field is empty for an uploaded doc. Client guards
-        // the same shape; without this check a hand-crafted PUT could
-        // fast-forward through doc-review and trigger resume gen
-        // against missing values (marks %, passport #, test scores).
-        const dataRes = await client.query(
-          `SELECT data FROM intake_students WHERE student_id = $1`,
-          [studentId]
-        );
-        const answers = dataRes.rows[0]?.data?.answers || {};
-        const { ok, missing } = validateDocReview(answers);
-        if (!ok) {
-          await client.query("ROLLBACK");
-          return res.status(422).json({
-            error: "doc-review fields still missing — fill them before finishing",
-            missing,
-          });
-        }
-        // Pre-flight: refuse to flip phase if the style corpus is empty.
-        // Without this the auto-fire would insert a 'pending' row,
-        // hit NoCorpusError in executeResume, and flip to 'failed'
-        // 30s later — confusing both student and staff. Catch it
-        // before the transaction commits so the student stays on the
-        // doc-review screen with an actionable message.
-        if (!(await corpusHasExample())) {
-          await client.query("ROLLBACK");
-          return res.status(503).json({
-            error: "Resume style corpus not loaded yet — your counsellor needs to import the example. Try again in a few minutes.",
-            code: "NO_CORPUS",
-          });
-        }
-        await client.query(
-          `UPDATE intake_students
-              SET intake_phase = 'done',
-                  intake_complete = TRUE,
-                  updated_at = NOW()
-            WHERE student_id = $1`,
-          [studentId]
-        );
-        // Auto-fire one 300-word resume in the same transaction. Hard-
-        // coded shape for v1 — multi-resume picker comes back later.
-        // Take the per-student inflight lock so a refresh-spam can't
-        // stack multiple auto-resumes.
-        await reserveInflightOrThrow(client, studentId, 1);
-        const ins = await client.query(
-          `INSERT INTO intake_resumes
-             (student_id, label, length_pages, length_words, style, domain, status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-           RETURNING id`,
-          [studentId, "auto-summary", null, 300, null, null]
-        );
-        const resumeId = ins.rows[0].id;
-        await client.query("COMMIT");
-        // Fire-and-forget after commit so a runner crash leaves the row
-        // in 'pending' for the boot sweeper, not orphaned-mid-tx.
-        executeResume({
-          resumeId,
-          spec: { label: "auto-summary", length_words: 300 },
-        }).catch((e) => console.error("[resume] auto-fire unhandled:", e));
-        audit(req, {
-          table: "intake_students",
-          id: studentId,
-          action: "intake_done",
-          diff: { resume_id: String(resumeId) },
+      // Defence-in-depth: refuse to flip if any required field is empty.
+      // Client's page-by-page advance gate enforces the same shape, but
+      // a hand-crafted PUT or a stale draft restored mid-edit could
+      // otherwise trigger resume gen against missing values (parent
+      // details, marks %, passport #, etc.).
+      const dataRes = await client.query(
+        `SELECT data FROM intake_students WHERE student_id = $1`,
+        [studentId]
+      );
+      const answers = dataRes.rows[0]?.data?.answers || {};
+      const { ok, missing } = validateIntakeRequired(answers);
+      if (!ok) {
+        await client.query("ROLLBACK");
+        return res.status(422).json({
+          error: "intake fields still missing — fill them before finishing",
+          missing,
         });
-        return res.json({ phase: "done", resumeId: String(resumeId) });
       }
-
-      // doc_review transition.
+      // Pre-flight: refuse to flip phase if the style corpus is empty.
+      // Without this the auto-fire would insert a 'pending' row, hit
+      // NoCorpusError in executeResume, and flip to 'failed' 30s later —
+      // confusing both student and staff. Catch it before the
+      // transaction commits so the student stays on intake with an
+      // actionable message.
+      if (!(await corpusHasExample())) {
+        await client.query("ROLLBACK");
+        return res.status(503).json({
+          error: "Resume style corpus not loaded yet — your counsellor needs to import the example. Try again in a few minutes.",
+          code: "NO_CORPUS",
+        });
+      }
       await client.query(
         `UPDATE intake_students
-            SET intake_phase = 'doc_review', updated_at = NOW()
+            SET intake_phase = 'done',
+                intake_complete = TRUE,
+                updated_at = NOW()
           WHERE student_id = $1`,
         [studentId]
       );
+      // Auto-fire one 300-word resume in the same transaction. Hard-
+      // coded shape for v1 — multi-resume picker comes back later. Take
+      // the per-student inflight lock so a refresh-spam can't stack
+      // multiple auto-resumes.
+      await reserveInflightOrThrow(client, studentId, 1);
+      const ins = await client.query(
+        `INSERT INTO intake_resumes
+           (student_id, label, length_pages, length_words, style, domain, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+         RETURNING id`,
+        [studentId, "auto-summary", null, 300, null, null]
+      );
+      const resumeId = ins.rows[0].id;
       await client.query("COMMIT");
+      // Fire-and-forget after commit so a runner crash leaves the row
+      // in 'pending' for the boot sweeper, not orphaned-mid-tx.
+      executeResume({
+        resumeId,
+        spec: { label: "auto-summary", length_words: 300 },
+      }).catch((e) => console.error("[resume] auto-fire unhandled:", e));
       audit(req, {
         table: "intake_students",
         id: studentId,
-        action: "intake_to_doc_review",
+        action: "intake_done",
+        diff: { resume_id: String(resumeId) },
       });
-      res.json({ phase: "doc_review" });
+      return res.json({ phase: "done", resumeId: String(resumeId) });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       if (e.code === "INFLIGHT_CAP") {
@@ -659,9 +640,9 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
 
 // ============================================================
 // FILE UPLOAD — student uploads a document. Multer disk storage,
-// magic-byte recheck, FK row inserted. The student types any doc-
-// derived values (marks %, passport #, test scores) by hand in the
-// doc-review step.
+// magic-byte recheck, FK row inserted. Doc-derived values (marks %,
+// passport #, test scores) are typed by hand into the same intake
+// page that holds the upload — no separate review step.
 // ============================================================
 
 // Multer always lands in tmpRoot — we move (or upload) to the configured
@@ -1065,10 +1046,10 @@ router.post("/me/resumes", requireStudent, express.json(), async (req, res, next
       }
     }
 
-    // Precondition: the student must have completed both intake +
-    // doc-review (intake_phase = 'done'). The auto-fire on the phase
-    // transition handles the happy-path first resume; this manual
-    // route is now only for regenerate-from-dashboard scenarios.
+    // Precondition: the student must have completed intake
+    // (intake_phase = 'done'). The auto-fire on the phase transition
+    // handles the happy-path first resume; this manual route is now
+    // only for regenerate-from-dashboard scenarios.
     const phaseCheck = await pool.query(
       `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
       [req.user.studentId]

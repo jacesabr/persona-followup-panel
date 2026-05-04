@@ -122,6 +122,15 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// Build version. Captured once at process start. Render redeploys
+// always restart the process, so the value bumps with every deploy.
+// Clients poll this and reload the page when it changes — keeps users
+// on a stale bundle from missing schema/UI changes that just shipped.
+const BUILD_VERSION = String(Date.now());
+app.get("/api/version", (req, res) => {
+  res.json({ version: BUILD_VERSION });
+});
+
 const writeLimiter = rateLimit({
   windowMs: 60_000,
   max: 30,

@@ -641,7 +641,7 @@ function StudentDetail({ detail, onRefresh }) {
   // pipeline. Replaces the implicit-from-counts indicator.
   const phaseLabel = ({
     intake: "Filling intake form",
-    doc_review: "Reviewing uploaded documents",
+    generating: "Generating resume",
     done: "Intake complete",
   }[student?.intake_phase] || "Filling intake form");
   return (
@@ -650,7 +650,7 @@ function StudentDetail({ detail, onRefresh }) {
         <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Pipeline phase</span>
         <span className={`text-[11px] font-medium ${
           student?.intake_phase === "done" ? "text-emerald-700"
-          : student?.intake_phase === "doc_review" ? "text-amber-700"
+          : student?.intake_phase === "generating" ? "text-amber-700"
           : "text-stone-600"
         }`}>{phaseLabel}</span>
       </div>

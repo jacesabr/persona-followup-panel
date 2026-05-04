@@ -6,38 +6,9 @@
 // `data` shape (mirrors what StudentIntake.persist() writes):
 //   { answers: { fieldId: value, ... }, order: [...], lastStep: N }
 
-import { CHAPTERS } from "./StudentIntake.jsx";
-import { DOC_REVIEW_GROUPS } from "../lib/docReviewManifest.js";
-import { isFileUploaded } from "./intakeFiles.js";
+import { CHAPTERS } from "../lib/intakeSchema.js";
 
 const TOTAL_INTAKE_PAGES = CHAPTERS.reduce((n, c) => n + c.pages.length, 0);
-
-// Doc-review "filled" rule: for each group, the doc must be uploaded.
-// Groups with typed fields additionally need every non-optional field
-// non-empty. Groups with no fields (verify-only) only need the doc.
-function isDocGroupFilled(group, answers) {
-  const file = answers?.[group.docFieldId];
-  if (!isFileUploaded(file)) return false;
-  for (const f of group.fields || []) {
-    if (f.optional) continue;
-    const v = answers?.[f.id];
-    if (v === undefined || v === null || String(v).trim() === "") return false;
-  }
-  return true;
-}
-
-// Doc-review "applicable" rule: a group only counts toward the
-// denominator if the student actually uploaded the doc OR a sibling
-// field is non-empty. Otherwise we'd show "0 of 28" forever for a
-// student who never plans to take the SAT, AP, etc.
-function isDocGroupApplicable(group, answers) {
-  if (isFileUploaded(answers?.[group.docFieldId])) return true;
-  for (const f of group.fields || []) {
-    const v = answers?.[f.id];
-    if (v !== undefined && v !== null && String(v).trim() !== "") return true;
-  }
-  return false;
-}
 
 export function progressFor(row) {
   const phase = row?.intake_phase || (row?.intake_complete ? "done" : "intake");
@@ -50,15 +21,10 @@ export function progressFor(row) {
   if (phase === "generating") {
     return { label: "Generating resume…", tone: "generating" };
   }
-  if (phase === "doc_review") {
-    const applicable = DOC_REVIEW_GROUPS.filter((g) => isDocGroupApplicable(g, answers));
-    const filled = applicable.filter((g) => isDocGroupFilled(g, answers)).length;
-    const total = applicable.length;
-    if (total === 0) {
-      return { label: "Reviewing docs · awaiting uploads", tone: "doc_review" };
-    }
-    return { label: `Reviewing docs · ${filled} of ${total} filled`, tone: "doc_review" };
-  }
+  // The legacy 'doc_review' phase is gone (transcription happens inline
+  // on each upload page now). Any row still flagged 'doc_review' falls
+  // through to the intake counter — the server migration coerces those
+  // back to 'intake' so the student re-enters the merged flow.
   // phase === "intake"
   const lastStep = Number.isInteger(data.lastStep) ? data.lastStep : -1;
   // lastStep is 0-indexed; -1 means hasn't passed the welcome screen.
@@ -82,6 +48,5 @@ export function progressFor(row) {
 export const TONE_CLASSES = {
   done: "text-emerald-700",
   generating: "text-amber-700",
-  doc_review: "text-amber-700",
   intake: "text-stone-500",
 };

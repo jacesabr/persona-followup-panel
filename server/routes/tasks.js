@@ -44,17 +44,19 @@ async function checkTaskAccess(req, res, taskId) {
 
 // Single source of truth for the joined SELECT used after every mutation.
 // LEFT JOIN both leads and counsellors because tasks may have a free-text
-// student_name (no lead FK) and may also be unassigned. Frontend resolves
-// student via lead_name || student_name and renders assignee_name as the
-// counsellor responsible for the task.
+// student_name (no lead FK) and may also be unassigned. The optional
+// appointment join surfaces the session a task was logged from so the UI
+// can render a "from session of <date>" badge without a second round-trip.
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
          l.archived AS student_archived,
-         c.name AS assignee_name
+         c.name AS assignee_name,
+         la.scheduled_for AS appointment_scheduled_for
   FROM counsellor_tasks t
   LEFT JOIN leads l ON l.id = t.lead_id
   LEFT JOIN counsellors c ON c.id = t.assignee_id
+  LEFT JOIN lead_appointments la ON la.id = t.appointment_id
 `;
 
 // GET /api/tasks — admin sees the flat list of every task. Counsellors
@@ -75,6 +77,18 @@ router.get("/", async (req, res, next) => {
       const i = `$${params.length}`;
       conds.push(`(t.assignee_id = ${i} OR l.counsellor_id = ${i})`);
     }
+    // Optional ?appointment_id=N filter — used by the Session popup to
+    // list only the tasks created during one specific appointment. The
+    // counsellor scope above still applies so a counsellor can never see
+    // another counsellor's session-tasks via this filter.
+    if (req.query.appointment_id !== undefined) {
+      const apptId = String(req.query.appointment_id);
+      if (!/^\d+$/.test(apptId)) {
+        return res.status(400).json({ error: "appointment_id must be a positive integer" });
+      }
+      params.push(apptId);
+      conds.push(`t.appointment_id = $${params.length}`);
+    }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const { rows } = await pool.query(
       `${SELECT_JOINED} ${where}
@@ -94,7 +108,7 @@ router.get("/", async (req, res, next) => {
 // with no assignee render as "Unassigned" in the admin view.
 router.post("/", async (req, res, next) => {
   try {
-    let { lead_id, student_name, assignee_id, text, due_date, priority } = req.body;
+    let { lead_id, student_name, assignee_id, text, due_date, priority, appointment_id } = req.body;
     if (
       (lead_id === undefined || lead_id === null || lead_id === "") &&
       (student_name === undefined || student_name === null || student_name === "")
@@ -166,11 +180,34 @@ router.post("/", async (req, res, next) => {
       }
     }
 
+    // Optional appointment_id (integer) — must point at an appointment
+    // belonging to the same lead the task is attached to. Without that
+    // pairing check, a caller could link a task to an unrelated lead's
+    // appointment and the badge would render the wrong session date.
+    let cleanAppointmentId = null;
+    if (appointment_id !== undefined && appointment_id !== null && appointment_id !== "") {
+      const apptStr = String(appointment_id);
+      if (!/^\d+$/.test(apptStr)) {
+        return res.status(400).json({ error: "appointment_id must be a positive integer" });
+      }
+      if (!cleanLeadId) {
+        return res.status(400).json({ error: "appointment_id requires a lead_id" });
+      }
+      const apptCheck = await pool.query(
+        "SELECT 1 FROM lead_appointments WHERE id = $1 AND lead_id = $2",
+        [apptStr, cleanLeadId]
+      );
+      if (apptCheck.rows.length === 0) {
+        return res.status(404).json({ error: "appointment not found for this lead" });
+      }
+      cleanAppointmentId = apptStr;
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO counsellor_tasks (lead_id, student_name, assignee_id, text, due_date, priority)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO counsellor_tasks (lead_id, student_name, assignee_id, text, due_date, priority, appointment_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [cleanLeadId, cleanStudentName, cleanAssigneeId, text.trim(), due_date, !!priority]
+      [cleanLeadId, cleanStudentName, cleanAssigneeId, text.trim(), due_date, !!priority, cleanAppointmentId]
     );
     const { rows: enriched } = await pool.query(
       `${SELECT_JOINED} WHERE t.id = $1`,

@@ -69,6 +69,13 @@ CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_due ON counsellor_tasks(due_date
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_lead ON counsellor_tasks(lead_id);
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_assignee ON counsellor_tasks(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_active ON counsellor_tasks(due_date) WHERE archived = FALSE;
+-- Optional link from a task back to the appointment it was created in.
+-- ON DELETE SET NULL so deleting the appointment row doesn't cascade
+-- and silently nuke the followup tasks it produced — they just lose
+-- the badge.
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS appointment_id BIGINT
+  REFERENCES lead_appointments(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_appointment ON counsellor_tasks(appointment_id);
 
 -- Cookie-backed sessions. user_kind 'admin' has no counsellor row;
 -- 'counsellor' rows reference counsellors.id and cascade on delete.
@@ -153,21 +160,26 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS scheduled_deletion_at TIMES
 -- The resume generator + admin views can branch on this when we evolve fields.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS schema_version INT NOT NULL DEFAULT 1;
 -- Pipeline phase: explicit state machine for the student-facing flow.
---   'intake'     — filling the general form (identity, parents, story, uploads)
---   'doc_review' — typing doc-derived values (marks %, scores, passport #) with
---                  the relevant uploaded doc visible side-by-side
---   'done'       — finished; one 300-word resume queued; lands on dashboard
--- Replaces the prior derived-from-counts phase resolver. NULL legacy rows
--- are coerced to 'intake' on read (back-compat for pre-migration accounts).
+--   'intake' — filling the general form. Uploads and the doc-derived
+--              values typed from each upload (marks %, scores, passport
+--              #, etc.) live on the same page, side-by-side.
+--   'done'   — finished; one 300-word resume queued; lands on dashboard.
+-- Replaces the prior derived-from-counts phase resolver. NULL legacy
+-- rows are coerced to 'intake' on read (back-compat for pre-migration
+-- accounts). The earlier 'doc_review' state has been folded into
+-- 'intake'; any rows still flagged 'doc_review' are reset below so they
+-- re-enter the merged flow.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS intake_phase TEXT;
+UPDATE intake_students SET intake_phase = 'intake' WHERE intake_phase = 'doc_review';
 DO $$ BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'intake_students_phase_check'
   ) THEN
-    ALTER TABLE intake_students
-      ADD CONSTRAINT intake_students_phase_check
-      CHECK (intake_phase IS NULL OR intake_phase IN ('intake', 'doc_review', 'done'));
+    ALTER TABLE intake_students DROP CONSTRAINT intake_students_phase_check;
   END IF;
+  ALTER TABLE intake_students
+    ADD CONSTRAINT intake_students_phase_check
+    CHECK (intake_phase IS NULL OR intake_phase IN ('intake', 'done'));
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_students(LOWER(username)) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);

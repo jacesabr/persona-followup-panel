@@ -27,357 +27,15 @@ import {
   loadRecord,
   transitionPhase,
 } from "./intakeFiles.js";
-import DocReview from "./DocReview.jsx";
 import StudentDashboard from "./StudentDashboard.jsx";
+import { CHAPTERS, validateIntakeRequired } from "../lib/intakeSchema.js";
 
 // ============================================================
-// Schema — chapters → pages → fields.
-// Every field on the legacy Dashboard is covered here so the
-// flow map is the single source of "things we ever ask".
+// Schema lives in ../lib/intakeSchema.js so the server can validate
+// the intake → done phase transition against the same shape.
+// Re-exported here for back-compat with existing importers.
 // ============================================================
-export const CHAPTERS = [
-  {
-    id: "personal",
-    title: "Personal details",
-    pages: [
-      {
-        id: "p_basics",
-        title: "Tell us about yourself",
-        helper: "The basics — we'll use these everywhere else.",
-        fields: [
-          { id: "name", label: "Full name", type: "text", placeholder: "First Last" },
-          { id: "email", label: "Email", type: "email", placeholder: "name@example.com" },
-          { id: "phone", label: "Phone", type: "tel", placeholder: "+91 98XXX XXXXX" },
-          { id: "dob", label: "Date of birth", type: "date" },
-          { id: "bloodGroup", label: "Blood group", type: "text", placeholder: "O+", optional: true },
-        ],
-      },
-      {
-        id: "p_address",
-        title: "Where you live",
-        fields: [
-          { id: "houseAddress", label: "House address", type: "textarea", placeholder: "Street, area, city, state, PIN" },
-        ],
-      },
-      {
-        id: "p_ids",
-        title: "Identification",
-        helper: "We need these for university and visa applications. Passport details are filled in the document-review step alongside the uploaded scan.",
-        fields: [
-          { id: "aadhar", label: "Aadhar card #", type: "text", placeholder: "XXXX XXXX XXXX" },
-          { id: "pan", label: "PAN card #", type: "text", optional: true },
-        ],
-      },
-      {
-        id: "p_photo",
-        title: "Upload your photo",
-        helper: "White background, formals, 3.5×4.5 cm. JPG or PDF.",
-        fields: [
-          { id: "photoFile", label: "Photo", type: "file", accept: "image/jpeg,image/png,application/pdf", maxSizeMB: 5 },
-        ],
-      },
-    ],
-  },
-  {
-    id: "schooling",
-    title: "Schooling",
-    pages: [
-      {
-        id: "p_school",
-        title: "Your school (undergraduate)",
-        fields: [
-          { id: "schoolName", label: "School name", type: "text" },
-          { id: "schoolEmail", label: "School email", type: "email" },
-          { id: "schoolAddress", label: "School address", type: "textarea" },
-        ],
-      },
-      {
-        id: "p_uni",
-        title: "Your university (post-graduate)",
-        helper: "Skip if you're applying for an undergraduate program.",
-        optional: true,
-        fields: [
-          { id: "uniName", label: "University / college", type: "text", optional: true },
-          { id: "uniEmail", label: "University email", type: "email", optional: true },
-          { id: "uniAddress", label: "Address", type: "textarea", optional: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "academics",
-    title: "Academic record",
-    pages: [
-      {
-        id: "p_marks10",
-        title: "10th-grade marksheet",
-        helper: "Upload the PDF — you'll type the percentage in the document-review step with the marksheet visible.",
-        fields: [
-          { id: "marks10sheet", label: "Marksheet (PDF)", type: "file" },
-        ],
-      },
-      {
-        id: "p_marks11",
-        title: "11th-grade marksheet",
-        helper: "Upload the PDF — you'll type the percentage in the document-review step.",
-        fields: [
-          { id: "marks11sheet", label: "Marksheet (PDF)", type: "file" },
-        ],
-      },
-      {
-        id: "p_marks12",
-        title: "12th-grade marksheet",
-        helper: "Upload either the actual marksheet OR a predicted-scores sheet (or both). You'll type the values in the document-review step.",
-        fields: [
-          { id: "marks12sheet", label: "Marksheet (PDF)", type: "file", optional: true },
-          { id: "marks12predictedSheet", label: "Predicted-scores sheet (PDF)", type: "file", optional: true },
-        ],
-      },
-      {
-        id: "p_cgpa",
-        title: "Graduate transcripts",
-        helper: "Only fill if applying for a post-graduate program. CGPA goes in the document-review step alongside the transcript.",
-        optional: true,
-        fields: [
-          { id: "transcript", label: "Transcript (PDF)", type: "file", optional: true },
-          { id: "finalDegree", label: "Final degree (PDF)", type: "file", optional: true },
-          { id: "semesterTranscripts", label: "All-semester transcripts (PDF)", type: "file", optional: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "passport",
-    title: "Passport scans",
-    pages: [
-      {
-        id: "p_passport_scans",
-        title: "Upload passport pages",
-        helper: "Three PDFs — front & back combined, front page alone, last page alone.",
-        fields: [
-          { id: "passportFrontBack", label: "Front & back (combined)", type: "file" },
-          { id: "passportFront", label: "Front page", type: "file" },
-          { id: "passportLast", label: "Last page", type: "file" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "tests",
-    title: "Standardized tests",
-    pages: [
-      {
-        id: "p_tests",
-        title: "Test bookings & results",
-        helper: "Per test: whether it's booked, booking #, and result PDF. Scores go in the document-review step alongside the result PDF. Skip what doesn't apply.",
-        optional: true,
-        fields: [
-          // IELTS
-          { id: "ielts_booked", label: "IELTS · booked?", type: "checkbox", optional: true },
-          { id: "ielts_bookingNum", label: "IELTS · booking #", type: "text", optional: true },
-          { id: "ielts_result", label: "IELTS · result (PDF)", type: "file", optional: true },
-          // TOEFL
-          { id: "toefl_booked", label: "TOEFL · booked?", type: "checkbox", optional: true },
-          { id: "toefl_bookingNum", label: "TOEFL · booking #", type: "text", optional: true },
-          { id: "toefl_result", label: "TOEFL · result (PDF)", type: "file", optional: true },
-          // SAT / ACT
-          { id: "sat_booked", label: "SAT / ACT · booked?", type: "checkbox", optional: true },
-          { id: "sat_bookingNum", label: "SAT / ACT · booking #", type: "text", optional: true },
-          { id: "sat_result", label: "SAT / ACT · result (PDF)", type: "file", optional: true },
-          // AP
-          { id: "ap_booked", label: "AP · booked?", type: "checkbox", optional: true },
-          { id: "ap_bookingNum", label: "AP · booking #", type: "text", optional: true },
-          { id: "ap_result", label: "AP · result (PDF)", type: "file", optional: true },
-          // Other (TUMA / TSA / etc.)
-          { id: "other_booked", label: "Other · booked?", type: "checkbox", optional: true },
-          { id: "other_bookingNum", label: "Other · booking #", type: "text", optional: true },
-          { id: "other_result", label: "Other · result (PDF)", type: "file", optional: true },
-        ],
-      },
-    ],
-  },
-  {
-    id: "family",
-    title: "Family",
-    pages: [
-      {
-        id: "p_father",
-        title: "Father's details",
-        fields: [
-          { id: "father_name", label: "Name", type: "text" },
-          { id: "father_dob", label: "Date of birth", type: "date" },
-          { id: "father_education", label: "Education", type: "text" },
-          { id: "father_institution", label: "Educational institution", type: "text" },
-          { id: "father_aadhar", label: "Aadhar card", type: "text" },
-          { id: "father_occupation", label: "Occupation", type: "text" },
-          { id: "father_position", label: "Position at workplace", type: "text" },
-          { id: "father_phone", label: "Phone", type: "tel" },
-          { id: "father_email", label: "Email", type: "email" },
-          { id: "father_org", label: "Name of organisation", type: "text" },
-        ],
-      },
-      {
-        id: "p_mother",
-        title: "Mother's details",
-        fields: [
-          { id: "mother_name", label: "Name", type: "text" },
-          { id: "mother_dob", label: "Date of birth", type: "date" },
-          { id: "mother_education", label: "Education", type: "text" },
-          { id: "mother_institution", label: "Educational institution", type: "text" },
-          { id: "mother_aadhar", label: "Aadhar card", type: "text" },
-          { id: "mother_occupation", label: "Occupation", type: "text" },
-          { id: "mother_position", label: "Position at workplace", type: "text" },
-          { id: "mother_phone", label: "Phone", type: "tel" },
-          { id: "mother_email", label: "Email", type: "email" },
-          { id: "mother_org", label: "Name of organisation", type: "text" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "extracurriculars",
-    title: "Activities & achievements",
-    pages: [
-      {
-        id: "p_activities",
-        title: "Activities, clubs, awards",
-        helper: "Community service, art & culture, leadership, sports — anything that says something about you. Only 1 is required; add up to 25 if you'd like.",
-        fields: [
-          {
-            id: "activities_list",
-            label: "Your activities",
-            type: "repeater",
-            minRows: 1,
-            max: 25,
-            itemFields: [
-              { id: "name", label: "Name of activity", type: "text", placeholder: "School CS Club" },
-              { id: "description", label: "Description", type: "text", placeholder: "Founder & president, 30+ members" },
-              { id: "proof", label: "Proof (PDF)", type: "file" },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "profile_docs",
-    title: "Profile documents",
-    pages: [
-      {
-        id: "p_lors",
-        title: "Letters of recommendation",
-        fields: [
-          { id: "lor1", label: "LOR 1", type: "file" },
-          { id: "lor2", label: "LOR 2", type: "file" },
-          { id: "lor3", label: "LOR 3", type: "file", optional: true },
-        ],
-      },
-      {
-        id: "p_internships",
-        title: "Internships",
-        helper: "Offer letters or completion certificates.",
-        optional: true,
-        fields: [
-          { id: "internship1", label: "Internship 1", type: "file", optional: true },
-          { id: "internship2", label: "Internship 2", type: "file", optional: true },
-          { id: "internship3", label: "Internship 3", type: "file", optional: true },
-        ],
-      },
-      {
-        id: "p_sop",
-        title: "Statement of purpose",
-        helper: "Upload a draft — we'll review and give feedback.",
-        fields: [
-          { id: "sop", label: "SOP (PDF)", type: "file" },
-        ],
-      },
-      {
-        id: "p_resume",
-        title: "Resume",
-        helper: "We can also generate one from your profile. Upload one if you already have it.",
-        optional: true,
-        fields: [
-          { id: "resumeFile", label: "Resume (PDF)", type: "file", optional: true },
-        ],
-      },
-      {
-        id: "p_other_docs",
-        title: "Any other documents?",
-        helper: "Anything else worth attaching — awards, certificates, character references, etc. Add as many as you need.",
-        optional: true,
-        fields: [
-          {
-            id: "otherDocs_list",
-            label: "Other documents",
-            type: "repeater",
-            minRows: 2,
-            max: 15,
-            itemFields: [
-              { id: "description", label: "Description", type: "text", placeholder: "What is this document?" },
-              { id: "file", label: "File (PDF)", type: "file" },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "story",
-    title: "Your story",
-    pages: [
-      {
-        id: "p_summary",
-        title: "Tell us a bit about yourself",
-        helper: "What do you love? What are you curious about? A few sentences is fine.",
-        fields: [
-          { id: "summary", label: "About you", type: "textarea" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "destination",
-    title: "Where you want to go",
-    pages: [
-      {
-        id: "p_country",
-        title: "Your target country",
-        fields: [
-          {
-            id: "targetCountry",
-            label: "Primary target country",
-            type: "select",
-            options: ["Canada", "USA", "UK", "Switzerland", "Singapore", "Australia", "Germany", "Other"],
-          },
-        ],
-      },
-      {
-        id: "p_paths",
-        title: "Programs & universities",
-        helper: "Each row is one program at one university in one country. Add as many as you like.",
-        fields: [
-          {
-            id: "paths_list",
-            label: "Your application list",
-            type: "repeater",
-            minRows: 1,
-            max: 10,
-            itemFields: [
-              { id: "country", label: "Country", type: "text", placeholder: "USA" },
-              { id: "university", label: "University", type: "text", placeholder: "MIT" },
-              { id: "program", label: "Program", type: "text", placeholder: "BSc Computer Science" },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-];
-
-// Doc-review manifest lives in lib/docReviewManifest.js so the server
-// can validate against the same shape on the phase=done transition.
-// Re-exported here for back-compat with prior imports.
-export { DOC_REVIEW_GROUPS, DOC_REVIEW_BY_FIELD } from "../lib/docReviewManifest.js";
+export { CHAPTERS };
 
 const ALL_PAGES = CHAPTERS.flatMap((c) =>
   c.pages.map((p) => ({ ...p, chapterId: c.id, chapterTitle: c.title }))
@@ -412,6 +70,7 @@ const MOCK = {
   bloodGroup: "B+",
   houseAddress: "12, Model Town, Ludhiana, Punjab 141002",
   aadhar: "1234 5678 9012",
+  aadharFile: mockFile("riya_aadhar.jpg", 198440),
   pan: "ABCDE1234F",
   passport: "A1234567",
   passportExpiry: "2030-04-12",
@@ -547,6 +206,7 @@ export function buildStudentRecord(answers, opts = {}) {
       address: { house: answers.houseAddress || "" },
       ids: {
         aadhar: answers.aadhar || "",
+        aadharFile: fileOut(answers.aadharFile),
         pan: answers.pan || "",
         passport: answers.passport || "",
         passportExpiry: answers.passportExpiry || "",
@@ -762,10 +422,17 @@ const pageFillState = (page, answers) => {
   const required = page.fields.filter((f) => !f.optional && !page.optional);
   const filledReq = required.filter((f) => isFieldFilled(answers[f.id])).length;
   const filledAny = page.fields.filter((f) => isFieldFilled(answers[f.id])).length;
+  // requireAtLeastOne pages (e.g. p_marks12 — marksheet OR predicted-
+  // scores) need at least one filled cell on top of the per-field
+  // required check, otherwise an all-empty page reads as "complete".
+  const atLeastOneOk = !page.requireAtLeastOne || page.optional || filledAny > 0;
   if (required.length === 0) {
+    if (page.requireAtLeastOne && !page.optional) {
+      return filledAny > 0 ? "complete" : "empty";
+    }
     return filledAny > 0 ? "complete" : "empty";
   }
-  if (filledReq === required.length) return "complete";
+  if (filledReq === required.length && atLeastOneOk) return "complete";
   if (filledReq > 0 || filledAny > 0) return "partial";
   return "empty";
 };
@@ -986,21 +653,45 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   };
 
   // Mark general intake as done and transition the server-side phase
-  // to 'doc_review'. The client's local phase mirrors so the next
-  // render shows the side-by-side document review screen.
+  // straight to 'done'. Transcription used to live in a separate
+  // doc_review screen but now happens inline on each upload page, so
+  // the only post-intake state is the auto-fired resume's status.
   //
   // Two server calls (save-then-transition) on purpose: the phase
-  // endpoint doesn't take data, so we need the persist to land first
-  // OR the doc-review screen would render against a stale server
-  // record. transitionPhase will 409 if the server already moved past
-  // 'intake' (e.g. another tab finished first); we surface that as a
-  // generic "couldn't continue" — refreshing the page rehydrates the
-  // correct phase from the server.
+  // endpoint doesn't take data, so the debounced save has to land
+  // first or the resume generator would see a stale snapshot.
+  // transitionPhase will 409 if the server already moved past 'intake'
+  // (another tab finished first) — we surface that as a generic
+  // "couldn't continue"; refreshing rehydrates the correct phase.
   const finishIntake = useCallback(async () => {
+    // Defence-in-depth: the page-by-page advance gate already prevents
+    // skipping required fields, but a stale draft (saved before a flag
+    // changed in the schema, or restored from another tab mid-edit)
+    // can land here with a hole. Re-validate against the same shape
+    // the server is about to check on `phase=done` — if anything is
+    // missing, jump the student back to the offending page instead of
+    // opening a 422 round-trip.
+    const { ok, missing } = validateIntakeRequired(answersRef.current);
+    if (!ok) {
+      const firstPageId = missing[0]?.pageId;
+      const idx = orderRef.current.indexOf(firstPageId);
+      if (idx >= 0) setStep(idx);
+      const labels = missing
+        .slice(0, 5)
+        .map((m) => m.label)
+        .join(", ");
+      const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : "";
+      alert(
+        `Some required fields are still empty — fill them before continuing:\n\n${labels}${more}`
+      );
+      return;
+    }
     await persist({ intakeComplete: false });
     try {
-      await transitionPhase("doc_review");
-      setPhase("doc_review");
+      await transitionPhase("done");
+      // Resume is auto-fired by the server in the same transaction; show
+      // the generating-state dashboard until polling flips it to done.
+      setPhase("generating");
       onComplete?.(answersRef.current);
     } catch (e) {
       // Silent failure on PHASE_CONFLICT: refresh once the user
@@ -1013,13 +704,12 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
 
   // Server-driven phase machine. Single source of truth for which
   // screen the student sees:
-  //   "intake"      → filling the general form
-  //   "doc_review"  → side-by-side viewer + manual fields per doc
-  //   "generating"  → resume auto-fired by the doc_review→done
-  //                   transition; dashboard polls
+  //   "intake"      → filling the general form (uploads + transcription
+  //                   happen inline on the same page)
+  //   "generating"  → resume auto-fired by the intake→done transition;
+  //                   dashboard polls until the markdown is ready
   //   "done"        → resume ready; dashboard renders it
-  // The student types doc values manually in doc_review and only one
-  // resume is generated (no picker, no extraction).
+  // Only one resume is generated for v1 (no picker, no extraction).
   const [phase, setPhase] = useState("intake");
   // Phase is now set inside the hydrate useEffect from the server's
   // resolved phase field — see the loadRecord block above. The previous
@@ -1047,36 +737,8 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     return <HydrationGate state={hydration} />;
   }
 
-  // Post-intake phases: doc-review (side-by-side viewer + manual
-  // fields) → done/generating (StudentDashboard renders the auto-
-  // generated resume + polls while it's still in flight).
-  if (phase === "doc_review") {
-    return (
-      <PostIntakeFrame onExit={onExit} title="Review your documents">
-        <DocReview
-          answers={answers}
-          onChangeField={(id, v) => {
-            // Single-field write into the same answers blob the intake
-            // form uses. persist() picks it up on the next debounce.
-            const next = { ...answersRef.current, [id]: v };
-            answersRef.current = next;
-            setAnswers(next);
-            scheduleSave();
-          }}
-          onSave={() => persist()}
-          onBack={() => setPhase("intake")}
-          onFinish={async () => {
-            try {
-              await transitionPhase("done");
-              setPhase("generating");
-            } catch (e) {
-              throw e;
-            }
-          }}
-        />
-      </PostIntakeFrame>
-    );
-  }
+  // Post-intake phase: StudentDashboard renders the auto-generated
+  // resume and polls while it's still in flight.
   if (phase === "generating" || phase === "done") {
     // Both phases render the same dashboard — it polls until the
     // auto-fired resume's status becomes terminal, then shows the
@@ -1283,14 +945,14 @@ function Closing({ onDone, onBack }) {
     <div className="animate-fadeUp py-20">
       <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">Almost there</p>
       <h2 className="mt-2 font-serif text-5xl leading-[1.05]">
-        General intake saved.
+        Intake complete.
         <br />
-        One more step.
+        Ready to submit?
       </h2>
       <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
-        Next: open each document you uploaded and type the values shown on it
-        (marks percentage, passport number, test scores). Should take a few
-        minutes per document.
+        We'll generate a 300-word summary of your profile from everything you
+        submitted. Takes about a minute. You'll land on your dashboard once it's
+        ready — your counsellor sees everything from there too.
       </p>
       <div className="mt-10 flex items-center gap-4">
         <button
@@ -1303,7 +965,7 @@ function Closing({ onDone, onBack }) {
           onClick={onDone}
           className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
         >
-          Continue to document review <ArrowRight className="h-4 w-4" />
+          Submit & generate resume <ArrowRight className="h-4 w-4" />
         </button>
       </div>
     </div>
@@ -1321,17 +983,56 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
 
   const requiredFields = page.fields.filter((f) => !f.optional && !page.optional);
   const allRequiredFilled = requiredFields.every((f) => isFieldFilled(answers[f.id]));
+  // requireAtLeastOne (e.g. p_marks12) — page advances only when at
+  // least one of its fields is filled, regardless of per-field flags.
+  const anyFieldFilled = page.fields.some((f) => isFieldFilled(answers[f.id]));
+  const atLeastOneOk = !page.requireAtLeastOne || page.optional || anyFieldFilled;
   const inflight = page.fields.some((f) => fieldHasInflight(answers[f.id]));
   const errored = page.fields.some((f) => fieldHasError(answers[f.id]));
-  const canAdvance = !inflight && !errored && (page.optional || allRequiredFilled);
+  const canAdvance =
+    !inflight && !errored && (page.optional || (allRequiredFilled && atLeastOneOk));
 
+  const remainingRequired =
+    requiredFields.length - requiredFields.filter((f) => isFieldFilled(answers[f.id])).length;
   const advanceLabel = inflight
     ? "uploading…"
     : errored
     ? "fix file errors"
     : canAdvance
     ? "OK"
-    : `${requiredFields.length - requiredFields.filter((f) => isFieldFilled(answers[f.id])).length} required left`;
+    : remainingRequired > 0
+    ? `${remainingRequired} required left`
+    : "upload at least one";
+
+  // Split layout: when a page has both file uploads and non-file fields,
+  // put the uploads (with their inline previews) on the left and the
+  // typed-in fields on the right so the student can transcribe values
+  // (passport #, marks %, scores) while looking at the doc they just
+  // uploaded. Pages with only files OR only text fields fall back to
+  // the original 2-col grid.
+  const fileFields = page.fields.filter((f) => f.type === "file");
+  const textFields = page.fields.filter((f) => f.type !== "file" && f.type !== "repeater");
+  const repeaterFields = page.fields.filter((f) => f.type === "repeater");
+  const isSplit =
+    page.layout === "split" || (fileFields.length > 0 && textFields.length > 0);
+
+  const renderField = (field, ref) => {
+    let v = answers[field.id];
+    if (v === undefined) {
+      v = field.type === "repeater" ? [] : field.type === "checkbox" ? false : "";
+    }
+    return (
+      <FieldRow
+        key={field.id}
+        field={field}
+        value={v}
+        onChange={(val) => onChange(field.id, val)}
+        onBlur={onBlur}
+        inputRef={ref}
+        wide={field.type === "textarea" || field.type === "file" || field.type === "repeater"}
+      />
+    );
+  };
 
   return (
     <div key={page.id} className="animate-fadeUp py-10">
@@ -1351,25 +1052,27 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
       {page.helper && <p className="mt-3 text-sm italic text-stone-500">{page.helper}</p>}
 
-      <div className="mt-8 grid gap-6 md:grid-cols-2">
-        {page.fields.map((field, i) => {
-          let v = answers[field.id];
-          if (v === undefined) {
-            v = field.type === "repeater" ? [] : field.type === "checkbox" ? false : "";
-          }
-          return (
-            <FieldRow
-              key={field.id}
-              field={field}
-              value={v}
-              onChange={(val) => onChange(field.id, val)}
-              onBlur={onBlur}
-              inputRef={i === 0 ? firstFieldRef : undefined}
-              wide={field.type === "textarea" || field.type === "file" || field.type === "repeater"}
-            />
-          );
-        })}
-      </div>
+      {isSplit ? (
+        <div className="mt-8 grid gap-8 lg:grid-cols-2">
+          <div className="space-y-6">
+            {fileFields.map((field, i) =>
+              renderField(field, page.fields[0]?.id === field.id ? firstFieldRef : undefined)
+            )}
+          </div>
+          <div className="space-y-6">
+            {textFields.map((field, i) =>
+              renderField(field, page.fields[0]?.id === field.id ? firstFieldRef : undefined)
+            )}
+            {repeaterFields.map((field) => renderField(field))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8 grid gap-6 md:grid-cols-2">
+          {page.fields.map((field, i) =>
+            renderField(field, i === 0 ? firstFieldRef : undefined)
+          )}
+        </div>
+      )}
 
       <div className="mt-10 flex items-center gap-4">
         <button
@@ -1647,7 +1350,8 @@ const FileSlot = forwardRef(function FileSlot(
   const textCls = compact ? "text-xs" : "text-sm";
 
   return (
-    <div className={`${compact ? "" : "mt-1.5"} flex items-center justify-between gap-2 border border-dashed bg-white/40 ${padCls} transition ${borderCls}`}>
+    <div className={compact ? "" : "mt-1.5"}>
+    <div className={`flex items-center justify-between gap-2 border border-dashed bg-white/40 ${padCls} transition ${borderCls}`}>
       <input
         ref={inputRef}
         type="file"
@@ -1724,8 +1428,60 @@ const FileSlot = forwardRef(function FileSlot(
         )}
       </div>
     </div>
+    {!compact && status === "uploaded" && <FilePreview slot={slot} />}
+    </div>
   );
 });
+
+// Inline preview shown right below an uploaded file slot. Image files
+// render with an <img>; PDFs (and anything else) drop into an iframe so
+// browsers show their built-in viewer. The whole preview links to the
+// asset in a new tab so the student can pop it out full-screen if they
+// want a closer look while transcribing values into the next field.
+function FilePreview({ slot }) {
+  const url = slot?.uploadedUrl;
+  if (!url) return null;
+  // Autofill mock writes stub:// URLs that no browser can render. Skip
+  // the preview block in that case so the demo state shows the
+  // "uploaded" pill without a broken image / empty iframe underneath.
+  if (url.startsWith("stub://")) return null;
+  const type = slot?.type || "";
+  const name = slot?.name || "uploaded file";
+  if (type.startsWith("image/")) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block border border-stone-900/15 bg-white"
+        title="Open full size"
+      >
+        <img
+          src={url}
+          alt={name}
+          className="block max-h-96 w-full object-contain"
+        />
+      </a>
+    );
+  }
+  return (
+    <div className="mt-2 border border-stone-900/15 bg-white">
+      <iframe
+        src={url}
+        title={name}
+        className="block h-80 w-full border-0"
+      />
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="block border-t border-stone-900/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-900"
+      >
+        Open full size ↗
+      </a>
+    </div>
+  );
+}
 
 function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
   if (subfield.type === "file") {

@@ -197,11 +197,11 @@ export async function getResume(id, { signal } = {}) {
   return res.json();
 }
 
-// Forward-only phase transitions for the post-intake state machine.
-// `phase` is "doc_review" (after general intake) or "done" (after
-// doc-review; server auto-fires one 300-word resume in the same tx).
-// Server validates the current phase and 409s on illegal transitions —
-// the client surfaces that as a typed error so the caller can refetch.
+// Forward-only phase transition. The only valid value today is "done"
+// (intake → done; server auto-fires one 300-word resume in the same
+// tx). Server validates the current phase and 409s on illegal
+// transitions — the client surfaces that as a typed error so the
+// caller can refetch.
 export async function transitionPhase(phase) {
   const res = await fetch("/api/students/me/intake/phase", {
     method: "PUT",
