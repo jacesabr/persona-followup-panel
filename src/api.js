@@ -93,6 +93,12 @@ export const api = {
   updateLead: (id, patch) => request("PATCH", `/api/leads/${id}`, patch),
   archiveLead: (id) => request("POST", `/api/leads/${id}/archive`),
   unarchiveLead: (id) => request("POST", `/api/leads/${id}/unarchive`),
+  // Admin-only hard delete of an archived lead. Server enforces the
+  // archived-only guard + admin role; the FK on intake_students.lead_id
+  // is ON DELETE SET NULL so the student row + their intake data stay
+  // intact — only the followup series (lead row + appointments + tasks)
+  // is removed.
+  deleteLead: (id) => request("DELETE", `/api/leads/${id}`),
   // Appointment history (used by the simple panel calendar).
   listAppointments: (leadId) =>
     request("GET", `/api/leads/${leadId}/appointments`),

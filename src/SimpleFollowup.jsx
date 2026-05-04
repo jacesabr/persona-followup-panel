@@ -12,6 +12,7 @@ import {
   Pencil,
   Calendar,
   Star,
+  Trash2,
 } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
@@ -217,6 +218,26 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     try {
       const updated = await api.unarchiveLead(id);
       setLeads((prev) => prev.map((l) => (l.id === id ? updated : l)));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  // Admin-only: hard-delete an archived lead. The server checks both
+  // the role and the archived flag; we still gate the button visually
+  // so counsellors never see it. Student intake data is preserved by
+  // the FK (intake_students.lead_id ON DELETE SET NULL).
+  const deleteLead = async (id) => {
+    if (
+      !window.confirm(
+        "Delete this lead's followup history permanently? This removes appointments and tasks for this lead. Student intake data is NOT affected."
+      )
+    )
+      return;
+    setError(null);
+    try {
+      await api.deleteLead(id);
+      setLeads((prev) => prev.filter((l) => l.id !== id));
     } catch (e) {
       setError(e.message);
     }
@@ -595,9 +616,11 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       </div>
 
       <ArchivedLeads
+        role={role}
         leads={archivedLeads}
         counsellors={counsellors}
         onUnarchive={unarchiveLead}
+        onDelete={deleteLead}
       />
 
       {calendarLead && (
@@ -632,11 +655,15 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 // ============================================================
 // Collapsible "Archived" panel below the main sheet. Hidden by default.
 // Shows each archived lead on a single compact line with name · purpose ·
-// counsellor · when-archived · Unarchive. Each row renders via the
-// generic ArchivedSection's renderRow callback so the chrome stays
-// shared with the tasks-archive panel.
-function ArchivedLeads({ leads, counsellors, onUnarchive }) {
+// counsellor · when-archived · Unarchive. Admin role additionally gets
+// a Delete button that hard-removes the lead (and its appointments +
+// tasks via FK CASCADE); the FK on intake_students.lead_id is
+// ON DELETE SET NULL so student intake data is preserved. Each row
+// renders via the generic ArchivedSection's renderRow callback so the
+// chrome stays shared with the tasks-archive panel.
+function ArchivedLeads({ role, leads, counsellors, onUnarchive, onDelete }) {
   const counsellorNameById = new Map(counsellors.map((c) => [c.id, c.name]));
+  const isAdmin = role === "admin";
   return (
     <ArchivedSection
       items={leads}
@@ -665,12 +692,23 @@ function ArchivedLeads({ leads, counsellors, onUnarchive }) {
               </span>
             )}
           </div>
-          <button
-            onClick={() => onUnarchive(lead.id)}
-            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
-          >
-            <Undo2 className="h-3 w-3" /> Unarchive
-          </button>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={() => onUnarchive(lead.id)}
+              className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+            >
+              <Undo2 className="h-3 w-3" /> Unarchive
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => onDelete(lead.id)}
+                title="Delete this lead's followup history. Student intake data is not affected."
+                className="inline-flex items-center gap-1 border border-red-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-red-700 hover:border-red-600 hover:bg-red-50 hover:text-red-800"
+              >
+                <Trash2 className="h-3 w-3" /> Delete
+              </button>
+            )}
+          </span>
         </li>
       )}
     />

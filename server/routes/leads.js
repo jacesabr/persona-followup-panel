@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { isValidUtcIso, isValidYmd } from "../../lib/time.js";
 import { audit } from "../audit.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -299,6 +300,43 @@ router.post("/:id/unarchive", async (req, res, next) => {
       return res.json(exists.rows[0]);
     }
     res.json(rows[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/leads/:id — admin-only hard delete. Used by the archived
+// panel to clear out a finished followup series. Guarded to archived
+// rows only so a stray click on an active lead can't wipe live work.
+//
+// Cascade behaviour (from migrate.js):
+//   - lead_appointments.lead_id FK is ON DELETE CASCADE → history wiped
+//   - counsellor_tasks.lead_id   FK is ON DELETE CASCADE → tasks wiped
+//   - intake_students.lead_id    FK is ON DELETE SET NULL → student row
+//     stays with all intake data; it just loses the back-reference to
+//     this lead. This is the explicit invariant: deleting a lead must
+//     never touch the student's intake-side data.
+router.delete("/:id", requireAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows: existing } = await pool.query(
+      "SELECT archived FROM leads WHERE id = $1",
+      [id]
+    );
+    if (existing.length === 0) {
+      return res.status(404).json({ error: "lead not found" });
+    }
+    if (!existing[0].archived) {
+      return res
+        .status(400)
+        .json({ error: "lead must be archived before deletion" });
+    }
+    await pool.query("DELETE FROM leads WHERE id = $1", [id]);
+    // 204 .end() bypasses autoAudit's res.json hook; log explicitly
+    // so a destructive admin op never silently disappears from the
+    // audit trail.
+    audit(req, { table: "leads", id, action: "delete" });
+    res.status(204).end();
   } catch (e) {
     next(e);
   }
