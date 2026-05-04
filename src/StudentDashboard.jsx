@@ -138,10 +138,12 @@ function ResumeCard({ resumes, error }) {
       </div>
     );
   }
-  // Succeeded — render the markdown.
+  // Succeeded — render the markdown. /me/resumes returns camelCase
+  // (contentMd, lengthWords, etc) — different from the admin
+  // /api/students/:id endpoint which exposes raw snake_case rows.
   return (
     <article className="prose prose-sm max-w-none whitespace-pre-wrap font-serif">
-      {latest.content_md || "(empty resume)"}
+      {latest.contentMd || "(empty resume)"}
     </article>
   );
 }
