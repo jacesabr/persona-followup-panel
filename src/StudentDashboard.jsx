@@ -1,33 +1,82 @@
-// Post-intake landing screen for the student. Shows the auto-fired
-// 300-word resume; polls for status while it's still generating.
+// Post-intake landing screen for the student. Shows everything the
+// student submitted — intake answers grouped by chapter/page, every
+// uploaded document with a title + description, and the auto-generated
+// resume once it's ready.
 //
-// One resume for v1 (the multi-resume picker comes back later). Until
-// then, the student's account is essentially: "this is the one short
-// summary the system produced; come back later for more."
+// Two render modes:
+//   1) Default (student logged in) — fetches /me/* endpoints.
+//   2) staffPreview (admin/counsellor "view as student") — receives the
+//      data the staff endpoint already returned, so the same component
+//      doubles as the staff-side preview without duplicating layout.
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { Loader2, AlertTriangle, RefreshCw, LogOut, CheckCircle2 } from "lucide-react";
-import { listResumes, regenerateResume } from "./intakeFiles.js";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import {
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  LogOut,
+  CheckCircle2,
+  FileText,
+  Image as ImageIcon,
+  Paperclip,
+} from "lucide-react";
+import {
+  listResumes,
+  regenerateResume,
+  loadRecord,
+  listMyFiles,
+} from "./intakeFiles.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
+import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
+import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
 
-export default function StudentDashboard({ studentName, onExit }) {
-  const [resumes, setResumes] = useState(null); // null = loading, [] = none, [{...}] = list
+export default function StudentDashboard({ studentName, onExit, staffPreview = null }) {
+  const isStaffPreview = !!staffPreview;
+
+  // In default mode we own the polling + fetch lifecycle. In staff
+  // preview mode the parent has already done one fetch — we still
+  // re-poll so a counsellor watching a generation finish in real time
+  // sees the markdown land without manually refreshing.
+  const [resumes, setResumes] = useState(() =>
+    isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
+  );
+  const [files, setFiles] = useState(() =>
+    isStaffPreview ? staffPreview.files || [] : null
+  );
+  const [answers, setAnswers] = useState(() =>
+    isStaffPreview ? extractAnswers(staffPreview.student?.data) : null
+  );
   const [error, setError] = useState(null);
   const [regenBusy, setRegenBusy] = useState(false);
   const [regenErr, setRegenErr] = useState(null);
   const pollRef = useRef(null);
 
+  const studentId = staffPreview?.student?.student_id || null;
+
   const load = useCallback(async () => {
     try {
-      const list = await listResumes();
-      setResumes(list);
+      if (isStaffPreview && studentId) {
+        const detail = await api.getStudent(studentId);
+        setResumes(normalizeStaffResumes(detail.resumes));
+        setFiles(detail.files || []);
+        setAnswers(extractAnswers(detail.student?.data));
+      } else {
+        const [resumeList, fileList, record] = await Promise.all([
+          listResumes(),
+          listMyFiles(),
+          loadRecord().catch(() => ({ data: {} })),
+        ]);
+        setResumes(resumeList);
+        setFiles(fileList);
+        setAnswers(extractAnswers(record?.data));
+      }
       setError(null);
     } catch (e) {
-      setError(e?.message || "Couldn't load your resume.");
+      setError(e?.message || "Couldn't load your information.");
     }
-  }, []);
+  }, [isStaffPreview, studentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,12 +84,12 @@ export default function StudentDashboard({ studentName, onExit }) {
       await load();
       if (cancelled) return;
     })();
-    // Poll while any resume is still pending/running.
     pollRef.current = setInterval(() => {
       const inflight = (resumes || []).some(
         (r) => r.status === "pending" || r.status === "running"
       );
-      // First load (resumes === null) also benefits from polling.
+      // First load (resumes === null) and any in-flight resume both
+      // benefit from continued polling.
       if (resumes === null || inflight) load();
     }, POLL_INTERVAL_MS);
     return () => {
@@ -50,19 +99,30 @@ export default function StudentDashboard({ studentName, onExit }) {
   }, [resumes, load]);
 
   const latest = (resumes || [])[0] || null;
+  const hasResume = !!latest;
+  const succeeded = latest?.status === "succeeded";
 
   const onRegenerate = async () => {
     if (!latest) return;
-    if (!window.confirm(
-      "Regenerate your resume?\n\nThis will replace the current one and takes 30–60 seconds. " +
-      "Note: it uses the information you already submitted — there's no way to edit your answers from here. " +
-      "If you spotted a mistake in your intake, ask your counsellor to reopen it before regenerating."
+    if (!isStaffPreview) {
+      if (!window.confirm(
+        "Regenerate your resume?\n\nThis will replace the current one and takes 30–60 seconds. " +
+        "Note: it uses the information you already submitted — there's no way to edit your answers from here. " +
+        "If you spotted a mistake in your intake, ask your counsellor to reopen it before regenerating."
+      )) return;
+    } else if (!window.confirm(
+      "Regenerate this student's resume? Takes 30–60 seconds and replaces the current one."
     )) return;
+
     setRegenBusy(true);
     setRegenErr(null);
     try {
-      await regenerateResume(latest.id);
-      await load(); // pick up the now-pending status; polling takes over
+      if (isStaffPreview) {
+        await api.staffRegenerateResume(studentId, latest.id);
+      } else {
+        await regenerateResume(latest.id);
+      }
+      await load();
     } catch (e) {
       setRegenErr(e?.message || "Couldn't start regenerate. Try again.");
     } finally {
@@ -70,71 +130,147 @@ export default function StudentDashboard({ studentName, onExit }) {
     }
   };
 
-  const succeeded = latest?.status === "succeeded";
+  // Group every answered field under its chapter/page using the schema
+  // so the rendered layout mirrors the order of the intake form.
+  const grouped = useMemo(() => groupAnswersBySchema(answers || {}), [answers]);
+
+  // Field-id → field metadata, so the docs list can show a friendly
+  // title (e.g. "Aadhar card scan" instead of "aadharFile") next to
+  // the original filename.
+  const fieldIndex = useMemo(() => buildFieldIndex(), []);
+
+  const headerName = staffPreview?.student?.display_name
+    || staffPreview?.student?.username
+    || studentName
+    || "student";
 
   return (
     <div className="min-h-screen w-full font-serif text-stone-900" style={{ backgroundColor: "#f4f0e6" }}>
-      <header className="border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm italic text-stone-500">the</span>
-            <span className="text-lg font-semibold tracking-tight">Persona</span>
-            <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
-              · {studentName || "student"}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onExit}
-            className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
-          >
-            <LogOut className="h-3 w-3" /> Sign out
-          </button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 py-12">
-        {succeeded ? (
-          <>
-            <h1 className="font-serif text-3xl">You're all set, {studentName || "there"}.</h1>
-            <p className="mt-2 text-sm text-stone-600">
-              Your intake is complete and your counsellor has access to everything you submitted. Below is the 300-word summary the system generated from your information — review it whenever you like, and ping your counsellor if anything needs tweaking.
-            </p>
-            <div className="mt-4 inline-flex items-center gap-2 border border-emerald-700/30 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Submission complete · resume ready
+      {!isStaffPreview && (
+        <header className="border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
+          <div className="mx-auto flex max-w-5xl items-center justify-between">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm italic text-stone-500">the</span>
+              <span className="text-lg font-semibold tracking-tight">Persona</span>
+              <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+                · {headerName}
+              </span>
             </div>
-          </>
-        ) : (
-          <>
-            <h1 className="font-serif text-3xl">Almost there, {studentName || "there"}.</h1>
-            <p className="mt-2 text-sm text-stone-600">
-              Your intake is in. We're putting together a 300-word summary from what you submitted — this usually takes 30–60 seconds. You don't need to do anything; the page will update once it's ready.
-            </p>
-          </>
+            <button
+              type="button"
+              onClick={onExit}
+              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+            >
+              <LogOut className="h-3 w-3" /> Sign out
+            </button>
+          </div>
+        </header>
+      )}
+
+      <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : "max-w-3xl px-6 py-12"}`}>
+        {!isStaffPreview && (
+          succeeded ? (
+            <>
+              <h1 className="font-serif text-3xl">You're all set, {headerName}.</h1>
+              <p className="mt-2 text-sm text-stone-600">
+                Your intake is complete and your counsellor has access to everything you submitted. Below is the 300-word summary the system generated from your information — review it whenever you like, and ping your counsellor if anything needs tweaking.
+              </p>
+              <div className="mt-4 inline-flex items-center gap-2 border border-emerald-700/30 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Submission complete · resume ready
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="font-serif text-3xl">Almost there, {headerName}.</h1>
+              <p className="mt-2 text-sm text-stone-600">
+                Your intake is in. We're putting together a 300-word summary from what you submitted — this usually takes 30–60 seconds. Everything you entered is below, and the resume will appear above once it's ready.
+              </p>
+            </>
+          )
+        )}
+
+        {error && (
+          <p className="mt-6 inline-flex items-center gap-2 text-xs text-red-700">
+            <AlertTriangle className="h-3 w-3" /> {error}
+          </p>
+        )}
+
+        {/* Resume — only rendered when at least one resume row exists.
+            Brand-new students who haven't finished intake never see this
+            section; the section first appears once auto-fire kicks off. */}
+        {hasResume && (
+          <section className="mt-10">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your resume</h2>
+              {succeeded && (
+                <button
+                  type="button"
+                  onClick={onRegenerate}
+                  disabled={regenBusy}
+                  className="inline-flex items-center gap-1.5 border border-stone-900/30 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-900 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3 w-3 ${regenBusy ? "animate-spin" : ""}`} />
+                  {regenBusy ? "Starting…" : "Regenerate"}
+                </button>
+              )}
+            </div>
+            {regenErr && (
+              <p className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
+                <AlertTriangle className="h-3 w-3" /> {regenErr}
+              </p>
+            )}
+            <div className="mt-3 border border-stone-900/15 bg-white p-6">
+              <ResumeCard latest={latest} />
+            </div>
+          </section>
         )}
 
         <section className="mt-10">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your resume</h2>
-            {succeeded && (
-              <button
-                type="button"
-                onClick={onRegenerate}
-                disabled={regenBusy}
-                className="inline-flex items-center gap-1.5 border border-stone-900/30 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-900 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3 w-3 ${regenBusy ? "animate-spin" : ""}`} />
-                {regenBusy ? "Starting…" : "Regenerate"}
-              </button>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your information</h2>
+          <p className="mt-1 text-xs text-stone-500">
+            Everything you submitted on the intake form, grouped the same way you filled it out.
+          </p>
+          <div className="mt-3 space-y-4">
+            {answers === null ? (
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-stone-500">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : grouped.length === 0 ? (
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs italic text-stone-500">
+                No answers recorded yet.
+              </p>
+            ) : (
+              grouped.map((chapter) => (
+                <ChapterBlock key={chapter.id} chapter={chapter} />
+              ))
             )}
           </div>
-          {regenErr && (
-            <p className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
-              <AlertTriangle className="h-3 w-3" /> {regenErr}
-            </p>
-          )}
-          <div className="mt-3 border border-stone-900/15 bg-white p-6">
-            <ResumeCard resumes={resumes} error={error} />
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your documents</h2>
+          <p className="mt-1 text-xs text-stone-500">
+            Everything you uploaded — marksheets, passport pages, photos, certificates. Click any tile to open the file.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {files === null ? (
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-stone-500 sm:col-span-2">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : files.length === 0 ? (
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs italic text-stone-500 sm:col-span-2">
+                No documents uploaded.
+              </p>
+            ) : (
+              files.map((f) => (
+                <DocumentTile
+                  key={f.id}
+                  file={f}
+                  fieldIndex={fieldIndex}
+                  studentId={isStaffPreview ? studentId : null}
+                />
+              ))
+            )}
           </div>
         </section>
       </main>
@@ -142,40 +278,19 @@ export default function StudentDashboard({ studentName, onExit }) {
   );
 }
 
-function ResumeCard({ resumes, error }) {
-  if (error) {
-    return (
-      <div className="flex items-start gap-3 text-sm text-red-700">
-        <AlertTriangle className="mt-0.5 h-4 w-4" />
-        <div>{error}</div>
-      </div>
-    );
-  }
-  if (resumes === null) {
-    return (
-      <div className="flex items-center gap-3 text-sm text-stone-500">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-      </div>
-    );
-  }
-  if (resumes.length === 0) {
-    return (
-      <div className="text-sm text-stone-600">
-        No resume yet. The auto-generation is queued — refresh in a minute.
-      </div>
-    );
-  }
-  // Show the most recent resume (created_at DESC from the server).
-  const latest = resumes[0];
+// ============================================================
+// Sub-components
+// ============================================================
+
+function ResumeCard({ latest }) {
+  if (!latest) return null;
   if (latest.status === "pending" || latest.status === "running") {
     return (
       <div className="flex items-center gap-3 text-sm text-stone-600">
         <Loader2 className="h-4 w-4 animate-spin" />
         <div>
           Generating your resume… this usually takes 30–60 seconds.
-          <div className="mt-1 text-xs text-stone-400">
-            Status: {latest.status}
-          </div>
+          <div className="mt-1 text-xs text-stone-400">Status: {latest.status}</div>
         </div>
       </div>
     );
@@ -198,8 +313,280 @@ function ResumeCard({ resumes, error }) {
       </div>
     );
   }
-  // Succeeded — render the markdown. /me/resumes returns camelCase
-  // (contentMd, lengthWords, etc) — different from the admin
-  // /api/students/:id endpoint which exposes raw snake_case rows.
-  return <ResumeMarkdown>{latest.contentMd || "(empty resume)"}</ResumeMarkdown>;
+  // Succeeded → render markdown. /me/resumes returns camelCase
+  // (contentMd); admin /api/students/:id resumes use snake_case
+  // (content_md). Try both.
+  const md = latest.contentMd || latest.content_md || "(empty resume)";
+  return <ResumeMarkdown>{md}</ResumeMarkdown>;
+}
+
+function ChapterBlock({ chapter }) {
+  return (
+    <div className="border border-stone-900/15 bg-white">
+      <div className="border-b border-stone-200 px-4 py-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+          {chapter.title}
+        </p>
+      </div>
+      <div className="divide-y divide-stone-100">
+        {chapter.pages.map((page) => (
+          <PageBlock key={page.id} page={page} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PageBlock({ page }) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-[11px] font-medium text-stone-700">{page.title}</p>
+      {page.helper && (
+        <p className="mt-0.5 text-[10px] italic text-stone-400">{page.helper}</p>
+      )}
+      <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-[180px_1fr]">
+        {page.fields.map((f) => (
+          <FieldRow key={f.id} field={f} value={f.value} />
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function FieldRow({ field, value }) {
+  return (
+    <>
+      <dt className="text-[11px] text-stone-500">{field.label}</dt>
+      <dd className="text-[12px] text-stone-900">
+        <FieldValue value={value} field={field} />
+      </dd>
+    </>
+  );
+}
+
+function FieldValue({ value, field }) {
+  if (value == null || value === "") {
+    return <span className="italic text-stone-400">—</span>;
+  }
+  if (typeof value === "boolean") {
+    return <span>{value ? "Yes" : "No"}</span>;
+  }
+  // File slot — surface filename + status. The actual download lives
+  // in the "Your documents" section below; here we just confirm it
+  // was uploaded against this field.
+  if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
+    return (
+      <span className="text-stone-600">
+        <Paperclip className="mr-1 inline-block h-3 w-3 -translate-y-px text-stone-400" />
+        {value.name || "(file)"}
+        {value.status === "uploaded" ? (
+          <span className="ml-1 text-emerald-700">✓</span>
+        ) : (
+          <span className="ml-1 text-stone-400">({value.status})</span>
+        )}
+      </span>
+    );
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="italic text-stone-400">(none)</span>;
+    }
+    // Repeater rows. Each item is a sub-object keyed by itemFields[].id.
+    const itemFields = field?.itemFields || [];
+    return (
+      <ol className="list-decimal space-y-1 pl-4">
+        {value.map((row, i) => (
+          <li key={i}>
+            {row && typeof row === "object" ? (
+              <span className="text-stone-700">
+                {itemFields.length > 0
+                  ? itemFields
+                      .map((f) => {
+                        const v = row[f.id];
+                        if (v == null || v === "") return null;
+                        if (typeof v === "object" && "status" in v) return `${f.label}: ${v.name}`;
+                        return `${f.label}: ${v}`;
+                      })
+                      .filter(Boolean)
+                      .join(" · ")
+                  : Object.entries(row)
+                      .filter(([, v]) => v != null && v !== "")
+                      .map(([k, v]) => `${k}: ${typeof v === "object" ? "[object]" : v}`)
+                      .join(" · ")}
+              </span>
+            ) : (
+              <span>{String(row)}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  if (typeof value === "object") {
+    return (
+      <pre className="overflow-auto whitespace-pre-wrap text-[10px] text-stone-600">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
+  }
+  return <span>{String(value)}</span>;
+}
+
+function DocumentTile({ file, fieldIndex, studentId }) {
+  const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
+  const title = meta?.label || prettifyFieldId(file.field_id);
+  const description = meta?.helper || meta?.placeholder || friendlyMimeLabel(file.mime_type);
+  const Icon = isImage(file.mime_type) ? ImageIcon : FileText;
+  // Default mode hits the student endpoint; staff preview hits the
+  // admin endpoint so the cookie's role authorises the download.
+  const href = studentId
+    ? `/api/students/${studentId}/files/${file.id}`
+    : `/api/students/me/files/${file.id}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex items-start gap-3 border border-stone-900/15 bg-white px-4 py-3 transition hover:border-stone-900/40"
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-stone-500 group-hover:text-stone-900" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[12px] font-medium text-stone-900">{title}</p>
+        <p className="mt-0.5 truncate text-[11px] text-stone-500">{file.original_name}</p>
+        {description && (
+          <p className="mt-1 line-clamp-2 text-[10px] italic text-stone-400">{description}</p>
+        )}
+        <p className="mt-1 text-[10px] text-stone-400">
+          {humanSize(file.size)} · {friendlyMimeLabel(file.mime_type)}
+        </p>
+      </div>
+    </a>
+  );
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+// Pull the answers object out of either /me/record's `data` or the
+// admin endpoint's `student.data`. Both wrap the answer map under a
+// top-level "answers" key (with order/lastStep alongside it for the
+// form's own bookkeeping).
+function extractAnswers(data) {
+  if (!data || typeof data !== "object") return {};
+  if (data.answers && typeof data.answers === "object") return data.answers;
+  return data;
+}
+
+// Walk CHAPTERS and decorate each visible field with its current value.
+// Skip pages where every field is empty so we don't render long blocks
+// of dashes for sections the student deliberately skipped (optional
+// chapters like "post-graduate university" for an undergrad applicant).
+function groupAnswersBySchema(answers) {
+  const out = [];
+  for (const chapter of CHAPTERS) {
+    const pages = [];
+    for (const page of chapter.pages) {
+      const fields = page.fields
+        .filter((f) => isFieldVisible(f, answers))
+        .map((f) => ({ ...f, value: answers[f.id] }));
+      const hasAny = fields.some((f) => isAnswered(f.value));
+      if (!hasAny) continue;
+      pages.push({ ...page, fields });
+    }
+    if (pages.length > 0) out.push({ ...chapter, pages });
+  }
+  return out;
+}
+
+function isAnswered(v) {
+  if (v == null || v === "") return false;
+  if (Array.isArray(v)) {
+    return v.some((row) => row && typeof row === "object" && Object.values(row).some(isAnswered));
+  }
+  if (typeof v === "object" && "status" in v) return v.status === "uploaded";
+  return true;
+}
+
+// Map field-id (including repeater item ids) to schema metadata.
+function buildFieldIndex() {
+  const idx = new Map();
+  for (const chapter of CHAPTERS) {
+    for (const page of chapter.pages) {
+      for (const f of page.fields) {
+        idx.set(f.id, f);
+        if (Array.isArray(f.itemFields)) {
+          for (const item of f.itemFields) {
+            // Use the item's own id; the upload field-id collision with
+            // an item field-id (e.g. "proof") is acceptable — repeater
+            // sub-uploads get a more specific suffix encoded in
+            // field_id at upload time.
+            if (!idx.has(item.id)) idx.set(item.id, item);
+          }
+        }
+      }
+    }
+  }
+  return idx;
+}
+
+// Repeater uploads land with a field_id like
+// "activities_list[3].proof" — strip the suffix to look up the
+// container field's label, then fall back to the leaf id.
+function extractFieldRoot(fieldId) {
+  if (!fieldId) return "";
+  const idx = fieldId.indexOf("[");
+  if (idx > 0) {
+    const dotIdx = fieldId.indexOf(".", idx);
+    if (dotIdx > 0) return fieldId.slice(dotIdx + 1);
+  }
+  return fieldId;
+}
+
+// Fallback for fields that aren't in the schema — turn snake_case or
+// camelCase into title-case "Class 12 Marksheet" for display.
+function prettifyFieldId(fieldId) {
+  if (!fieldId) return "Document";
+  return fieldId
+    .replace(/[\[\]]/g, " ")
+    .replace(/[._]/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function friendlyMimeLabel(mime) {
+  if (!mime) return "";
+  if (mime === "application/pdf") return "PDF";
+  if (mime === "image/jpeg") return "JPG";
+  if (mime === "image/png") return "PNG";
+  return mime.split("/")[1]?.toUpperCase() || mime;
+}
+
+function isImage(mime) {
+  return typeof mime === "string" && mime.startsWith("image/");
+}
+
+function humanSize(b) {
+  if (b == null) return "";
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 ** 2) return `${(b / 1024).toFixed(0)} KB`;
+  return `${(b / 1024 ** 2).toFixed(1)} MB`;
+}
+
+// Admin endpoint returns resume rows in snake_case; the dashboard
+// picker expects camelCase id/contentMd. Normalise once on entry so
+// the rest of the component doesn't have to fork.
+function normalizeStaffResumes(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    label: r.label,
+    status: r.status,
+    contentMd: r.content_md ?? r.contentMd ?? null,
+    error: r.error,
+    createdAt: r.created_at ?? r.createdAt,
+    updatedAt: r.updated_at ?? r.updatedAt,
+  }));
 }

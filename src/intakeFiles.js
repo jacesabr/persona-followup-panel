@@ -191,6 +191,12 @@ export async function listResumes() {
   return res.json();
 }
 
+export async function listMyFiles() {
+  const res = await fetch("/api/students/me/files");
+  if (!res.ok) throw new Error(`Listing files failed (${res.status}).`);
+  return res.json();
+}
+
 export async function getResume(id, { signal } = {}) {
   const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}`, { signal });
   if (!res.ok) throw new Error(`Resume lookup failed (${res.status}).`);

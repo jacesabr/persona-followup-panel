@@ -875,6 +875,27 @@ router.post("/me/upload", requireStudent, uploadOne, async (req, res, next) => {
   }
 });
 
+// GET /api/students/me/files — list every (active) document the
+// student has uploaded. Drives the "Your documents" section on the
+// post-intake dashboard. Returns the same shape as the admin-side
+// listing (id, field_id, original_name, size, mime_type, created_at)
+// so the same rendering code can render either source.
+router.get("/me/files", requireStudent, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, field_id, row_index, original_name, size, mime_type,
+              superseded_at, created_at
+         FROM intake_files
+        WHERE student_id = $1 AND superseded_at IS NULL
+        ORDER BY field_id, created_at ASC`,
+      [req.user.studentId]
+    );
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // File download — student gets their own files only.
 router.get("/me/files/:id", requireStudent, async (req, res, next) => {
   try {

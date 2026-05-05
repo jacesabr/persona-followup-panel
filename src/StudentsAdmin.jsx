@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
+import StudentDashboard from "./StudentDashboard.jsx";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
 // Two purposes:
@@ -38,6 +39,10 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
   // future concern (we only return the row count up to a few hundred).
   const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
+  // "View as student" overlay — preloaded { student, files, resumes }
+  // shape from the staff detail endpoint. Lets admin/counsellor see
+  // exactly what the student sees on their own dashboard.
+  const [viewAsStudent, setViewAsStudent] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -147,6 +152,7 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
             expanded={expandedId === s.student_id}
             onToggle={() => setExpandedId((p) => (p === s.student_id ? null : s.student_id))}
             onResetPassword={(account) => setCredentialsModal(account)}
+            onViewAs={(detail) => setViewAsStudent(detail)}
           />
         ))}
       </div>
@@ -157,6 +163,55 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
           onClose={() => setCredentialsModal(null)}
         />
       )}
+
+      {viewAsStudent && (
+        <ViewAsStudentModal
+          detail={viewAsStudent}
+          onClose={() => setViewAsStudent(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ViewAsStudentModal — full-screen overlay that renders the
+// post-intake StudentDashboard against a pre-loaded staff payload.
+// Lets admin/counsellor see the student's own view without logging
+// in as them.
+// ============================================================
+function ViewAsStudentModal({ detail, onClose }) {
+  // Lock body scroll while the overlay is open so the underlying
+  // admin panel doesn't scroll behind the dashboard view.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/40"
+      onClick={onClose}
+    >
+      <div
+        className="mx-auto my-6 max-w-5xl border border-stone-300 bg-[#f4f0e6] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+            <Eye className="mr-2 inline-block h-3 w-3" />
+            Viewing as {detail.student?.display_name || detail.student?.username}
+          </p>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700"
+          >
+            <X className="h-3 w-3" /> Close
+          </button>
+        </div>
+        <StudentDashboard staffPreview={detail} />
+      </div>
     </div>
   );
 }
@@ -518,9 +573,10 @@ function ImportExamplesButton() {
 // ============================================================
 // StudentRow — collapsed roster row + expandable detail view.
 // ============================================================
-function StudentRow({ row, expanded, onToggle, onResetPassword }) {
+function StudentRow({ row, expanded, onToggle, onResetPassword, onViewAs }) {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [viewAsBusy, setViewAsBusy] = useState(false);
 
   const refreshDetail = useCallback(async () => {
     try {
@@ -566,6 +622,23 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
     }
   };
 
+  const openViewAs = async (e) => {
+    e.stopPropagation();
+    if (viewAsBusy) return;
+    setViewAsBusy(true);
+    try {
+      // Reuse the already-loaded detail when the row is expanded so a
+      // counsellor double-checking a student doesn't pay a second
+      // round-trip to the same endpoint.
+      const d = (detail && !detail.error) ? detail : await api.getStudent(row.student_id);
+      onViewAs(d);
+    } catch (err) {
+      alert(`Couldn't open student view: ${err?.message || "unknown error"}`);
+    } finally {
+      setViewAsBusy(false);
+    }
+  };
+
   return (
     <div data-student-row={row.student_id} className="border border-stone-300 bg-white">
       <button
@@ -608,12 +681,23 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
             </p>
           )}
         </div>
-        <button
-          onClick={resetPassword}
-          className="ml-3 hidden shrink-0 border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:border-stone-700 hover:text-stone-900 sm:inline-block"
-        >
-          Reset pw
-        </button>
+        <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
+          <button
+            onClick={openViewAs}
+            disabled={viewAsBusy}
+            title="Open this student's panel — the same page they see after intake"
+            className="inline-flex items-center gap-1 border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:border-stone-700 hover:text-stone-900 disabled:opacity-50"
+          >
+            {viewAsBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+            View as
+          </button>
+          <button
+            onClick={resetPassword}
+            className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:border-stone-700 hover:text-stone-900"
+          >
+            Reset pw
+          </button>
+        </span>
       </button>
 
       {expanded && (
