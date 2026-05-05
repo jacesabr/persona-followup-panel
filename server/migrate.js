@@ -173,6 +173,13 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS is_archived          BOOLEA
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS archived_at          TIMESTAMPTZ;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS archived_reason      TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS scheduled_deletion_at TIMESTAMPTZ;
+-- Per-student "hide from the IELTS tracking panel" flag. Independent
+-- from is_archived (which retires the whole student). Set when staff
+-- finishes tracking IELTS for a student (they've taken the exam and
+-- the score is logged, or they've decided not to take it). The IELTS
+-- panel uses this to move the row into its collapsed "Archived" section
+-- — same UX as the lead-sheet's archive flow.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS ielts_archived_at TIMESTAMPTZ;
 -- Schema version of the JSONB intake form data this row was filled against.
 -- The resume generator + admin views can branch on this when we evolve fields.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS schema_version INT NOT NULL DEFAULT 1;

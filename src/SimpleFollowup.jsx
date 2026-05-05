@@ -592,7 +592,11 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   {lead.contact || "—"}
                 </span>
               </span>
-              <span className="truncate" title={lead.purpose || ""}>
+              {/* Purpose wraps onto multiple lines so admins can read
+                  long entries in full instead of seeing "Call and fix
+                  a slot with Jyo…". Row uses items-start so other
+                  cells anchor at the top when this one grows. */}
+              <span className="whitespace-pre-wrap break-words" title={lead.purpose || ""}>
                 {lead.purpose || "—"}
               </span>
               <span className="text-[12px] uppercase tracking-[0.12em] text-stone-700">

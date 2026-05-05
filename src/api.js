@@ -155,4 +155,11 @@ export const api = {
   // having to ask the student to log in.
   staffRegenerateResume: (studentId, resumeId) =>
     request("POST", `/api/students/${studentId}/resumes/${resumeId}/regenerate`),
+  // IELTS-tracking archive (independent of full-student is_archived).
+  // Used by the IELTS panel to mirror the lead-sheet archive UX —
+  // hides the row from the active list, surfaces it under "Archived".
+  archiveStudentIelts: (studentId) =>
+    request("POST", `/api/students/${studentId}/ielts-archive`),
+  unarchiveStudentIelts: (studentId) =>
+    request("POST", `/api/students/${studentId}/ielts-unarchive`),
 };

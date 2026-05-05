@@ -28,7 +28,7 @@ import {
   transitionPhase,
 } from "./intakeFiles.js";
 import StudentDashboard from "./StudentDashboard.jsx";
-import { CHAPTERS, validateIntakeRequired } from "../lib/intakeSchema.js";
+import { CHAPTERS, validateIntakeRequired, isFieldVisible } from "../lib/intakeSchema.js";
 
 // ============================================================
 // Schema lives in ../lib/intakeSchema.js so the server can validate
@@ -89,9 +89,8 @@ const MOCK = {
   passportFrontBack: mockFile("passport_front_back.pdf", 411022),
   passportFront: mockFile("passport_front.pdf", 198332),
   passportLast: mockFile("passport_last.pdf", 187901),
+  ielts_status: "Already taken",
   ielts_score: "8.5",
-  ielts_booked: true,
-  ielts_bookingNum: "IELTS-IND-2025-44821",
   ielts_result: mockFile("ielts_result.pdf", 224531),
   toefl_score: "110",
   toefl_booked: true,
@@ -251,8 +250,14 @@ export function buildStudentRecord(answers, opts = {}) {
       semesterTranscripts: fileOut(answers.semesterTranscripts),
       tests: {
         ielts: {
+          // Tri-state status drives the panel; booked stays for back-
+          // compat with downstream resume generators that read it.
+          status: answers.ielts_status || "",
+          plannedDate: answers.ielts_planned_date || "",
           score: answers.ielts_score || "",
-          booked: !!answers.ielts_booked,
+          booked:
+            answers.ielts_status === "Planning to take" ||
+            answers.ielts_status === "Already taken",
           bookingNum: answers.ielts_bookingNum || "",
           result: fileOut(answers.ielts_result),
         },
@@ -430,9 +435,14 @@ const fieldHasError = (val) => {
   return false;
 };
 const pageFillState = (page, answers) => {
-  const required = page.fields.filter((f) => !f.optional && !page.optional);
+  // Hidden conditional fields must not count as required (otherwise a
+  // page like p_ielts shows "1 required left" forever when the student
+  // picks "Won't take" — the score field is hidden but technically
+  // non-optional in the schema).
+  const visible = page.fields.filter((f) => isFieldVisible(f, answers));
+  const required = visible.filter((f) => !f.optional && !page.optional);
   const filledReq = required.filter((f) => isFieldFilled(answers[f.id])).length;
-  const filledAny = page.fields.filter((f) => isFieldFilled(answers[f.id])).length;
+  const filledAny = visible.filter((f) => isFieldFilled(answers[f.id])).length;
   // requireAtLeastOne pages (e.g. p_marks12 — marksheet OR predicted-
   // scores) need at least one filled cell on top of the per-field
   // required check, otherwise an all-empty page reads as "complete".
@@ -1224,14 +1234,17 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
     firstFieldRef.current?.focus();
   }, [page.id]);
 
-  const requiredFields = page.fields.filter((f) => !f.optional && !page.optional);
+  // Visibility filter for showIf-driven fields — must run before any
+  // gate logic so hidden fields don't show up as "missing".
+  const visibleFields = page.fields.filter((f) => isFieldVisible(f, answers));
+  const requiredFields = visibleFields.filter((f) => !f.optional && !page.optional);
   const allRequiredFilled = requiredFields.every((f) => isFieldFilled(answers[f.id]));
   // requireAtLeastOne (e.g. p_marks12) — page advances only when at
   // least one of its fields is filled, regardless of per-field flags.
-  const anyFieldFilled = page.fields.some((f) => isFieldFilled(answers[f.id]));
+  const anyFieldFilled = visibleFields.some((f) => isFieldFilled(answers[f.id]));
   const atLeastOneOk = !page.requireAtLeastOne || page.optional || anyFieldFilled;
-  const inflight = page.fields.some((f) => fieldHasInflight(answers[f.id]));
-  const errored = page.fields.some((f) => fieldHasError(answers[f.id]));
+  const inflight = visibleFields.some((f) => fieldHasInflight(answers[f.id]));
+  const errored = visibleFields.some((f) => fieldHasError(answers[f.id]));
   const canAdvance =
     !inflight && !errored && (page.optional || (allRequiredFilled && atLeastOneOk));
 
@@ -1253,9 +1266,9 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
   // (passport #, marks %, scores) while looking at the doc they just
   // uploaded. Pages with only files OR only text fields fall back to
   // the original 2-col grid.
-  const fileFields = page.fields.filter((f) => f.type === "file");
-  const textFields = page.fields.filter((f) => f.type !== "file" && f.type !== "repeater");
-  const repeaterFields = page.fields.filter((f) => f.type === "repeater");
+  const fileFields = visibleFields.filter((f) => f.type === "file");
+  const textFields = visibleFields.filter((f) => f.type !== "file" && f.type !== "repeater");
+  const repeaterFields = visibleFields.filter((f) => f.type === "repeater");
   const isSplit =
     page.layout === "split" || (fileFields.length > 0 && textFields.length > 0);
 
@@ -1320,7 +1333,7 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
         </div>
       ) : (
         <div className="mt-8 grid gap-6 md:grid-cols-2">
-          {page.fields.map((field, i) =>
+          {visibleFields.map((field, i) =>
             renderField(field, i === 0 ? firstFieldRef : undefined)
           )}
         </div>

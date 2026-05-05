@@ -3,6 +3,7 @@ import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
 import StudentsAdmin from "./StudentsAdmin.jsx";
+import IeltsPanel from "./IeltsPanel.jsx";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
 
@@ -12,7 +13,7 @@ function loadTab(role) {
   if (typeof window === "undefined") return "followup";
   try {
     const t = sessionStorage.getItem(TAB_KEY);
-    if (t === "followup" || t === "tasks" || t === "students") return t;
+    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts") return t;
     if (t === "counsellors" && role === "admin") return t;
   } catch {
     /* ignore */
@@ -54,6 +55,10 @@ export default function SimplePanel({
   // a "link to lead" dropdown — counsellor sees only their own leads,
   // admin sees all (handled server-side in /api/leads).
   const [leadsForLink, setLeadsForLink] = useState([]);
+  // Cross-tab navigation: IELTS panel's "View" button sets this so the
+  // Students tab knows which row to auto-expand on mount. Cleared once
+  // the Students tab has consumed it.
+  const [pendingStudentId, setPendingStudentId] = useState(null);
 
   useEffect(() => {
     try {
@@ -98,6 +103,11 @@ export default function SimplePanel({
             active={tab === "students"}
             onClick={() => setTab("students")}
           />
+          <FolderTab
+            label="IELTS"
+            active={tab === "ielts"}
+            onClick={() => setTab("ielts")}
+          />
           {role === "admin" && (
             /* Admin-only tab: list every counsellor + create new ones
                (with username/password) without diving into the Old
@@ -124,7 +134,21 @@ export default function SimplePanel({
         />
       )}
       {tab === "students" && (
-        <StudentsAdmin role={role} leads={leadsForLink} />
+        <StudentsAdmin
+          role={role}
+          leads={leadsForLink}
+          autoExpandStudentId={pendingStudentId}
+          onAutoExpandConsumed={() => setPendingStudentId(null)}
+        />
+      )}
+      {tab === "ielts" && (
+        <IeltsPanel
+          role={role}
+          onViewStudent={(id) => {
+            setPendingStudentId(id);
+            setTab("students");
+          }}
+        />
       )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin

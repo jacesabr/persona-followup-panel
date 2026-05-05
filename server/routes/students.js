@@ -258,6 +258,54 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
   }
 });
 
+// POST /api/students/:student_id/ielts-archive — staff "I'm done
+// tracking IELTS for this student" flag. Doesn't change anything about
+// the student's account or intake answers; it just hides the row from
+// the IELTS panel's active list and surfaces it under the collapsed
+// "Archived" section. Counsellor scope mirrors the rest of this file:
+// admin can archive anyone, counsellor only their own students.
+router.post("/:student_id/ielts-archive", requireStaff, async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    const ownerSql = req.user.kind === "counsellor"
+      ? `SELECT counsellor_id FROM intake_students WHERE student_id = $1`
+      : `SELECT counsellor_id FROM intake_students WHERE student_id = $1`;
+    const ownerRes = await pool.query(ownerSql, [sid]);
+    const owner = ownerRes.rows[0];
+    if (!owner) return res.status(404).json({ error: "student not found" });
+    if (req.user.kind === "counsellor" && owner.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
+    }
+    await pool.query(
+      `UPDATE intake_students SET ielts_archived_at = NOW() WHERE student_id = $1`,
+      [sid]
+    );
+    audit(req, { table: "intake_students", id: sid, action: "ielts_archive" });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/:student_id/ielts-unarchive", requireStaff, async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    const ownerRes = await pool.query(
+      `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    const owner = ownerRes.rows[0];
+    if (!owner) return res.status(404).json({ error: "student not found" });
+    if (req.user.kind === "counsellor" && owner.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
+    }
+    await pool.query(
+      `UPDATE intake_students SET ielts_archived_at = NULL WHERE student_id = $1`,
+      [sid]
+    );
+    audit(req, { table: "intake_students", id: sid, action: "ielts_unarchive" });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // GET /api/students — list all student accounts (admin sees everyone,
 // counsellor sees only their own creations).
 //
@@ -272,6 +320,7 @@ router.get("/", requireStaff, async (req, res, next) => {
       SELECT s.student_id, s.username, s.password_plain, s.display_name,
              s.intake_complete, s.intake_phase, s.data,
              s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
+             s.ielts_archived_at,
              l.name AS lead_name,
              c.name AS counsellor_name,
              (SELECT COUNT(*) FROM intake_files     f WHERE f.student_id = s.student_id) AS file_count,

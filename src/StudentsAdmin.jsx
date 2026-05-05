@@ -11,11 +11,28 @@ import useAutoRefresh from "./useAutoRefresh.js";
 //      one-time generated password the counsellor copies and sends.
 //   2. Browse the roster + drill into each student's intake data, uploaded
 //      files, and generated resume.
-export default function StudentsAdmin({ role, leads = [] }) {
+export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = null, onAutoExpandConsumed }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+
+  // Cross-tab handoff: the IELTS panel passes a student_id when its
+  // "View" button is clicked. We expand that row on the next render and
+  // tell the parent we've consumed it (so a later refocus doesn't keep
+  // re-expanding the same row). Scroll into view so the row is visible
+  // even when the roster is long.
+  useEffect(() => {
+    if (!autoExpandStudentId) return;
+    setExpandedId(autoExpandStudentId);
+    onAutoExpandConsumed?.();
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-student-row="${autoExpandStudentId}"]`);
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }, [autoExpandStudentId, onAutoExpandConsumed]);
   // Roster filter — case-insensitive substring match across the visible
   // metadata columns. Cheap client-side filter; server pagination is a
   // future concern (we only return the row count up to a few hundred).
@@ -550,7 +567,7 @@ function StudentRow({ row, expanded, onToggle, onResetPassword }) {
   };
 
   return (
-    <div className="border border-stone-300 bg-white">
+    <div data-student-row={row.student_id} className="border border-stone-300 bg-white">
       <button
         onClick={onToggle}
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
@@ -663,32 +680,11 @@ function StudentDetail({ detail, onRefresh }) {
         )}
       </Section>
 
-      <Section title={`Uploaded files (${files?.length || 0})`}>
-        {files?.length ? (
-          <div className="space-y-1">
-            {files.map((f) => (
-              <div key={f.id} className="flex items-center gap-2 border border-stone-200 bg-white px-3 py-2">
-                <span className="font-mono text-[10px] text-stone-400">{f.field_id}</span>
-                <a
-                  href={`/api/students/${student.student_id}/files/${f.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 truncate text-stone-900 underline-offset-2 hover:underline"
-                >
-                  {f.original_name}
-                </a>
-                <span className="shrink-0 text-[10px] text-stone-400">
-                  {humanSize(f.size)}{f.superseded_at && " · superseded"}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="italic text-stone-500">No files uploaded.</p>
-        )}
-      </Section>
-
-      <Section title={`Generated resumes (${resumes?.length || 0})`}>
+      {/* Order: intake answers → AI-generated content → uploaded
+          documents. Mirrors how staff actually skim a profile — what
+          the student said, then what the system produced from it, then
+          the underlying source files for verification. */}
+      <Section title={`AI-generated resumes (${resumes?.length || 0})`}>
         {resumes?.length ? (
           <div className="space-y-3">
             {resumes.map((r) => {
@@ -767,6 +763,31 @@ function StudentDetail({ detail, onRefresh }) {
           </div>
         ) : (
           <p className="italic text-stone-500">No resumes generated yet.</p>
+        )}
+      </Section>
+
+      <Section title={`Uploaded documents (${files?.length || 0})`}>
+        {files?.length ? (
+          <div className="space-y-1">
+            {files.map((f) => (
+              <div key={f.id} className="flex items-center gap-2 border border-stone-200 bg-white px-3 py-2">
+                <span className="font-mono text-[10px] text-stone-400">{f.field_id}</span>
+                <a
+                  href={`/api/students/${student.student_id}/files/${f.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 truncate text-stone-900 underline-offset-2 hover:underline"
+                >
+                  {f.original_name}
+                </a>
+                <span className="shrink-0 text-[10px] text-stone-400">
+                  {humanSize(f.size)}{f.superseded_at && " · superseded"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="italic text-stone-500">No files uploaded.</p>
         )}
       </Section>
     </div>
