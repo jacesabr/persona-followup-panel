@@ -1,7 +1,9 @@
 // Post-intake landing screen for the student. Shows everything the
-// student submitted — intake answers grouped by chapter/page, every
-// uploaded document with a title + description, and the auto-generated
-// resume once it's ready.
+// student submitted — intake answers grouped by chapter/page and every
+// uploaded document with a title + description.
+//
+// The resume display + regenerate flow lives in the staff panel; the
+// student-facing view is purely a recap of what they submitted.
 //
 // Two render modes:
 //   1) Default (student logged in) — fetches /me/* endpoints.
@@ -13,21 +15,14 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import {
   Loader2,
   AlertTriangle,
-  RefreshCw,
   LogOut,
-  CheckCircle2,
   FileText,
   Image as ImageIcon,
   Paperclip,
 } from "lucide-react";
-import {
-  listResumes,
-  regenerateResume,
-  loadRecord,
-  listMyFiles,
-} from "./intakeFiles.js";
-import ResumeMarkdown from "./ResumeMarkdown.jsx";
+import { loadRecord, listMyFiles, listResumes } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
+import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
@@ -35,22 +30,16 @@ const POLL_INTERVAL_MS = 4000;
 export default function StudentDashboard({ studentName, onExit, staffPreview = null }) {
   const isStaffPreview = !!staffPreview;
 
-  // In default mode we own the polling + fetch lifecycle. In staff
-  // preview mode the parent has already done one fetch — we still
-  // re-poll so a counsellor watching a generation finish in real time
-  // sees the markdown land without manually refreshing.
-  const [resumes, setResumes] = useState(() =>
-    isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
-  );
   const [files, setFiles] = useState(() =>
     isStaffPreview ? staffPreview.files || [] : null
   );
   const [answers, setAnswers] = useState(() =>
     isStaffPreview ? extractAnswers(staffPreview.student?.data) : null
   );
+  const [resumes, setResumes] = useState(() =>
+    isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
+  );
   const [error, setError] = useState(null);
-  const [regenBusy, setRegenBusy] = useState(false);
-  const [regenErr, setRegenErr] = useState(null);
   const pollRef = useRef(null);
 
   const studentId = staffPreview?.student?.student_id || null;
@@ -59,18 +48,18 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     try {
       if (isStaffPreview && studentId) {
         const detail = await api.getStudent(studentId);
-        setResumes(normalizeStaffResumes(detail.resumes));
         setFiles(detail.files || []);
         setAnswers(extractAnswers(detail.student?.data));
+        setResumes(normalizeStaffResumes(detail.resumes));
       } else {
-        const [resumeList, fileList, record] = await Promise.all([
-          listResumes(),
+        const [fileList, record, resumeList] = await Promise.all([
           listMyFiles(),
           loadRecord().catch(() => ({ data: {} })),
+          listResumes().catch(() => []),
         ]);
-        setResumes(resumeList);
         setFiles(fileList);
         setAnswers(extractAnswers(record?.data));
+        setResumes(resumeList);
       }
       setError(null);
     } catch (e) {
@@ -84,12 +73,12 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
       await load();
       if (cancelled) return;
     })();
+    // Keep polling while a resume is mid-generation so the markdown
+    // appears in place without the student needing to refresh.
     pollRef.current = setInterval(() => {
       const inflight = (resumes || []).some(
         (r) => r.status === "pending" || r.status === "running"
       );
-      // First load (resumes === null) and any in-flight resume both
-      // benefit from continued polling.
       if (resumes === null || inflight) load();
     }, POLL_INTERVAL_MS);
     return () => {
@@ -98,37 +87,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     };
   }, [resumes, load]);
 
-  const latest = (resumes || [])[0] || null;
-  const hasResume = !!latest;
-  const succeeded = latest?.status === "succeeded";
-
-  const onRegenerate = async () => {
-    if (!latest) return;
-    if (!isStaffPreview) {
-      if (!window.confirm(
-        "Regenerate your resume?\n\nThis will replace the current one and takes 30–60 seconds. " +
-        "Note: it uses the information you already submitted — there's no way to edit your answers from here. " +
-        "If you spotted a mistake in your intake, ask your counsellor to reopen it before regenerating."
-      )) return;
-    } else if (!window.confirm(
-      "Regenerate this student's resume? Takes 30–60 seconds and replaces the current one."
-    )) return;
-
-    setRegenBusy(true);
-    setRegenErr(null);
-    try {
-      if (isStaffPreview) {
-        await api.staffRegenerateResume(studentId, latest.id);
-      } else {
-        await regenerateResume(latest.id);
-      }
-      await load();
-    } catch (e) {
-      setRegenErr(e?.message || "Couldn't start regenerate. Try again.");
-    } finally {
-      setRegenBusy(false);
-    }
-  };
+  const latestResume = (resumes || [])[0] || null;
 
   // Group every answered field under its chapter/page using the schema
   // so the rendered layout mirrors the order of the intake form.
@@ -169,60 +128,13 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
 
       <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : "max-w-3xl px-6 py-12"}`}>
         {!isStaffPreview && (
-          succeeded ? (
-            <>
-              <h1 className="font-serif text-3xl">You're all set, {headerName}.</h1>
-              <p className="mt-2 text-sm text-stone-600">
-                Your intake is complete and your counsellor has access to everything you submitted. Below is the 300-word summary the system generated from your information — review it whenever you like, and ping your counsellor if anything needs tweaking.
-              </p>
-              <div className="mt-4 inline-flex items-center gap-2 border border-emerald-700/30 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Submission complete · resume ready
-              </div>
-            </>
-          ) : (
-            <>
-              <h1 className="font-serif text-3xl">Almost there, {headerName}.</h1>
-              <p className="mt-2 text-sm text-stone-600">
-                Your intake is in. We're putting together a 300-word summary from what you submitted — this usually takes 30–60 seconds. Everything you entered is below, and the resume will appear above once it's ready.
-              </p>
-            </>
-          )
+          <h1 className="font-serif text-3xl">{headerName}</h1>
         )}
 
         {error && (
           <p className="mt-6 inline-flex items-center gap-2 text-xs text-red-700">
             <AlertTriangle className="h-3 w-3" /> {error}
           </p>
-        )}
-
-        {/* Resume — only rendered when at least one resume row exists.
-            Brand-new students who haven't finished intake never see this
-            section; the section first appears once auto-fire kicks off. */}
-        {hasResume && (
-          <section className="mt-10">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your resume</h2>
-              {succeeded && (
-                <button
-                  type="button"
-                  onClick={onRegenerate}
-                  disabled={regenBusy}
-                  className="inline-flex items-center gap-1.5 border border-stone-900/30 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-900 disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3 w-3 ${regenBusy ? "animate-spin" : ""}`} />
-                  {regenBusy ? "Starting…" : "Regenerate"}
-                </button>
-              )}
-            </div>
-            {regenErr && (
-              <p className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
-                <AlertTriangle className="h-3 w-3" /> {regenErr}
-              </p>
-            )}
-            <div className="mt-3 border border-stone-900/15 bg-white p-6">
-              <ResumeCard latest={latest} />
-            </div>
-          </section>
         )}
 
         <section className="mt-10">
@@ -273,6 +185,17 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             )}
           </div>
         </section>
+
+        {/* Generated resume — read-only. The regenerate flow lives on
+            the staff side; the student just sees the latest output. */}
+        {latestResume && (
+          <section className="mt-10">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your resume</h2>
+            <div className="mt-3 border border-stone-900/15 bg-white p-6">
+              <ResumeView latest={latestResume} />
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );
@@ -282,7 +205,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
 // Sub-components
 // ============================================================
 
-function ResumeCard({ latest }) {
+function ResumeView({ latest }) {
   if (!latest) return null;
   if (latest.status === "pending" || latest.status === "running") {
     return (
@@ -300,7 +223,7 @@ function ResumeCard({ latest }) {
       <div className="space-y-3">
         <div className="flex items-start gap-3 text-sm text-red-700">
           <AlertTriangle className="mt-0.5 h-4 w-4" />
-          <div>Resume generation failed. Your counsellor has been notified — you can also tap Regenerate above.</div>
+          <div>Resume generation failed. Your counsellor has been notified — they can re-run it from their panel.</div>
         </div>
         {latest.error && (
           <details className="text-xs text-stone-500">
@@ -434,8 +357,19 @@ function FieldValue({ value, field }) {
 
 function DocumentTile({ file, fieldIndex, studentId }) {
   const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
+  // Title is the schema label (e.g. "Aadhar card scan"); falls back
+  // to a prettified field id for files whose schema entry was renamed
+  // since upload.
   const title = meta?.label || prettifyFieldId(file.field_id);
-  const description = meta?.helper || meta?.placeholder || friendlyMimeLabel(file.mime_type);
+  // Description prefers the page's helper text (e.g. "Upload a photo
+  // or scan, then type the number from it.") since that's where the
+  // intake form actually says what this document is for. Otherwise
+  // synthesise something useful from the page title + chapter.
+  const description =
+    meta?.pageHelper ||
+    (meta?.pageTitle && meta?.chapterTitle
+      ? `${meta.chapterTitle} · ${meta.pageTitle}`
+      : meta?.placeholder || null);
   const Icon = isImage(file.mime_type) ? ImageIcon : FileText;
   // Default mode hits the student endpoint; staff preview hits the
   // admin endpoint so the cookie's role authorises the download.
@@ -452,11 +386,13 @@ function DocumentTile({ file, fieldIndex, studentId }) {
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-stone-500 group-hover:text-stone-900" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[12px] font-medium text-stone-900">{title}</p>
-        <p className="mt-0.5 truncate text-[11px] text-stone-500">{file.original_name}</p>
         {description && (
-          <p className="mt-1 line-clamp-2 text-[10px] italic text-stone-400">{description}</p>
+          <p className="mt-1 text-[11px] text-stone-600">{description}</p>
         )}
-        <p className="mt-1 text-[10px] text-stone-400">
+        <p className="mt-1 truncate text-[11px] text-stone-500">
+          <span className="text-stone-400">File:</span> {file.original_name}
+        </p>
+        <p className="mt-0.5 text-[10px] text-stone-400">
           {humanSize(file.size)} · {friendlyMimeLabel(file.mime_type)}
         </p>
       </div>
@@ -508,20 +444,35 @@ function isAnswered(v) {
   return true;
 }
 
-// Map field-id (including repeater item ids) to schema metadata.
+// Map field-id (including repeater item ids) to schema metadata —
+// decorated with the parent page's title/helper and the chapter's
+// title so the document tile can show useful "details" copy without
+// the schema needing to repeat itself per-field.
 function buildFieldIndex() {
   const idx = new Map();
   for (const chapter of CHAPTERS) {
     for (const page of chapter.pages) {
       for (const f of page.fields) {
-        idx.set(f.id, f);
+        idx.set(f.id, {
+          ...f,
+          pageTitle: page.title,
+          pageHelper: page.helper,
+          chapterTitle: chapter.title,
+        });
         if (Array.isArray(f.itemFields)) {
           for (const item of f.itemFields) {
             // Use the item's own id; the upload field-id collision with
             // an item field-id (e.g. "proof") is acceptable — repeater
             // sub-uploads get a more specific suffix encoded in
             // field_id at upload time.
-            if (!idx.has(item.id)) idx.set(item.id, item);
+            if (!idx.has(item.id)) {
+              idx.set(item.id, {
+                ...item,
+                pageTitle: page.title,
+                pageHelper: page.helper,
+                chapterTitle: chapter.title,
+              });
+            }
           }
         }
       }
@@ -575,9 +526,9 @@ function humanSize(b) {
   return `${(b / 1024 ** 2).toFixed(1)} MB`;
 }
 
-// Admin endpoint returns resume rows in snake_case; the dashboard
-// picker expects camelCase id/contentMd. Normalise once on entry so
-// the rest of the component doesn't have to fork.
+// Admin endpoint returns resume rows in snake_case; the student-facing
+// renderer prefers camelCase. Normalise once on entry so downstream
+// code doesn't have to fork.
 function normalizeStaffResumes(rows) {
   if (!Array.isArray(rows)) return [];
   return rows.map((r) => ({
