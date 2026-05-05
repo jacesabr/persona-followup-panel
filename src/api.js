@@ -120,6 +120,12 @@ export const api = {
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
   archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),
   unarchiveTask: (id) => request("POST", `/api/tasks/${id}/unarchive`),
+  // Per-task comment thread. Counsellors use this to attach notes to a
+  // task without modifying the task body itself (only admin can edit
+  // task fields). Append-only — no edit/delete by design.
+  listTaskComments: (id) => request("GET", `/api/tasks/${id}/comments`),
+  addTaskComment: (id, body) =>
+    request("POST", `/api/tasks/${id}/comments`, { body }),
   // ----------------------------------------------------------------
   // Students. Staff (admin/counsellor) creates accounts and reviews
   // intake data; students themselves don't go through this client

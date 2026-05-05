@@ -7,6 +7,8 @@ import {
   Star,
   Archive,
   Undo2,
+  Pencil,
+  MessageSquare,
 } from "lucide-react";
 import { api } from "./api.js";
 import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
@@ -55,6 +57,21 @@ export default function CounsellorTasks({
   const [newTask, setNewTask] = useState(EMPTY_NEW());
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  // Admin-only inline edit. editingId holds the task id whose row is
+  // currently in edit mode; editDraft mirrors the editable fields so the
+  // user can cancel without polluting the row data. Counsellors never
+  // open this — the pencil button is hidden for them.
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({ text: "", due_date: "", student_name: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
+  // Per-task comment thread. expandedCommentsId tracks which row is
+  // showing its thread (only one open at a time keeps the page calm);
+  // commentsByTask caches loaded threads so re-opening doesn't re-fetch.
+  const [expandedCommentsId, setExpandedCommentsId] = useState(null);
+  const [commentsByTask, setCommentsByTask] = useState({});
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
 
   // Skip the counsellors fetch when AdminPanel already supplies the
   // shared roster — saves a round trip and keeps the assignee dropdown
@@ -251,6 +268,93 @@ export default function CounsellorTasks({
     }
   };
 
+  // Admin-only edit-mode handlers.
+  const beginEdit = (task) => {
+    setEditingId(task.id);
+    setEditDraft({
+      text: task.text || "",
+      due_date: dateOnlyYmd(task.due_date),
+      student_name: task.lead_id ? "" : (task.student_name || ""),
+    });
+    setError(null);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft({ text: "", due_date: "", student_name: "" });
+  };
+  const saveEdit = async (task) => {
+    const text = editDraft.text.trim();
+    if (!text) {
+      setError("Task text can't be empty.");
+      return;
+    }
+    if (!editDraft.due_date) {
+      setError("Pick a due date.");
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    try {
+      // Only send student_name when the task is a free-text student
+      // (no lead FK). Editing the linked student name would require
+      // re-resolving against the leads table — out of scope here.
+      const patch = { text, due_date: editDraft.due_date };
+      if (!task.lead_id) patch.student_name = editDraft.student_name.trim() || null;
+      const updated = await api.updateTask(task.id, patch);
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      cancelEdit();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Comment thread handlers. Lazy-load on first open and cache the
+  // result; subsequent opens read from cache without a round trip.
+  const toggleComments = async (task) => {
+    if (expandedCommentsId === task.id) {
+      setExpandedCommentsId(null);
+      setCommentDraft("");
+      return;
+    }
+    setExpandedCommentsId(task.id);
+    setCommentDraft("");
+    if (commentsByTask[task.id] !== undefined) return;
+    setCommentsLoading(true);
+    try {
+      const list = await api.listTaskComments(task.id);
+      setCommentsByTask((prev) => ({ ...prev, [task.id]: list }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+  const submitComment = async (task) => {
+    const body = commentDraft.trim();
+    if (!body) return;
+    setPostingComment(true);
+    try {
+      const created = await api.addTaskComment(task.id, body);
+      setCommentsByTask((prev) => ({
+        ...prev,
+        [task.id]: [...(prev[task.id] || []), created],
+      }));
+      // Bump the badge count on the task without a full refetch.
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id ? { ...t, comment_count: (t.comment_count || 0) + 1 } : t
+        )
+      );
+      setCommentDraft("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
   const cancelNew = () => {
     setShowNew(false);
     setNewTask(EMPTY_NEW());
@@ -322,11 +426,13 @@ export default function CounsellorTasks({
   }
 
   // Column widths sized so the actual rendered button widths fit.
-  //   - counsellor (scoped): no Counsellor column, 5 cols
-  //   - admin:               extra Counsellor column between Task and Actions
+  //   - counsellor (scoped): no Counsellor column. Actions: complete +
+  //                          archive + comment = 3 icons → 7.5rem
+  //   - admin:               extra Counsellor column. Actions: edit +
+  //                          complete + archive + comment = 4 icons → 10rem
   const gridCols = isScoped
-    ? "6.5rem 7rem 1fr 2fr 5rem"
-    : "6.5rem 7rem 1fr 2fr 8rem 5rem";
+    ? "6.5rem 7rem 1fr 2fr 7.5rem"
+    : "6.5rem 7rem 1fr 2fr 8rem 10rem";
 
   return (
     <>
@@ -492,107 +598,213 @@ export default function CounsellorTasks({
           const overdue = !task.completed && dueYmd < todayYmd;
           const isToday = dueYmd === todayYmd;
           const isBusy = busyId === task.id;
+          const isEditing = !isScoped && editingId === task.id;
+          const commentsOpen = expandedCommentsId === task.id;
+          const commentCount = task.comment_count || 0;
           return (
-            <div
-              key={task.id}
-              className={`grid items-center gap-3 border-b border-stone-200 px-4 py-3 last:border-b-0 hover:bg-stone-50 ${
-                task.completed ? "opacity-60" : ""
-              }`}
-              style={{ gridTemplateColumns: gridCols }}
-            >
-              <span>
-                <button
-                  onClick={() => togglePriority(task)}
-                  disabled={isBusy}
-                  title={task.priority ? "Unpin from top" : "Pin to top"}
-                  className={`inline-flex items-center gap-1 border px-1.5 py-1 text-[11px] uppercase tracking-[0.12em] disabled:opacity-50 ${
-                    task.priority
-                      ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
-                      : "border-stone-300 bg-white text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
-                  }`}
-                >
-                  <Star
-                    className={`h-3 w-3 ${task.priority ? "fill-white" : ""}`}
+            <div key={task.id} className="border-b border-stone-200 last:border-b-0">
+              <div
+                className={`grid items-center gap-3 px-4 py-3 hover:bg-stone-50 ${
+                  task.completed ? "opacity-60" : ""
+                } ${isEditing ? "bg-[#cc785c]/5" : ""}`}
+                style={{ gridTemplateColumns: gridCols }}
+              >
+                <span>
+                  <button
+                    onClick={() => togglePriority(task)}
+                    disabled={isBusy || isEditing}
+                    title={task.priority ? "Unpin from top" : "Pin to top"}
+                    className={`inline-flex items-center gap-1 border px-1.5 py-1 text-[11px] uppercase tracking-[0.12em] disabled:opacity-50 ${
+                      task.priority
+                        ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
+                        : "border-stone-300 bg-white text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                    }`}
+                  >
+                    <Star
+                      className={`h-3 w-3 ${task.priority ? "fill-white" : ""}`}
+                    />
+                    Priority
+                  </button>
+                </span>
+                {isEditing ? (
+                  <input
+                    type="date"
+                    value={editDraft.due_date}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, due_date: e.target.value }))}
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
                   />
-                  Priority
-                </button>
-              </span>
-              <span
-                className={`tabular-nums text-[15px] ${
-                  overdue
-                    ? "font-bold text-red-700"
-                    : isToday
-                      ? "font-bold text-[#cc785c]"
-                      : "text-stone-700"
-                }`}
-              >
-                {formatDateInIst(task.due_date)}
-              </span>
-              <span className="text-[15px] font-semibold text-stone-900">
-                {task.lead_name || task.student_name || "—"}
-              </span>
-              <span
-                className={`flex flex-col text-[15px] leading-snug ${
-                  task.completed ? "line-through text-stone-500" : "text-stone-800"
-                }`}
-              >
-                <span>{task.text}</span>
-                {/* Provenance pill — appears when the task was logged
-                    inside a Session popup. The join in tasks.js
-                    surfaces appointment_scheduled_for so we don't need
-                    a second round-trip per row. */}
-                {task.appointment_scheduled_for && (
-                  <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
-                    from session · {formatDateInIst(task.appointment_scheduled_for)}
+                ) : (
+                  <span
+                    className={`tabular-nums text-[15px] ${
+                      overdue
+                        ? "font-bold text-red-700"
+                        : isToday
+                          ? "font-bold text-[#cc785c]"
+                          : "text-stone-700"
+                    }`}
+                  >
+                    {formatDateInIst(task.due_date)}
                   </span>
                 )}
-              </span>
-              {!isScoped && (
-                <span className="text-[14px] text-stone-700">
-                  {task.assignee_id && task.assignee_name && onImpersonate ? (
-                    /* Click the counsellor name to "view as" them — opens
-                       their scoped SimplePanel via the impersonation flow.
-                       Underline + accent color signals it's clickable. */
-                    <button
-                      onClick={() => onImpersonate(task.assignee_id)}
-                      title={`View as ${task.assignee_name}`}
-                      className="underline decoration-dotted underline-offset-2 hover:text-[#cc785c]"
-                    >
-                      {task.assignee_name}
-                    </button>
-                  ) : task.assignee_name ? (
-                    task.assignee_name
+                {isEditing && !task.lead_id ? (
+                  <input
+                    type="text"
+                    value={editDraft.student_name}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, student_name: e.target.value }))}
+                    placeholder="Student name"
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+                  />
+                ) : (
+                  <span className="text-[15px] font-semibold text-stone-900">
+                    {task.lead_name || task.student_name || "—"}
+                  </span>
+                )}
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editDraft.text}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, text: e.target.value }))}
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className={`flex flex-col text-[15px] leading-snug ${
+                      task.completed ? "line-through text-stone-500" : "text-stone-800"
+                    }`}
+                  >
+                    <span>{task.text}</span>
+                    {/* Provenance pill — appears when the task was logged
+                        inside a Session popup. The join in tasks.js
+                        surfaces appointment_scheduled_for so we don't need
+                        a second round-trip per row. */}
+                    {task.appointment_scheduled_for && (
+                      <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
+                        from session · {formatDateInIst(task.appointment_scheduled_for)}
+                      </span>
+                    )}
+                  </span>
+                )}
+                {!isScoped && (
+                  <span className="text-[14px] text-stone-700">
+                    {task.assignee_id && task.assignee_name && onImpersonate ? (
+                      /* Click the counsellor name to "view as" them — opens
+                         their scoped SimplePanel via the impersonation flow.
+                         Underline + accent color signals it's clickable. */
+                      <button
+                        onClick={() => onImpersonate(task.assignee_id)}
+                        title={`View as ${task.assignee_name}`}
+                        className="underline decoration-dotted underline-offset-2 hover:text-[#cc785c]"
+                      >
+                        {task.assignee_name}
+                      </button>
+                    ) : task.assignee_name ? (
+                      task.assignee_name
+                    ) : (
+                      <span className="italic text-stone-400">Unassigned</span>
+                    )}
+                  </span>
+                )}
+                <span className="flex items-center justify-end gap-1.5">
+                  {isEditing ? (
+                    <>
+                      <button
+                        onClick={() => saveEdit(task)}
+                        disabled={savingEdit}
+                        title="Save changes"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                      >
+                        {savingEdit ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        disabled={savingEdit}
+                        title="Cancel edit"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   ) : (
-                    <span className="italic text-stone-400">Unassigned</span>
+                    <>
+                      {/* Admin-only edit button. Counsellors can't edit
+                          task text/date — they comment instead. */}
+                      {!isScoped && (
+                        <button
+                          onClick={() => beginEdit(task)}
+                          disabled={isBusy}
+                          title="Edit task"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => toggleCompleted(task)}
+                        disabled={isBusy}
+                        title={task.completed ? "Mark incomplete" : "Mark done"}
+                        className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${
+                          task.completed
+                            ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
+                            : "border-stone-300 bg-white text-stone-600 hover:border-emerald-500 hover:text-emerald-600"
+                        }`}
+                      >
+                        {isBusy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => archiveTask(task)}
+                        disabled={isBusy}
+                        title="Archive task"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => toggleComments(task)}
+                        disabled={isBusy}
+                        title={commentsOpen ? "Hide comments" : "Show comments"}
+                        className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${
+                          commentsOpen
+                            ? "border-[#cc785c] bg-[#cc785c] text-white"
+                            : "border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
+                        }`}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {commentCount > 0 && (
+                          <span
+                            className={`absolute -right-1.5 -top-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-tight ${
+                              commentsOpen
+                                ? "bg-white text-[#cc785c]"
+                                : "bg-[#cc785c] text-white"
+                            }`}
+                          >
+                            {commentCount}
+                          </span>
+                        )}
+                      </button>
+                    </>
                   )}
                 </span>
+              </div>
+              {commentsOpen && (
+                <CommentsPanel
+                  task={task}
+                  comments={commentsByTask[task.id]}
+                  loading={commentsLoading && commentsByTask[task.id] === undefined}
+                  draft={commentDraft}
+                  onDraftChange={setCommentDraft}
+                  onSubmit={() => submitComment(task)}
+                  posting={postingComment}
+                />
               )}
-              <span className="flex items-center justify-end gap-1.5">
-                <button
-                  onClick={() => toggleCompleted(task)}
-                  disabled={isBusy}
-                  title={task.completed ? "Mark incomplete" : "Mark done"}
-                  className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${
-                    task.completed
-                      ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
-                      : "border-stone-300 bg-white text-stone-600 hover:border-emerald-500 hover:text-emerald-600"
-                  }`}
-                >
-                  {isBusy ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Check className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                <button
-                  onClick={() => archiveTask(task)}
-                  disabled={isBusy}
-                  title="Archive task"
-                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                </button>
-              </span>
             </div>
           );
         })}
@@ -657,6 +869,69 @@ function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
         );
       }}
     />
+  );
+}
+
+// Per-task comment thread. Renders below the task row when expanded.
+// Append-only: existing comments are read-only, new ones go through
+// the textarea + Post. Author label uses the joined counsellor name
+// when present; admin posts say "Admin" since there's no row to join.
+function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit, posting }) {
+  const list = comments || [];
+  const canPost = draft.trim().length > 0 && !posting;
+  return (
+    <div className="border-t border-stone-200 bg-stone-50 px-4 py-3">
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-stone-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading comments…
+        </div>
+      ) : list.length === 0 ? (
+        <p className="text-[13px] italic text-stone-500">No comments yet.</p>
+      ) : (
+        <ul className="mb-3 space-y-2">
+          {list.map((c) => (
+            <li key={c.id} className="border border-stone-200 bg-white px-3 py-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-700">
+                  {c.author_kind === "admin" ? "Admin" : (c.author_name || "Counsellor")}
+                </span>
+                <span className="text-[11px] tabular-nums text-stone-400">
+                  {formatDateInIst(c.created_at)}
+                </span>
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-[14px] leading-snug text-stone-800">
+                {c.body}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-start gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          placeholder="Add a note for this task…"
+          rows={2}
+          className="flex-1 resize-none border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+          onKeyDown={(e) => {
+            // Cmd/Ctrl + Enter posts — matches the chat-app convention
+            // counsellors expect from message inputs.
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canPost) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+        <button
+          onClick={onSubmit}
+          disabled={!canPost}
+          className="inline-flex shrink-0 items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+        >
+          {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          Post
+        </button>
+      </div>
+    </div>
   );
 }
 

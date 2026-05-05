@@ -47,12 +47,15 @@ async function checkTaskAccess(req, res, taskId) {
 // student_name (no lead FK) and may also be unassigned. The optional
 // appointment join surfaces the session a task was logged from so the UI
 // can render a "from session of <date>" badge without a second round-trip.
+// comment_count is a correlated subquery so the row carries the badge
+// number for the UI's Comment button without an N+1 fetch.
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
          l.archived AS student_archived,
          c.name AS assignee_name,
-         la.scheduled_for AS appointment_scheduled_for
+         la.scheduled_for AS appointment_scheduled_for,
+         (SELECT COUNT(*)::int FROM task_comments tc WHERE tc.task_id = t.id) AS comment_count
   FROM counsellor_tasks t
   LEFT JOIN leads l ON l.id = t.lead_id
   LEFT JOIN counsellors c ON c.id = t.assignee_id
@@ -227,8 +230,13 @@ router.patch("/:id", async (req, res, next) => {
     const { id } = req.params;
     if (!(await checkTaskAccess(req, res, id))) return;
 
+    // Admin can edit anything about a task. Counsellors are restricted
+    // to status toggles (priority pin + done). They cannot rewrite the
+    // task text, change the due date, or rename the student — that's
+    // admin-only since the admin is the one assigning work. If a
+    // counsellor needs to add context they use the comments thread.
     const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id"];
-    const allowedCounsellor = ["text", "due_date", "priority", "completed", "student_name"];
+    const allowedCounsellor = ["priority", "completed"];
     const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) {
@@ -339,6 +347,64 @@ router.post("/:id/unarchive", async (req, res, next) => {
     }
     const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
     res.json(enriched[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/tasks/:id/comments — chronological list. Same access gate as
+// the task itself: admin sees any task's thread, counsellors only see
+// threads on tasks they own.
+router.get("/:id/comments", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!(await checkTaskAccess(req, res, id))) return;
+    const { rows } = await pool.query(
+      `SELECT tc.id, tc.task_id, tc.author_counsellor_id, tc.author_kind,
+              tc.body, tc.created_at,
+              c.name AS author_name
+         FROM task_comments tc
+    LEFT JOIN counsellors c ON c.id = tc.author_counsellor_id
+        WHERE tc.task_id = $1
+     ORDER BY tc.created_at ASC, tc.id ASC`,
+      [id]
+    );
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/tasks/:id/comments — append a comment. Append-only by
+// design: no PATCH/DELETE so the thread stays an honest record.
+// Author_kind tracks whether admin or counsellor wrote it; admin posts
+// have null author_counsellor_id.
+router.post("/:id/comments", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!(await checkTaskAccess(req, res, id))) return;
+    const { body } = req.body;
+    if (!isString(body) || body.trim().length < 1 || body.length > 2000) {
+      return res.status(400).json({ error: "body must be 1–2000 chars" });
+    }
+    const kind = req.user?.kind;
+    const authorCounsellorId = kind === "counsellor" ? req.user.counsellorId : null;
+    const { rows } = await pool.query(
+      `INSERT INTO task_comments (task_id, author_counsellor_id, author_kind, body)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, task_id, author_counsellor_id, author_kind, body, created_at`,
+      [id, authorCounsellorId, kind, body.trim()]
+    );
+    const enriched = await pool.query(
+      `SELECT tc.id, tc.task_id, tc.author_counsellor_id, tc.author_kind,
+              tc.body, tc.created_at,
+              c.name AS author_name
+         FROM task_comments tc
+    LEFT JOIN counsellors c ON c.id = tc.author_counsellor_id
+        WHERE tc.id = $1`,
+      [rows[0].id]
+    );
+    res.status(201).json(enriched.rows[0]);
   } catch (e) {
     next(e);
   }

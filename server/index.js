@@ -15,6 +15,8 @@ import studentsRouter from "./routes/students.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
 import { autoAudit } from "./auditing.js";
+import { corpusHasExample } from "./generators/examples.js";
+import { runImportFromCorpusDir } from "./scripts/import-examples.js";
 
 const SESSION_GC_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day
 
@@ -56,6 +58,29 @@ async function failOrphanedAsyncJobs() {
     } catch (e) {
       console.error(`[${table}] orphan sweep failed:`, e);
     }
+  }
+}
+
+// Boot-time corpus seed. Resume generation hard-fails when
+// intake_examples is empty (fresh DB, post-deploy on a wiped instance,
+// or a Render Postgres reset). Auto-import from resume/example_resume/
+// when the table has no active row so a deploy is self-healing — no
+// admin click required for the common case. Only runs when empty so
+// existing rows are never disturbed by a restart. Failures are logged
+// but non-fatal: the existing 503 NO_CORPUS path still surfaces a
+// clear actionable error to the student if seeding didn't work.
+async function seedCorpusIfEmpty() {
+  try {
+    if (await corpusHasExample()) return;
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const corpusDir = path.resolve(here, "..", "resume", "example_resume");
+    const { results } = await runImportFromCorpusDir(corpusDir);
+    const inserted = results.filter((r) => r.action === "inserted").length;
+    const errors = results.filter((r) => r.action === "error");
+    console.log(`[corpus] auto-seeded ${inserted} example(s) from ${corpusDir}`);
+    for (const e of errors) console.error(`[corpus] ${e.file}: ${e.reason}`);
+  } catch (e) {
+    console.error("[corpus] auto-seed failed:", e.message);
   }
 }
 
@@ -216,6 +241,7 @@ async function start() {
   // poll dead rows forever.
   await refuseIfPlaintextPasswordsPresent();
   await initStorage();
+  await seedCorpusIfEmpty();
   await failOrphanedAsyncJobs();
   await pruneExpiredSessions();
   setInterval(pruneExpiredSessions, SESSION_GC_INTERVAL_MS).unref?.();

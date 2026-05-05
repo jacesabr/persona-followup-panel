@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, forwardRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, forwardRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -175,6 +175,17 @@ const MOCK = {
 // structured shape instead of the form-specific keys. The backend
 // stores only the flat answers + page order; this function is pure.
 // ============================================================
+function ageFromDob(dob) {
+  if (!dob) return "";
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age >= 0 ? `${age}` : "";
+}
+
 // Project a file slot into the canonical record. Always returns either
 // "" (no file) or an object with a stable shape for downstream consumers.
 const fileOut = (v) => {
@@ -773,7 +784,15 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
             />
           )}
           {isClosing && (
-            <Closing onDone={finishIntake} onBack={() => setStep(total - 1)} />
+            <Closing
+              onDone={finishIntake}
+              onBack={() => setStep(total - 1)}
+              answers={answers}
+              onEditPage={(pageId) => {
+                const idx = orderedPages.findIndex((p) => p.id === pageId);
+                if (idx >= 0) jumpTo(idx);
+              }}
+            />
           )}
         </div>
       </section>
@@ -940,33 +959,257 @@ function Welcome({ name, onStart }) {
   );
 }
 
-function Closing({ onDone, onBack }) {
+// Walk every field in the schema (including repeater sub-fields) and
+// pull out the file slots that the student successfully uploaded. The
+// closing review needs this twice: once to render previews under each
+// page, and once to render the flat "all documents" gallery that
+// downstream AI/transcription tooling will pick from.
+function collectUploadedFiles(answers) {
+  const out = [];
+  for (const chapter of CHAPTERS) {
+    for (const page of chapter.pages) {
+      for (const field of page.fields) {
+        const v = answers[field.id];
+        if (field.type === "file") {
+          if (isFileUploaded(v)) {
+            out.push({
+              key: field.id,
+              label: field.label,
+              chapterTitle: chapter.title,
+              pageId: page.id,
+              file: v,
+            });
+          }
+        } else if (field.type === "repeater" && Array.isArray(v)) {
+          v.forEach((row, rowIdx) => {
+            if (!row || typeof row !== "object") return;
+            for (const sub of field.itemFields || []) {
+              if (sub.type !== "file") continue;
+              const cell = row[sub.id];
+              if (isFileUploaded(cell)) {
+                out.push({
+                  key: `${field.id}-${rowIdx}-${sub.id}`,
+                  label: `${field.label} #${rowIdx + 1} — ${sub.label}`,
+                  chapterTitle: chapter.title,
+                  pageId: page.id,
+                  file: cell,
+                });
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// Project a single field into 0..N text rows for the per-page summary.
+// Files are intentionally omitted here — they're rendered as previews
+// in their own block under the page summary, plus once more in the
+// flat docs gallery at the bottom. Empty values produce no rows so a
+// fully-skipped optional page collapses cleanly.
+function fieldSummaryRows(field, value) {
+  if (field.type === "file") return [];
+  if (field.type === "repeater") {
+    if (!Array.isArray(value)) return [];
+    const rows = [];
+    value.forEach((row, idx) => {
+      if (!row || typeof row !== "object") return;
+      const cells = (field.itemFields || [])
+        .map((sub) => {
+          if (sub.type === "file") return null;
+          const cv = row[sub.id];
+          if (typeof cv === "boolean") return cv ? sub.label : null;
+          if (cv === "" || cv == null) return null;
+          return `${sub.label}: ${cv}`;
+        })
+        .filter(Boolean);
+      if (cells.length === 0) return;
+      rows.push({
+        label: `${field.label} #${idx + 1}`,
+        value: cells.join(" · "),
+      });
+    });
+    return rows;
+  }
+  if (field.type === "checkbox") {
+    if (!value) return [];
+    return [{ label: field.label, value: "Yes" }];
+  }
+  if (value === "" || value == null) return [];
+  return [{ label: field.label, value: String(value) }];
+}
+
+// One page's worth of the summary: text rows for the typed-in fields,
+// then any uploaded files for that page rendered with their inline
+// preview so the student can verify the doc is the right one without
+// scrolling down to the gallery.
+function PageSummary({ page, answers, files, onEditPage }) {
+  const rows = page.fields.flatMap((f) => fieldSummaryRows(f, answers[f.id]));
+  if (rows.length === 0 && files.length === 0) return null;
   return (
-    <div className="animate-fadeUp py-20">
+    <div className="border-t border-stone-900/10 pt-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h4 className="font-serif text-xl text-stone-900">{page.title}</h4>
+        <button
+          onClick={() => onEditPage?.(page.id)}
+          className="text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+        >
+          edit
+        </button>
+      </div>
+      {rows.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {rows.map((row, i) => (
+            <div
+              key={i}
+              className="flex flex-col gap-0.5 sm:grid sm:grid-cols-[180px_1fr] sm:gap-4"
+            >
+              <span className="text-[11px] uppercase tracking-wider text-stone-500">
+                {row.label}
+              </span>
+              <span className="whitespace-pre-wrap break-words text-sm text-stone-800">
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {files.map((entry) => (
+            <div key={entry.key} className="border border-stone-900/10 bg-white/60 p-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[11px] uppercase tracking-wider text-stone-500">
+                  {entry.label}
+                </p>
+                <p className="text-[10px] text-stone-500">
+                  {humanSize(entry.file.size)}
+                </p>
+              </div>
+              <p className="mt-1 truncate text-sm text-stone-800">{entry.file.name}</p>
+              <FilePreview slot={entry.file} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Closing({ onDone, onBack, answers, onEditPage }) {
+  const allFiles = useMemo(() => collectUploadedFiles(answers || {}), [answers]);
+  const filesByPage = useMemo(() => {
+    const m = {};
+    for (const f of allFiles) {
+      if (!m[f.pageId]) m[f.pageId] = [];
+      m[f.pageId].push(f);
+    }
+    return m;
+  }, [allFiles]);
+
+  return (
+    <div className="animate-fadeUp py-12">
       <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">Almost there</p>
-      <h2 className="mt-2 font-serif text-5xl leading-[1.05]">
-        Intake complete.
-        <br />
-        Ready to submit?
-      </h2>
+      <h2 className="mt-2 font-serif text-5xl leading-[1.05]">Review your profile.</h2>
       <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
-        We'll generate a 300-word summary of your profile from everything you
-        submitted. Takes about a minute. You'll land on your dashboard once it's
-        ready — your counsellor sees everything from there too.
+        A final check before we generate your resume. Tap{" "}
+        <span className="italic">edit</span> on any section to fix something —
+        we'll bring you right back here.
       </p>
-      <div className="mt-10 flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-stone-600 transition hover:border-stone-900 hover:text-stone-900"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back
-        </button>
-        <button
-          onClick={onDone}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
-        >
-          Submit & generate resume <ArrowRight className="h-4 w-4" />
-        </button>
+
+      <div className="mt-12 space-y-12">
+        {CHAPTERS.map((chapter) => {
+          const visiblePages = chapter.pages.filter((page) => {
+            const rowCount = page.fields.flatMap((f) =>
+              fieldSummaryRows(f, (answers || {})[f.id])
+            ).length;
+            const fileCount = (filesByPage[page.id] || []).length;
+            return rowCount > 0 || fileCount > 0;
+          });
+          if (visiblePages.length === 0) return null;
+          return (
+            <div key={chapter.id}>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+                ▸ {chapter.title}
+              </p>
+              <div className="mt-3 space-y-6">
+                {visiblePages.map((page) => (
+                  <PageSummary
+                    key={page.id}
+                    page={page}
+                    answers={answers || {}}
+                    files={filesByPage[page.id] || []}
+                    onEditPage={onEditPage}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-16 border-t border-stone-900/15 pt-10">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+          Documents · {allFiles.length}
+        </p>
+        <h3 className="mt-2 font-serif text-3xl text-stone-900">
+          Every file you uploaded
+        </h3>
+        <p className="mt-3 max-w-xl text-sm italic text-stone-500">
+          One place to scan everything you sent us. Open any preview to verify
+          the contents are right.
+        </p>
+        {allFiles.length === 0 ? (
+          <p className="mt-6 text-sm italic text-stone-500">
+            No documents uploaded.
+          </p>
+        ) : (
+          <ul className="mt-6 space-y-4">
+            {allFiles.map((entry) => (
+              <li
+                key={entry.key}
+                className="border border-stone-900/15 bg-white/40 p-4"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+                    {entry.chapterTitle} · {entry.label}
+                  </p>
+                  <p className="text-[10px] text-stone-500">
+                    {humanSize(entry.file.size)}
+                  </p>
+                </div>
+                <p className="mt-1 truncate text-sm text-stone-800">
+                  {entry.file.name}
+                </p>
+                <FilePreview slot={entry.file} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-12 border-t border-stone-900/15 pt-10">
+        <p className="max-w-xl text-base leading-relaxed text-stone-600">
+          We'll generate a 300-word summary of your profile from everything
+          above. Takes about a minute. You'll land on your dashboard once it's
+          ready — your counsellor sees everything from there too.
+        </p>
+        <div className="mt-8 flex flex-wrap items-center gap-4">
+          <button
+            onClick={onBack}
+            className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-stone-600 transition hover:border-stone-900 hover:text-stone-900"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Back
+          </button>
+          <button
+            onClick={onDone}
+            className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
+          >
+            Submit & generate resume <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1051,6 +1294,15 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
       </div>
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
       {page.helper && <p className="mt-3 text-sm italic text-stone-500">{page.helper}</p>}
+
+      {page.id === "p_passport_scans" && (
+        <div className="mt-5 inline-flex items-baseline gap-3 border-l-2 border-stone-300 pl-3 text-xs text-stone-600">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Age</span>
+          <span className="font-medium text-stone-800">
+            {answers.dob ? `${ageFromDob(answers.dob)} years` : "fill date of birth →"}
+          </span>
+        </div>
+      )}
 
       {isSplit ? (
         <div className="mt-8 grid gap-8 lg:grid-cols-2">

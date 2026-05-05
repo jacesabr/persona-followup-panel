@@ -77,6 +77,23 @@ ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS appointment_id BIGINT
   REFERENCES lead_appointments(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_appointment ON counsellor_tasks(appointment_id);
 
+-- Free-form comments on a task. Counsellors use these to add notes
+-- without modifying the task itself (only admin can edit task text /
+-- due date). Append-only by design — no edit/delete route — so the
+-- thread stays an honest record of what was said when. CASCADE on
+-- task delete: comments are inseparable from their parent task.
+-- author_counsellor_id is nullable so admin authorship (no counsellor
+-- row) is representable; author_kind disambiguates.
+CREATE TABLE IF NOT EXISTS task_comments (
+  id BIGSERIAL PRIMARY KEY,
+  task_id BIGINT NOT NULL REFERENCES counsellor_tasks(id) ON DELETE CASCADE,
+  author_counsellor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL,
+  author_kind TEXT NOT NULL CHECK (author_kind IN ('admin', 'counsellor')),
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at);
+
 -- Cookie-backed sessions. user_kind 'admin' has no counsellor row;
 -- 'counsellor' rows reference counsellors.id and cascade on delete.
 -- Sliding 30-day expiry: middleware updates last_seen_at on each
