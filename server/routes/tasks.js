@@ -49,17 +49,34 @@ async function checkTaskAccess(req, res, taskId) {
 // can render a "from session of <date>" badge without a second round-trip.
 // comment_count is a correlated subquery so the row carries the badge
 // number for the UI's Comment button without an N+1 fetch.
+//
+// latest_comment_* feeds the inline preview ("@Simran: call back tmrw…")
+// shown under each task row when the comment thread is collapsed. LATERAL
+// + LIMIT 1 keeps it cheap; the join falls through to NULLs for tasks
+// with no comments yet.
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
          l.archived AS student_archived,
          c.name AS assignee_name,
          la.scheduled_for AS appointment_scheduled_for,
-         (SELECT COUNT(*)::int FROM task_comments tc WHERE tc.task_id = t.id) AS comment_count
+         (SELECT COUNT(*)::int FROM task_comments tc WHERE tc.task_id = t.id) AS comment_count,
+         lc.body       AS latest_comment_body,
+         lc.created_at AS latest_comment_at,
+         lc.author_kind AS latest_comment_author_kind,
+         lc.author_name AS latest_comment_author_name
   FROM counsellor_tasks t
   LEFT JOIN leads l ON l.id = t.lead_id
   LEFT JOIN counsellors c ON c.id = t.assignee_id
   LEFT JOIN lead_appointments la ON la.id = t.appointment_id
+  LEFT JOIN LATERAL (
+    SELECT tc.body, tc.created_at, tc.author_kind, ac.name AS author_name
+    FROM task_comments tc
+    LEFT JOIN counsellors ac ON ac.id = tc.author_counsellor_id
+    WHERE tc.task_id = t.id
+    ORDER BY tc.created_at DESC
+    LIMIT 1
+  ) lc ON TRUE
 `;
 
 // GET /api/tasks — admin sees the flat list of every task. Counsellors

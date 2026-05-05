@@ -683,6 +683,33 @@ export default function CounsellorTasks({
                         from session · {formatDateInIst(task.appointment_scheduled_for)}
                       </span>
                     )}
+                    {/* Latest-comment preview. Hidden once the thread is
+                        expanded so the same line doesn't appear twice.
+                        Click jumps straight to the open thread. The
+                        author label falls back to "Admin" when no
+                        counsellor name is joined (admin authorship has
+                        no counsellor row by design). */}
+                    {commentCount > 0 && !commentsOpen && task.latest_comment_body && (
+                      <button
+                        type="button"
+                        onClick={() => toggleComments(task)}
+                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px] italic text-stone-500 hover:text-[#cc785c]"
+                        title="Click to expand the full thread"
+                      >
+                        <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
+                        <span className="font-semibold not-italic text-stone-600">
+                          {task.latest_comment_author_name ||
+                            (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}
+                          :
+                        </span>
+                        <span className="truncate">{task.latest_comment_body}</span>
+                        {commentCount > 1 && (
+                          <span className="shrink-0 text-[11px] not-italic text-stone-400">
+                            +{commentCount - 1} more
+                          </span>
+                        )}
+                      </button>
+                    )}
                   </span>
                 )}
                 {!isScoped && (
