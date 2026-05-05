@@ -223,6 +223,29 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     }
   };
 
+  // Per-row archive — sibling to the bulk archiveSelected flow above,
+  // for the common case of archiving one lead without first ticking
+  // the checkbox. Same confirm prompt + error handling as the bulk
+  // path so behavior stays predictable.
+  const archiveOne = async (lead) => {
+    if (!window.confirm(`Archive lead "${lead.name || lead.id}"?`)) return;
+    setError(null);
+    try {
+      const updated = await api.archiveLead(lead.id);
+      setLeads((prev) => prev.map((l) => (l.id === lead.id ? updated : l)));
+      // Drop the row from selection if it was ticked, so the bulk-action
+      // banner count doesn't include a now-archived lead.
+      setSelectedIds((prev) => {
+        if (!prev.has(lead.id)) return prev;
+        const next = new Set(prev);
+        next.delete(lead.id);
+        return next;
+      });
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   // Admin-only: hard-delete an archived lead. The server checks both
   // the role and the archived flag; we still gate the button visually
   // so counsellors never see it. Student intake data is preserved by
@@ -274,11 +297,12 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   }
 
-  // 8 cols: select · date-of-query · contact · purpose · status · next follow · history · counsellor
-  // Widths chosen so headers don't wrap with their content padding + letter-
-  // spacing; "Next follow" needs ~8rem to fit a formatted date like
-  // "29 Apr 2026" without truncation. History is icon-only, narrow.
-  const gridCols = "1.75rem 6.5rem 1.5fr 1.2fr 6rem 8rem 4.5rem 7rem";
+  // 9 cols: select · date created · contact · purpose · status · appointment date · history · counsellor · archive
+  // Widths chosen so headers don't wrap with their content padding +
+  // letter-spacing. "Date created" / "Appointment date" need ~7.5rem and
+  // ~10rem respectively at the new larger header size. The trailing 3rem
+  // is the per-row archive icon button (sibling to the bulk action banner).
+  const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 6rem 10rem 4.5rem 7rem 3rem";
 
   // Counsellor scoping: hide leads not belonging to this counsellor.
   // Admin (role=admin) sees everything.
@@ -375,7 +399,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] text-stone-700"
           style={{ gridTemplateColumns: gridCols }}
         >
           {/* Empty span (not sr-only) holds the grid cell for the
@@ -383,13 +407,14 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               Grid skips during auto-placement, shifting every header one
               column left. Per-row checkbox has its own aria-label. */}
           <span aria-hidden="true"></span>
-          <span className="whitespace-nowrap">Query</span>
+          <span className="whitespace-nowrap">Date Created</span>
           <span className="whitespace-nowrap">Name / Email / Ph</span>
           <span className="whitespace-nowrap">Purpose</span>
           <span className="whitespace-nowrap">Status</span>
-          <span className="whitespace-nowrap">Next follow</span>
+          <span className="whitespace-nowrap">Appointment Date</span>
           <span className="whitespace-nowrap">History</span>
           <span className="whitespace-nowrap">Counsellor</span>
+          <span className="whitespace-nowrap text-right">Archive</span>
         </div>
 
         {showNew && (
@@ -524,6 +549,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 <X className="h-3 w-3" />
               </button>
             </span>
+            {/* Placeholder for the per-row Archive column — the new-lead
+                row hasn't been saved yet, so there's nothing to archive. */}
+            <span aria-hidden="true"></span>
           </div>
         )}
 
@@ -535,10 +563,10 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           return (
             <div
               key={lead.id}
-              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2 text-[14px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2.5 text-[15px] text-stone-800 last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
-              <span className="pt-0.5">
+              <span className="pt-1">
                 <input
                   type="checkbox"
                   checked={isSelected}
@@ -547,33 +575,33 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   aria-label={`Select ${lead.name}`}
                 />
               </span>
-              <span className="text-[13px] text-stone-600">
+              <span className="text-[14px] text-stone-600">
                 {lead.inquiry_date ? formatDateInIst(lead.inquiry_date) : "—"}
               </span>
               <span className="flex flex-col leading-tight">
-                <span className="font-semibold text-stone-900">
+                <span className="text-[16px] font-semibold text-stone-900">
                   {lead.name || "—"}
                 </span>
                 <span
-                  className="truncate text-[13px] text-stone-700"
+                  className="truncate text-[14px] text-stone-700"
                   title={lead.email || ""}
                 >
                   {lead.email || "—"}
                 </span>
-                <span className="text-[13px] tabular-nums text-stone-700">
+                <span className="text-[14px] tabular-nums text-stone-700">
                   {lead.contact || "—"}
                 </span>
               </span>
               <span className="truncate" title={lead.purpose || ""}>
                 {lead.purpose || "—"}
               </span>
-              <span className="text-[11px] uppercase tracking-[0.12em] text-stone-700">
+              <span className="text-[12px] uppercase tracking-[0.12em] text-stone-700">
                 {STATUS_LABEL[lead.status] || lead.status || "—"}
               </span>
               <button
                 onClick={() => setCalendarLead(lead)}
                 title="Open calendar"
-                className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1 text-left text-[13px] text-stone-800 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1.5 text-left text-[14px] text-stone-800 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
@@ -581,7 +609,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 <button
                   onClick={() => setHistoryLead(lead)}
                   title="View appointment history"
-                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[11px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
                 >
                   <History className="h-3.5 w-3.5" /> View
                 </button>
@@ -596,16 +624,26 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   <button
                     onClick={() => setSessionLead(lead)}
                     title="Open session notes + tasks for the current appointment"
-                    className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[11px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
+                    className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[12px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
                   >
                     <Calendar className="h-3.5 w-3.5" /> Session
                   </button>
                 )}
               </span>
-              <span className="text-[13px] text-stone-700">
+              <span className="text-[14px] text-stone-700">
                 {counsellorNameById.get(lead.counsellor_id) ||
                   lead.counsellor_name ||
                   "—"}
+              </span>
+              <span className="flex justify-end">
+                <button
+                  onClick={() => archiveOne(lead)}
+                  title="Archive this lead"
+                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
+                  aria-label={`Archive ${lead.name || "lead"}`}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                </button>
               </span>
             </div>
           );
