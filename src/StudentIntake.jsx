@@ -624,9 +624,23 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     setStep((s) => Math.max(-1, s - 1));
   };
 
+  // Autofill scoped to the page the student is currently looking at.
+  // Earlier behavior wrote every key in MOCK at once, which made it
+  // impossible to test a single new page (e.g. p_ielts) in isolation
+  // because every other page would already be filled and step past
+  // would happen automatically. Now: only fields belonging to the
+  // current page get the mock value, the rest of `answers` is left
+  // untouched.
   const fillMock = () => {
-    setAnswers(MOCK);
-    answersRef.current = MOCK;
+    if (!currentPage) return;
+    setAnswers((prev) => {
+      const next = { ...prev };
+      for (const f of currentPage.fields) {
+        if (f.id in MOCK) next[f.id] = MOCK[f.id];
+      }
+      answersRef.current = next;
+      return next;
+    });
     persist();
   };
 

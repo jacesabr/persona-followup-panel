@@ -34,17 +34,48 @@ async function main() {
 
   if (existing.rows.length > 0) {
     const sid = existing.rows[0].student_id;
-    await pool.query(
-      `UPDATE intake_students
-          SET password_hash = $1,
-              password_plain = $2,
-              is_archived = FALSE,
-              archived_at = NULL,
-              archived_reason = NULL
-        WHERE student_id = $3`,
-      [password_hash, PASSWORD, sid]
-    );
-    console.log(`[seed-student] refreshed existing student ${sid} (username="${USERNAME}", password="${PASSWORD}")`);
+    // Re-seed wipes the student's intake answers + phase so the form
+    // re-opens at the welcome screen for a clean test run. Generated
+    // resumes are dropped too. Uploaded files have ON DELETE RESTRICT
+    // (so a re-seed can't break referential integrity) — we mark the
+    // active ones superseded so the form-side "already-uploaded" UI
+    // doesn't pre-fill stale slots.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE intake_students
+            SET password_hash    = $1,
+                password_plain   = $2,
+                is_archived      = FALSE,
+                archived_at      = NULL,
+                archived_reason  = NULL,
+                ielts_archived_at = NULL,
+                data             = '{}'::jsonb,
+                intake_phase     = 'intake',
+                intake_complete  = FALSE,
+                updated_at       = NOW()
+          WHERE student_id = $3`,
+        [password_hash, PASSWORD, sid]
+      );
+      await client.query(
+        `UPDATE intake_files SET superseded_at = NOW()
+          WHERE student_id = $1 AND superseded_at IS NULL`,
+        [sid]
+      );
+      await client.query(`DELETE FROM intake_resumes WHERE student_id = $1`, [sid]);
+      await client.query(`DELETE FROM intake_insights WHERE student_id = $1`, [sid]);
+      // Drop any active session cookies so the next login lands on a
+      // clean welcome screen instead of resuming the old form.
+      await client.query(`DELETE FROM sessions WHERE student_id = $1`, [sid]);
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    console.log(`[seed-student] reset existing student ${sid} (username="${USERNAME}", password="${PASSWORD}") — intake wiped, ready for a fresh run`);
     return;
   }
 
