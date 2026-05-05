@@ -1661,9 +1661,14 @@ const FileSlot = forwardRef(function FileSlot(
 
     onChange({ ...base, status: "uploading" });
     try {
+      // Pass `accept` through so the server's defense-in-depth check
+      // sees the same allowlist as the client. Without this the server
+      // falls back to its PDF-only default and rejects every PNG/JPG
+      // upload — which is wrong for fields like Aadhar / passport
+      // scans that explicitly accept phone-camera photos.
       const { url, uploadedAt, fileId: uploadedFileId } = await uploadFile(
         file,
-        { fieldId }
+        { fieldId, accept }
       );
       onChange({
         ...base,
