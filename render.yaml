@@ -24,6 +24,12 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Optional JSON array of additional admin accounts:
+      # [{"username":"...","password":"..."}, ...]
+      # Each gets the same role as the primary admin. Set in the
+      # Render dashboard, not in source.
+      - key: EXTRA_ADMINS
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       # Anthropic adapter is wired but DORMANT today — Gemini is the

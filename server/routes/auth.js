@@ -86,8 +86,43 @@ async function tryStudentLogin(username, password, res) {
 // (server/index.js) when ADMIN_USERNAME / ADMIN_PASSWORD are unset, so
 // reading them once at module load is safe. Rotate by changing env +
 // restarting; nothing in source.
+//
+// EXTRA_ADMINS is an optional JSON array of additional admin records:
+//   [{"username":"...","password":"..."}, ...]
+// Same role as the primary admin (full read across the system). Empty
+// or unset = primary admin only. Parse failures fall through to "no
+// extras" rather than crashing the boot.
 const ADMIN_USER = process.env.ADMIN_USERNAME.toLowerCase();
 const ADMIN_PASS = process.env.ADMIN_PASSWORD;
+
+function parseExtraAdmins(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e) => e && typeof e.username === "string" && typeof e.password === "string")
+      .map((e) => ({ username: e.username.toLowerCase(), password: e.password }));
+  } catch {
+    console.error("[auth] EXTRA_ADMINS env var is not valid JSON; ignoring");
+    return [];
+  }
+}
+
+const ADMINS = [
+  { username: ADMIN_USER, password: ADMIN_PASS },
+  ...parseExtraAdmins(process.env.EXTRA_ADMINS),
+];
+
+function matchAdmin(typedUsername, typedPassword) {
+  const u = typedUsername.toLowerCase();
+  for (const a of ADMINS) {
+    if (u === a.username && safeStrEqual(typedPassword, a.password)) {
+      return a;
+    }
+  }
+  return null;
+}
 
 // POST /api/auth/login — single endpoint that resolves admin vs counsellor
 // based on the typed username. On success, INSERTs a session row, sets the
@@ -103,8 +138,9 @@ router.post("/login", async (req, res, next) => {
     }
     const u = username.trim();
 
-    // Admin path
-    if (u.toLowerCase() === ADMIN_USER && safeStrEqual(password, ADMIN_PASS)) {
+    // Admin path — env-var admin OR any of the named extra admins.
+    const adminMatch = matchAdmin(u, password);
+    if (adminMatch) {
       const sid = randomUUID();
       await pool.query(
         "INSERT INTO sessions (id, user_kind) VALUES ($1, 'admin')",
@@ -112,7 +148,7 @@ router.post("/login", async (req, res, next) => {
       );
       setSessionCookie(res, sid);
       audit({ ip: req.ip, headers: req.headers, user: { kind: "admin" } }, {
-        table: "sessions", id: sid, action: "login", notes: "admin"
+        table: "sessions", id: sid, action: "login", notes: `admin:${adminMatch.username}`
       });
       return res.json({ user_kind: "admin" });
     }
