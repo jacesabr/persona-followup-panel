@@ -384,31 +384,36 @@ export default function CounsellorTasks({
       setError("Pick a due date.");
       return;
     }
-    // Assignee resolution:
-    //   counsellor (scoped): always self.
-    //   admin: must pick a counsellor in the dropdown.
-    const assigneeId = isScoped ? scopedCounsellorId : (newTask.assigneeId || null);
-    if (!isScoped && !assigneeId) {
-      setError("Pick a counsellor to assign.");
+    if (!newTask.assigneeValue) {
+      setError("Pick who to assign this to.");
       return;
     }
-    // If the typed name matches an existing active lead exactly, link by
-    // FK so the task cascades on lead delete; otherwise store as free text.
+
+    // Parse "kind:value" from the unified picker
+    const colonIdx = newTask.assigneeValue.indexOf(":");
+    const assigneeKind = colonIdx >= 0 ? newTask.assigneeValue.slice(0, colonIdx) : "counsellor";
+    const assigneeTarget = colonIdx >= 0 ? newTask.assigneeValue.slice(colonIdx + 1) : newTask.assigneeValue;
+
     const matchedLead = leads.find(
       (l) => !l.archived && l.name.trim().toLowerCase() === studentName.toLowerCase()
     );
     setCreating(true);
     setError(null);
     try {
-      const created = await api.createTask({
+      const payload = {
         lead_id: matchedLead ? matchedLead.id : null,
         student_name: matchedLead ? null : studentName,
-        assignee_id: assigneeId,
         text,
         due_date: newTask.dueDate,
-      });
+      };
+      if (assigneeKind === "admin") {
+        payload.assignee_admin_username = assigneeTarget;
+      } else {
+        payload.assignee_id = assigneeTarget;
+      }
+      const created = await api.createTask(payload);
       setTasks((prev) => [...prev, created]);
-      setNewTask(EMPTY_NEW());
+      setNewTask(EMPTY_NEW(defaultAssigneeValue));
       setShowNew(false);
     } catch (e) {
       setError(e.message);
@@ -434,9 +439,9 @@ export default function CounsellorTasks({
   }
 
   // Column widths sized so the actual rendered button widths fit.
-  //   - counsellor (scoped): no Counsellor column. Actions: complete +
+  //   - counsellor (scoped): no Assigned-to column. Actions: complete +
   //                          archive + comment = 3 icons → 7.5rem
-  //   - admin:               extra Counsellor column. Actions: edit +
+  //   - admin:               extra Assigned-to column. Actions: edit +
   //                          complete + archive + comment = 4 icons → 10rem
   const gridCols = isScoped
     ? "6.5rem 7rem 1fr 2fr 7.5rem"
@@ -478,7 +483,7 @@ export default function CounsellorTasks({
           {!showNew && (
             <button
               onClick={() => {
-                setNewTask(EMPTY_NEW());
+                setNewTask(EMPTY_NEW(defaultAssigneeValue));
                 setShowNew(true);
               }}
               className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
@@ -504,7 +509,7 @@ export default function CounsellorTasks({
           <span className="whitespace-nowrap">Date</span>
           <span className="whitespace-nowrap">Student</span>
           <span className="whitespace-nowrap">Task</span>
-          {!isScoped && <span className="whitespace-nowrap">Counsellor</span>}
+          {!isScoped && <span className="whitespace-nowrap">Assigned to</span>}
           <span className="whitespace-nowrap text-right">Actions</span>
         </div>
 
@@ -552,25 +557,17 @@ export default function CounsellorTasks({
               }
               className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
             />
-            {!isScoped && (
-              /* Admin's task creation requires picking the responsible
-                 counsellor. Counsellors auto-assign to themselves so
-                 their form skips this column entirely. */
-              <select
-                value={newTask.assigneeId}
-                onChange={(e) =>
-                  setNewTask((p) => ({ ...p, assigneeId: e.target.value }))
-                }
-                className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
-              >
-                <option value="">Pick counsellor…</option>
-                {counsellors.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
+            {/* Unified assignee picker: always shown.
+                Admin sees all counsellors + named admins.
+                Counsellor sees self + supervised counsellors + named admins. */}
+            <AssigneePicker
+              value={newTask.assigneeValue}
+              onChange={(v) => setNewTask((p) => ({ ...p, assigneeValue: v }))}
+              counsellors={counsellors}
+              adminAccounts={adminAccounts}
+              isScoped={isScoped}
+              scopedCounsellorId={scopedCounsellorId}
+            />
             <span className="flex items-center justify-end gap-1.5">
               <button
                 onClick={submitNew}
@@ -683,12 +680,18 @@ export default function CounsellorTasks({
                   >
                     <span>{task.text}</span>
                     {/* Provenance pill — appears when the task was logged
-                        inside a Session popup. The join in tasks.js
-                        surfaces appointment_scheduled_for so we don't need
-                        a second round-trip per row. */}
+                        inside a Session popup. */}
                     {task.appointment_scheduled_for && (
                       <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
                         from session · {formatDateInIst(task.appointment_scheduled_for)}
+                      </span>
+                    )}
+                    {/* Admin-target pill — counsellor-created tasks sent to
+                        an admin account. Read-only (no archive/delete). */}
+                    {task.assignee_kind === "admin" && (
+                      <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                        <Lock className="h-2.5 w-2.5 shrink-0" />
+                        for {task.assignee_admin_username}
                       </span>
                     )}
                     {/* Latest-comment preview. Hidden once the thread is
@@ -722,10 +725,12 @@ export default function CounsellorTasks({
                 )}
                 {!isScoped && (
                   <span className="text-[14px] text-stone-700">
-                    {task.assignee_id && task.assignee_name && onImpersonate ? (
-                      /* Click the counsellor name to "view as" them — opens
-                         their scoped SimplePanel via the impersonation flow.
-                         Underline + accent color signals it's clickable. */
+                    {task.assignee_kind === "admin" ? (
+                      <span className="inline-flex items-center gap-1 text-stone-500">
+                        <Lock className="h-3 w-3 shrink-0" />
+                        {task.assignee_admin_username}
+                      </span>
+                    ) : task.assignee_id && task.assignee_name && onImpersonate ? (
                       <button
                         onClick={() => onImpersonate(task.assignee_id)}
                         title={`View as ${task.assignee_name}`}
@@ -794,14 +799,18 @@ export default function CounsellorTasks({
                           <Check className="h-3.5 w-3.5" />
                         )}
                       </button>
-                      <button
-                        onClick={() => archiveTask(task)}
-                        disabled={isBusy}
-                        title="Archive task"
-                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
-                      >
-                        <Archive className="h-3.5 w-3.5" />
-                      </button>
+                      {/* Hide archive for counsellor-created admin tasks —
+                          the counsellor can view but not remove them. */}
+                      {!(isScoped && task.assignee_kind === "admin") && (
+                        <button
+                          onClick={() => archiveTask(task)}
+                          disabled={isBusy}
+                          title="Archive task"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => toggleComments(task)}
                         disabled={isBusy}
@@ -967,6 +976,37 @@ function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit
         </button>
       </div>
     </div>
+  );
+}
+
+// Unified assignee picker. Value is "counsellor:{id}" or "admin:{username}".
+// Admin sees all counsellors + named admins.
+// Counsellor sees self + any counsellors they supervise + named admins.
+function AssigneePicker({ value, onChange, counsellors, adminAccounts, isScoped, scopedCounsellorId }) {
+  // For counsellor view: counsellors array = [self, ...supervised counsellors].
+  // For admin view: counsellors array = all counsellors.
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+    >
+      <option value="">Pick assignee…</option>
+      {counsellors.map((c) => (
+        <option key={c.id} value={`counsellor:${c.id}`}>
+          {c.name}{isScoped && c.id === scopedCounsellorId ? " (you)" : ""}
+        </option>
+      ))}
+      {adminAccounts.length > 0 && (
+        <optgroup label="Admin">
+          {adminAccounts.map((a) => (
+            <option key={a.username} value={`admin:${a.username}`}>
+              {a.username}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </select>
   );
 }
 

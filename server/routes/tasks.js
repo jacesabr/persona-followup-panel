@@ -17,7 +17,7 @@ function isString(v) {
 //   admin → always allowed
 //   counsellor on assignee_kind='admin' task → only the creator (creator_id = me)
 //   counsellor on assignee_kind='counsellor' task → assignee_id = me, OR
-//     lead.counsellor_id = me, OR the assignee is my direct subordinate
+//     lead.counsellor_id = me, OR the assignee is a counsellor I supervise
 async function checkTaskAccess(req, res, taskId) {
   if (!/^\d+$/.test(String(taskId))) {
     res.status(400).json({ error: "invalid task id" });
@@ -51,7 +51,7 @@ async function checkTaskAccess(req, res, taskId) {
   // assignee_kind = 'counsellor'
   if (t.assignee_id === me || t.lead_counsellor_id === me) return t;
 
-  // Check supervisor: can I see tasks assigned to my subordinates?
+  // Check supervisor: can I see tasks assigned to counsellors I supervise?
   if (t.assignee_id) {
     const { rows: sub } = await pool.query(
       "SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2",
@@ -135,7 +135,7 @@ router.get("/", async (req, res, next) => {
 });
 
 // POST /api/tasks
-// Counsellors may assign to: self, a direct subordinate, or a named admin.
+// Counsellors may assign to: self, a counsellor they supervise, or a named admin.
 // Admin may assign to: any counsellor, or a named admin.
 router.post("/", async (req, res, next) => {
   try {
@@ -182,7 +182,7 @@ router.post("/", async (req, res, next) => {
         cleanAssigneeAdminUsername = normalized;
         assignee_id = null;
       } else {
-        // Assigning to counsellor — default to self, else validate subordinate
+        // Assigning to counsellor — default to self, else validate supervision
         if (!assignee_id) assignee_id = req.user.counsellorId;
         if (assignee_id !== req.user.counsellorId) {
           const sub = await pool.query(
@@ -290,8 +290,8 @@ router.post("/", async (req, res, next) => {
 
 // PATCH /api/tasks/:id
 // Admin: full edit. Counsellor: priority + completed toggles only.
-// Supervisor counsellors have the same (limited) edit rights on their
-// subordinates' tasks as on their own.
+// Supervisor counsellors have the same (limited) edit rights on tasks
+// belonging to counsellors they supervise as on their own.
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;

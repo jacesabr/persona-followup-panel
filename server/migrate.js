@@ -477,7 +477,7 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
 
 -- Counsellor supervision chain (one level deep). Himani.supervisor_id =
 -- Simran.id lets Simran view and assign tasks to Himani; Simran has NULL.
--- ON DELETE SET NULL so removing a supervisor doesn't cascade to the report.
+-- ON DELETE SET NULL so removing a supervisor doesn't cascade to their supervised counsellors.
 ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS supervisor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 
 -- Tasks can now be assigned to admin accounts, not just counsellors.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
@@ -17,6 +17,8 @@ function loadTab(role) {
     const t = sessionStorage.getItem(TAB_KEY);
     if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents") return t;
     if (t === "counsellors" && role === "admin") return t;
+    // team-{counsellorId} tabs for supervisor views
+    if (typeof t === "string" && t.startsWith("team-")) return t;
   } catch {
     /* ignore */
   }
@@ -53,6 +55,24 @@ export default function SimplePanel({
   onCounsellorsChanged,
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
+  // Counsellor-session roster: self + any counsellors this user supervises.
+  // Fetched once on mount so we know whether to show a team tab.
+  // Admin passes its own roster down via the counsellors prop; this state is
+  // only used when role === "counsellor".
+  const [counsellorsForCounsellor, setCounsellorsForCounsellor] = useState([]);
+  useEffect(() => {
+    if (role !== "counsellor") return;
+    api.listCounsellors().then(setCounsellorsForCounsellor).catch(() => {});
+  }, [role]);
+
+  // Counsellors that the current user supervises (supervisor_id = me).
+  const mySupervised = useMemo(
+    () => counsellorsForCounsellor.filter(
+      (c) => c.supervisor_id === scopedCounsellorId && c.id !== scopedCounsellorId
+    ),
+    [counsellorsForCounsellor, scopedCounsellorId]
+  );
+
   // Leads list piggybacks here so the Students tab's signup form can show
   // a "link to lead" dropdown — counsellor sees only their own leads,
   // admin sees all (handled server-side in /api/leads).
@@ -121,15 +141,21 @@ export default function SimplePanel({
             onClick={() => setTab("documents")}
           />
           {role === "admin" && (
-            /* Admin-only tab: list every counsellor + create new ones
-               (with username/password) without diving into the Old
-               admin view. Counsellors don't see this tab. */
             <FolderTab
               label="Counsellors"
               active={tab === "counsellors"}
               onClick={() => setTab("counsellors")}
             />
           )}
+          {/* One tab per supervised counsellor — only visible to supervisors (e.g. Simran sees Himani's Tasks) */}
+          {mySupervised.map((sub) => (
+            <FolderTab
+              key={sub.id}
+              label={`${sub.name}'s Tasks`}
+              active={tab === `team-${sub.id}`}
+              onClick={() => setTab(`team-${sub.id}`)}
+            />
+          ))}
         </div>
         <div className="border-t border-stone-400" />
       </div>
@@ -175,6 +201,16 @@ export default function SimplePanel({
           error={counsellorsError}
           onCounsellorsChanged={onCounsellorsChanged}
         />
+      )}
+      {/* Subordinate task panels — Simran viewing Himani's board */}
+      {mySupervised.map((sub) =>
+        tab === `team-${sub.id}` ? (
+          <CounsellorTasks
+            key={sub.id}
+            role="counsellor"
+            scopedCounsellorId={sub.id}
+          />
+        ) : null
       )}
     </>
   );
