@@ -1515,4 +1515,51 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
   }
 });
 
+// POST /api/students/:student_id/reset-intake — admin only.
+// Clears intake_complete + intake_phase so the student can redo the
+// intake flow from scratch. Also wipes required_docs rows so they get
+// re-seeded when the student completes intake again.
+// Useful for test accounts or when the intake schema changes significantly.
+router.post("/:student_id/reset-intake", requireAdmin, async (req, res, next) => {
+  try {
+    const { student_id } = req.params;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rowCount } = await client.query(
+        `UPDATE intake_students
+            SET intake_complete = FALSE,
+                intake_phase     = NULL,
+                data             = '{}'::jsonb,
+                updated_at       = NOW()
+          WHERE student_id = $1`,
+        [student_id]
+      );
+      if (rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student not found" });
+      }
+      await client.query(
+        `DELETE FROM intake_required_docs WHERE student_id = $1`,
+        [student_id]
+      );
+      await client.query("COMMIT");
+      audit(req, {
+        table: "intake_students",
+        id: student_id,
+        action: "reset_intake",
+        diff: {},
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;
