@@ -196,8 +196,8 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
     );
   }
 
-  // 8 cols: status · student · country · university · program · deadline · notes · actions
-  const gridCols = "10rem 1.4fr 0.65fr 1.4fr 1.1fr 10rem 1fr 6rem";
+  // 9 cols: status · student · counsellor · country · university · program · deadline · notes · actions
+  const gridCols = "10rem 1.2fr 8rem 0.55fr 1.2fr 1fr 9rem 1fr 6rem";
 
   return (
     <>
@@ -288,6 +288,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
         >
           <span>Status</span>
           <span>Student</span>
+          <span>Counsellor</span>
           <span>Country</span>
           <span>University</span>
           <span>Program</span>
@@ -417,6 +418,7 @@ function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
         <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
       </div>
       <StudentCell row={row} />
+      <span className="truncate text-sm text-stone-700 pt-1">{row.counsellor_name || <span className="italic text-stone-400">—</span>}</span>
       <span className="truncate text-sm text-stone-700 pt-1">{row.country || "—"}</span>
       <span className="truncate font-medium pt-1">{row.university}</span>
       <span className="truncate text-sm text-stone-700 pt-1">{row.program || "—"}</span>
@@ -597,19 +599,17 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
     catch (e) { setLocalErr(e.message); setLinkBusy(false); }
   };
 
-  // Counsellor assign (linked students)
-  const linkedStudent         = students.find(s => s.student_id === row.student_id);
-  const currentCounsellorId   = linkedStudent?.counsellor_id || null;
-  const currentCounsellorName = counsellors.find(c => c.id === currentCounsellorId)?.name;
+  // Counsellor assign — application-level (works for linked AND unlinked)
+  const currentCounsellorId   = row.counsellor_id || null;
+  const currentCounsellorName = row.counsellor_name || null;
   const [assignCounsellor, setAssignCounsellor] = useState(currentCounsellorId || "");
   const [assignBusy,       setAssignBusy]       = useState(false);
   const counsellorChanged = assignCounsellor !== (currentCounsellorId || "");
 
   const saveCounsellor = async () => {
-    if (!row.student_id) return;
     setAssignBusy(true);
     try {
-      await api.assignStudentCounsellor(row.student_id, assignCounsellor || null);
+      await api.updateApplication(row.id, { counsellor_id: assignCounsellor || null });
       onCounsellorAssigned?.();
     } catch (e) {
       setLocalErr(e.message);
@@ -697,9 +697,9 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
           </div>
         )}
 
-        {/* Quick-action bar + counsellor — linked students */}
-        {row.student_id && (
-          <div className="border-b border-stone-200 bg-stone-50 px-5 py-4 space-y-4">
+        {/* Action bar: view buttons (linked only) + counsellor assign (all apps) */}
+        <div className="border-b border-stone-200 bg-stone-50 px-5 py-4 space-y-4">
+          {row.student_id && (
             <div className="flex flex-wrap gap-2">
               {onViewStudent && (
                 <button type="button" onClick={() => { onClose(); onViewStudent(row.student_id); }}
@@ -714,30 +714,31 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-base font-medium text-stone-600">Counsellor:</span>
-              {currentCounsellorName
-                ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
-                : <span className="text-base font-semibold text-stone-400">None assigned</span>
-              }
-              {role === "admin" && counsellors.length > 0 && (
-                <>
-                  <select value={assignCounsellor} onChange={e => setAssignCounsellor(e.target.value)}
-                    className="border border-stone-300 bg-white px-3 py-1.5 text-sm focus:border-[#cc785c] focus:outline-none">
-                    <option value="">— Assign counsellor —</option>
-                    {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  {counsellorChanged && (
-                    <button type="button" onClick={saveCounsellor} disabled={assignBusy}
-                      className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
-                      {assignBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+          )}
+          {/* Counsellor — always shown, assigned at application level */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-base font-medium text-stone-600">Counsellor:</span>
+            {currentCounsellorName
+              ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
+              : <span className="text-base font-semibold text-stone-400">Not assigned</span>
+            }
+            {counsellors.length > 0 && (
+              <>
+                <select value={assignCounsellor} onChange={e => setAssignCounsellor(e.target.value)}
+                  className="border border-stone-300 bg-white px-3 py-1.5 text-sm focus:border-[#cc785c] focus:outline-none">
+                  <option value="">— Assign counsellor —</option>
+                  {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {counsellorChanged && (
+                  <button type="button" onClick={saveCounsellor} disabled={assignBusy}
+                    className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+                    {assignBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+                  </button>
+                )}
+              </>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Edit fields */}
         <div className="space-y-4 px-5 py-5">
@@ -1069,19 +1070,17 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
   const [busy,         setBusy]         = useState(false);
   const [localErr,     setLocalErr]     = useState(null);
 
-  // Counsellor assign (admin only, linked students only)
-  const linkedStudent         = students.find(s => s.student_id === row.student_id);
-  const currentCounsellorId   = linkedStudent?.counsellor_id || null;
-  const currentCounsellorName = counsellors.find(c => c.id === currentCounsellorId)?.name;
+  // Counsellor assign — application-level, works for all rows
+  const currentCounsellorId   = row.counsellor_id || null;
+  const currentCounsellorName = row.counsellor_name || null;
   const [assignCounsellor, setAssignCounsellor] = useState(currentCounsellorId || "");
   const [assignBusy,       setAssignBusy]       = useState(false);
   const counsellorChanged = assignCounsellor !== (currentCounsellorId || "");
 
   const saveCounsellor = async () => {
-    if (!row.student_id) return;
     setAssignBusy(true);
     try {
-      await api.assignStudentCounsellor(row.student_id, assignCounsellor || null);
+      await api.updateApplication(row.id, { counsellor_id: assignCounsellor || null });
     } catch (e) {
       setLocalErr(e.message);
     } finally {
@@ -1128,9 +1127,9 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
           </button>
         </div>
 
-        {/* Quick-action bar + counsellor — linked students only */}
-        {row.student_id && (
-          <div className="border-b border-stone-200 bg-stone-50 px-5 py-4 space-y-4">
+        {/* Action bar: view buttons (linked only) + counsellor assign (all apps) */}
+        <div className="border-b border-stone-200 bg-stone-50 px-5 py-4 space-y-4">
+          {row.student_id && (
             <div className="flex flex-wrap gap-2">
               {onViewStudent && (
                 <button type="button" onClick={() => { onClose(); onViewStudent(row.student_id); }}
@@ -1145,30 +1144,31 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-base font-medium text-stone-600">Counsellor:</span>
-              {currentCounsellorName
-                ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
-                : <span className="text-base font-semibold text-stone-400">None assigned</span>
-              }
-              {role === "admin" && counsellors.length > 0 && (
-                <>
-                  <select value={assignCounsellor} onChange={e => setAssignCounsellor(e.target.value)}
-                    className="border border-stone-300 bg-white px-3 py-1.5 text-sm focus:border-[#cc785c] focus:outline-none">
-                    <option value="">— Assign counsellor —</option>
-                    {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  {counsellorChanged && (
-                    <button type="button" onClick={saveCounsellor} disabled={assignBusy}
-                      className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
-                      {assignBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+          )}
+          {/* Counsellor — always shown */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-base font-medium text-stone-600">Counsellor:</span>
+            {currentCounsellorName
+              ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
+              : <span className="text-base font-semibold text-stone-400">Not assigned</span>
+            }
+            {counsellors.length > 0 && (
+              <>
+                <select value={assignCounsellor} onChange={e => setAssignCounsellor(e.target.value)}
+                  className="border border-stone-300 bg-white px-3 py-1.5 text-sm focus:border-[#cc785c] focus:outline-none">
+                  <option value="">— Assign counsellor —</option>
+                  {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {counsellorChanged && (
+                  <button type="button" onClick={saveCounsellor} disabled={assignBusy}
+                    className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+                    {assignBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+                  </button>
+                )}
+              </>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Edit fields */}
         <div className="space-y-4 px-5 py-5">

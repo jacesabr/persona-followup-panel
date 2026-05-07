@@ -30,21 +30,24 @@ router.get("/", requireStaff, async (req, res, next) => {
     if (req.user.kind === "counsellor") {
       params.push(req.user.counsellorId);
     }
-    // Counsellor scoping is intentionally one-sided here: we LEFT JOIN
-    // intake_students so unlinked rows (student_id IS NULL) still show
-    // up — counsellors who own no linked applications still see the
-    // unlinked ones they created during the xlsx-transition. The
-    // counsellor filter only fires when student_id IS NOT NULL.
-    let leftJoin = `LEFT JOIN intake_students s ON s.student_id = a.student_id`;
+    // Scoping for counsellors: see apps assigned directly to them
+    // (a.counsellor_id = me), apps linked to their students
+    // (s.counsellor_id = me), or legacy unlinked+unassigned rows from
+    // the xlsx-transition era.
+    let leftJoin = `LEFT JOIN intake_students s ON s.student_id = a.student_id
+         LEFT JOIN counsellors c ON c.id = a.counsellor_id`;
     let where = "";
     if (req.user.kind === "counsellor") {
-      where = ` WHERE (a.student_id IS NULL OR s.counsellor_id = $1)`;
+      where = ` WHERE (a.counsellor_id = $1 OR s.counsellor_id = $1
+                       OR (a.counsellor_id IS NULL AND a.student_id IS NULL))`;
     }
     const { rows } = await pool.query(
       `SELECT a.id, a.student_id, a.country, a.university, a.program,
               a.deadline, a.requirements, a.notes, a.status,
               a.pending, a.archived, a.archived_at,
               a.created_at, a.updated_at,
+              a.counsellor_id,
+              c.name         AS counsellor_name,
               COALESCE(s.display_name, a.student_name) AS student_name,
               s.username     AS student_username
          FROM intake_applications a
@@ -212,7 +215,7 @@ router.patch("/:id", requireStaff, express.json(), async (req, res, next) => {
     ];
     const sets = [];
     const params = [];
-    // student_id handled separately: positive int to link, null to unlink
+    // student_id — link/unlink intake account. positive int or null.
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "student_id")) {
       const sid = req.body.student_id;
       if (sid !== null && !isPositiveInt(sid)) {
@@ -220,6 +223,25 @@ router.patch("/:id", requireStaff, express.json(), async (req, res, next) => {
       }
       params.push(sid === null ? null : Number(sid));
       sets.push(`student_id = $${params.length}`);
+    }
+    // counsellor_id — assign application owner. TEXT (counsellors.id) or null.
+    // Counsellors may only assign themselves or a counsellor they supervise.
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "counsellor_id")) {
+      const cid = req.body.counsellor_id;
+      if (cid !== null && typeof cid !== "string") {
+        return res.status(400).json({ error: "invalid counsellor_id" });
+      }
+      if (req.user.kind === "counsellor" && cid !== null && cid !== req.user.counsellorId) {
+        const { rows: supervised } = await pool.query(
+          `SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2`,
+          [cid, req.user.counsellorId]
+        );
+        if (supervised.length === 0) {
+          return res.status(403).json({ error: "You can only assign yourself or a counsellor you supervise" });
+        }
+      }
+      params.push(cid);
+      sets.push(`counsellor_id = $${params.length}`);
     }
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {

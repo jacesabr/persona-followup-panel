@@ -475,6 +475,11 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
   ON intake_required_docs(deadline_at)
   WHERE requested_at IS NOT NULL AND final_file_id IS NULL;
 
+-- Direct counsellor assignment on applications (separate from student.counsellor_id).
+-- Lets staff own an application even when the student has no account yet.
+ALTER TABLE intake_applications ADD COLUMN IF NOT EXISTS counsellor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_intake_applications_counsellor ON intake_applications(counsellor_id);
+
 -- Counsellor supervision chain (one level deep). Himani.supervisor_id =
 -- Simran.id lets Simran view and assign tasks to Himani; Simran has NULL.
 -- ON DELETE SET NULL so removing a supervisor doesn't cascade to their supervised counsellors.
