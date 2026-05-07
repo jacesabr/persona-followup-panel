@@ -12,6 +12,7 @@ import counsellorsRouter from "./routes/counsellors.js";
 import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
 import studentsRouter from "./routes/students.js";
+import applicationsRouter from "./routes/applications.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
 import { autoAudit } from "./auditing.js";
@@ -175,6 +176,9 @@ app.use("/api/tasks", (req, res, next) =>
 app.use("/api/students", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/applications", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 app.use("/api/auth", writeLimiter);
 
 // autoAudit middleware on the pre-merge surfaces (leads/tasks/counsellors)
@@ -194,6 +198,7 @@ app.use("/api/leads", requireAuth, requireStaff, autoAudit("leads"), leadsRouter
 app.use("/api/counsellors", requireAuth, requireStaff, autoAudit("counsellors"), counsellorsRouter);
 app.use("/api/tasks", requireAuth, requireStaff, autoAudit("counsellor_tasks"), tasksRouter);
 app.use("/api/students", requireAuth, studentsRouter);
+app.use("/api/applications", requireAuth, requireStaff, autoAudit("intake_applications"), applicationsRouter);
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");

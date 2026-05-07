@@ -4,6 +4,7 @@ import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
 import StudentsAdmin from "./StudentsAdmin.jsx";
 import IeltsPanel from "./IeltsPanel.jsx";
+import ApplicationsPanel from "./ApplicationsPanel.jsx";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
 
@@ -13,7 +14,7 @@ function loadTab(role) {
   if (typeof window === "undefined") return "followup";
   try {
     const t = sessionStorage.getItem(TAB_KEY);
-    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts") return t;
+    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications") return t;
     if (t === "counsellors" && role === "admin") return t;
   } catch {
     /* ignore */
@@ -108,6 +109,11 @@ export default function SimplePanel({
             active={tab === "ielts"}
             onClick={() => setTab("ielts")}
           />
+          <FolderTab
+            label="Applications"
+            active={tab === "applications"}
+            onClick={() => setTab("applications")}
+          />
           {role === "admin" && (
             /* Admin-only tab: list every counsellor + create new ones
                (with username/password) without diving into the Old
@@ -149,6 +155,9 @@ export default function SimplePanel({
             setTab("students");
           }}
         />
+      )}
+      {tab === "applications" && (
+        <ApplicationsPanel role={role} />
       )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin

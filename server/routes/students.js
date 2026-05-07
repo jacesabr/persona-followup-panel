@@ -645,6 +645,30 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
           WHERE student_id = $1`,
         [studentId]
       );
+      // Seed pending applications from the student's selected paths.
+      // Each {country, university, program} triple becomes one
+      // intake_applications row with pending=true so it lands in the
+      // Pending Review section of the staff Applications tab. The
+      // counsellor reviews each one and promotes it into the active
+      // workflow. Done inside the same transaction so an intake-done
+      // flip with no rows in pending is impossible.
+      const paths = Array.isArray(answers.paths_list) ? answers.paths_list : [];
+      for (const p of paths) {
+        if (!p || typeof p !== "object") continue;
+        const uni = (p.university || "").trim();
+        if (!uni) continue;
+        await client.query(
+          `INSERT INTO intake_applications
+             (student_id, country, university, program, status, pending)
+           VALUES ($1, $2, $3, $4, 'active', TRUE)`,
+          [
+            studentId,
+            (p.country || "").trim() || null,
+            uni,
+            (p.program || "").trim() || null,
+          ]
+        );
+      }
       // Auto-fire one 300-word resume in the same transaction. Hard-
       // coded shape for v1 — multi-resume picker comes back later. Take
       // the per-student inflight lock so a refresh-spam can't stack

@@ -351,6 +351,67 @@ CREATE TABLE IF NOT EXISTS intake_consents (
 CREATE INDEX IF NOT EXISTS idx_intake_consents_student
   ON intake_consents(student_id, consent_type, signed_at DESC);
 
+-- ============================================================
+-- intake_applications: per-(student × school) application tracking.
+-- One row = one student applying to one university for one program.
+-- Statuses mirror the colour codes in the operator's master sheet
+-- ('Persona Discover Dashboard') so an xlsx import maps cleanly.
+--
+-- Lifecycle:
+--   pending=true  → student-selected during intake, awaiting counsellor
+--                   review before entering the active workflow.
+--   pending=false → in the active workflow; counsellors edit status.
+--   archived=true → soft-removed from the active table; readable in a
+--                   collapsed "Archived" section.
+--
+-- The status text is free-form on the wire but the UI offers the six
+-- canonical values below; new strings are accepted (forward-compat for
+-- statuses we discover later).
+-- ============================================================
+-- student_id is OPTIONAL: while the firm transitions from the legacy
+-- xlsx, counsellors create applications for students who don't yet have
+-- an intake account. student_name carries the free-text label in that
+-- case; when student_id is set, student_name is either NULL or a cached
+-- display name. A row MUST have one or the other (CHECK below).
+CREATE TABLE IF NOT EXISTS intake_applications (
+  id           BIGSERIAL PRIMARY KEY,
+  student_id   TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE,
+  student_name TEXT,
+  country      TEXT,
+  university   TEXT NOT NULL,
+  program      TEXT,
+  deadline     DATE,
+  requirements TEXT,
+  notes        TEXT,
+  status       TEXT NOT NULL DEFAULT 'active',
+  pending      BOOLEAN NOT NULL DEFAULT FALSE,
+  archived     BOOLEAN NOT NULL DEFAULT FALSE,
+  archived_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Carry-forward for any earlier deploy that ran the prior NOT NULL
+-- definition. Idempotent on a fresh DB.
+ALTER TABLE intake_applications ALTER COLUMN student_id DROP NOT NULL;
+ALTER TABLE intake_applications ADD COLUMN IF NOT EXISTS student_name TEXT;
+DO $apps_identity_check$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'intake_applications_identity_check'
+  ) THEN
+    ALTER TABLE intake_applications
+      ADD CONSTRAINT intake_applications_identity_check
+      CHECK (student_id IS NOT NULL OR (student_name IS NOT NULL AND length(trim(student_name)) > 0));
+  END IF;
+END $apps_identity_check$;
+CREATE INDEX IF NOT EXISTS idx_intake_applications_student
+  ON intake_applications(student_id);
+CREATE INDEX IF NOT EXISTS idx_intake_applications_active
+  ON intake_applications(student_id, status)
+  WHERE archived = FALSE AND pending = FALSE;
+CREATE INDEX IF NOT EXISTS idx_intake_applications_pending
+  ON intake_applications(created_at DESC)
+  WHERE pending = TRUE AND archived = FALSE;
+
 -- Sessions: extend to allow user_kind='student' + carry student_id.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;
 -- Absolute upper bound on session lifetime independent of sliding window.

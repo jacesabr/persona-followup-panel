@@ -155,6 +155,22 @@ export const api = {
   // having to ask the student to log in.
   staffRegenerateResume: (studentId, resumeId) =>
     request("POST", `/api/students/${studentId}/resumes/${resumeId}/regenerate`),
+  // ----------------------------------------------------------------
+  // Applications. Per-(student × school) tracking. Replaces the
+  // operator's xlsx for the active workflow. Returns three buckets in
+  // one fetch: pending (awaiting counsellor review), active (in flight),
+  // archived (soft-removed).
+  // ----------------------------------------------------------------
+  listApplications: () => request("GET", "/api/applications"),
+  createApplication: (data) => request("POST", "/api/applications", data),
+  updateApplication: (id, patch) =>
+    request("PATCH", `/api/applications/${id}`, patch),
+  promoteApplication: (id, patch = {}) =>
+    request("POST", `/api/applications/${id}/promote`, patch),
+  archiveApplication: (id) =>
+    request("POST", `/api/applications/${id}/archive`),
+  unarchiveApplication: (id) =>
+    request("POST", `/api/applications/${id}/unarchive`),
   // IELTS-tracking archive (independent of full-student is_archived).
   // Used by the IELTS panel to mirror the lead-sheet archive UX —
   // hides the row from the active list, surfaces it under "Archived".
