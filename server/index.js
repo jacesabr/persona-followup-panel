@@ -13,6 +13,7 @@ import tasksRouter from "./routes/tasks.js";
 import authRouter from "./routes/auth.js";
 import studentsRouter from "./routes/students.js";
 import applicationsRouter from "./routes/applications.js";
+import requiredDocsRouter from "./routes/required-docs.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
 import { autoAudit } from "./auditing.js";
@@ -179,6 +180,9 @@ app.use("/api/students", (req, res, next) =>
 app.use("/api/applications", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/required-docs", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 app.use("/api/auth", writeLimiter);
 
 // autoAudit middleware on the pre-merge surfaces (leads/tasks/counsellors)
@@ -199,6 +203,11 @@ app.use("/api/counsellors", requireAuth, requireStaff, autoAudit("counsellors"),
 app.use("/api/tasks", requireAuth, requireStaff, autoAudit("counsellor_tasks"), tasksRouter);
 app.use("/api/students", requireAuth, studentsRouter);
 app.use("/api/applications", requireAuth, requireStaff, autoAudit("intake_applications"), applicationsRouter);
+// Required-docs router carries BOTH staff and student handlers, so it
+// can't be gated by requireStaff at the mount point — each handler
+// calls requireStaff or requireStudent itself. Audit wrapper still
+// fine: it noops on routes that don't write.
+app.use("/api/required-docs", requireAuth, autoAudit("intake_required_docs"), requiredDocsRouter);
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");

@@ -19,8 +19,12 @@ import {
   FileText,
   Image as ImageIcon,
   Paperclip,
+  Clock,
+  CheckCircle2,
+  Upload,
+  AlertCircle,
 } from "lucide-react";
-import { loadRecord, listMyFiles, listResumes } from "./intakeFiles.js";
+import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import { api } from "./api.js";
@@ -39,6 +43,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
   const [resumes, setResumes] = useState(() =>
     isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
   );
+  const [requiredDocs, setRequiredDocs] = useState(null);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
 
@@ -47,19 +52,25 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
   const load = useCallback(async () => {
     try {
       if (isStaffPreview && studentId) {
-        const detail = await api.getStudent(studentId);
+        const [detail, reqDocs] = await Promise.all([
+          api.getStudent(studentId),
+          api.listRequiredDocsForStudent(studentId).catch(() => []),
+        ]);
         setFiles(detail.files || []);
         setAnswers(extractAnswers(detail.student?.data));
         setResumes(normalizeStaffResumes(detail.resumes));
+        setRequiredDocs(reqDocs);
       } else {
-        const [fileList, record, resumeList] = await Promise.all([
+        const [fileList, record, resumeList, reqDocs] = await Promise.all([
           listMyFiles(),
           loadRecord().catch(() => ({ data: {} })),
           listResumes().catch(() => []),
+          api.listMyRequiredDocs().catch(() => []),
         ]);
         setFiles(fileList);
         setAnswers(extractAnswers(record?.data));
         setResumes(resumeList);
+        setRequiredDocs(reqDocs);
       }
       setError(null);
     } catch (e) {
@@ -186,6 +197,29 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           </div>
         </section>
 
+        {/* Required documents — LOR / Internship / SOP lifecycle.
+            Renders only when the student has at least one row (created
+            on intake completion). Staff-preview view is read-only;
+            actual uploads only happen from the student-facing path. */}
+        {requiredDocs && requiredDocs.length > 0 && (
+          <section className="mt-10">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Required documents</h2>
+            <p className="mt-1 text-xs text-stone-500">
+              Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
+            </p>
+            <div className="mt-3 space-y-2">
+              {requiredDocs.map((d) => (
+                <RequiredDocRow
+                  key={d.id}
+                  doc={d}
+                  isStaffPreview={isStaffPreview}
+                  onAfterUpload={load}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Generated resume — read-only. The regenerate flow lives on
             the staff side; the student just sees the latest output. */}
         {latestResume && (
@@ -204,6 +238,172 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
 // ============================================================
 // Sub-components
 // ============================================================
+
+// ============================================================
+// RequiredDocRow — one row per LOR / Internship / SOP item.
+//
+// Status state machine:
+//   LOR / Internship:
+//     awaiting_draft → drafted → requested (deadline ticking) → received
+//   SOP:
+//     awaiting_draft → drafted (pending admin) → approved
+//
+// "Day N of 5" pills are computed from requested_at + deadline_at.
+// Day 5 — URGENT once we hit the deadline day. Reminders themselves
+// (email / WhatsApp) aren't wired up — just the visual.
+// ============================================================
+function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const fileRef = useRef(null);
+
+  const kindLabel = doc.kind === "lor" ? `LOR ${doc.seq}` :
+                    doc.kind === "internship" ? `Internship ${doc.seq}` :
+                    "Statement of Purpose";
+
+  const summary = doc.kind === "lor"
+    ? `${doc.recipient_name || "—"} · ${doc.recipient_role || "—"}`
+    : doc.kind === "internship"
+    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
+    : "Drafted by your counsellor; approved by admin.";
+
+  const status = computeStatus(doc);
+  const pill = STATUS_PILL[status] || { label: status, tone: "bg-stone-100 text-stone-700 border-stone-300" };
+
+  // Deadline countdown for requested-but-not-uploaded rows.
+  let dayBadge = null;
+  if (status === "requested" && doc.deadline_at) {
+    dayBadge = computeDayBadge(doc.requested_at, doc.deadline_at);
+  }
+
+  const canUpload = !isStaffPreview && status === "requested";
+  const showStaffDraft = !!doc.staff_draft && (status === "requested" || status === "received" || status === "approved" || status === "drafted_sop");
+
+  const onUpload = async (e) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const { fileId } = await uploadFile(file, {
+        fieldId: `required_doc_${doc.id}`,
+        accept: "image/jpeg,image/png,application/pdf",
+      });
+      await api.attachRequiredDocFinal(doc.id, fileId);
+      onAfterUpload?.();
+    } catch (e2) {
+      setErr(e2.message || "Upload failed.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="border border-stone-900/15 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">{kindLabel}</span>
+        <span className="text-sm text-stone-800">{summary}</span>
+        <span className={`ml-auto inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${pill.tone}`}>
+          {pill.label}
+        </span>
+        {dayBadge && (
+          <span className={`inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${dayBadge.tone}`}>
+            <Clock className="h-3 w-3" /> {dayBadge.label}
+          </span>
+        )}
+      </div>
+      {showStaffDraft && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-800">
+            View counsellor draft
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap border border-stone-900/10 bg-[#faf9f5] p-3 font-serif text-sm text-stone-800">
+{doc.staff_draft}
+          </pre>
+        </details>
+      )}
+      {doc.kind !== "sop" && doc.final_file_name && (
+        <p className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-700">
+          <CheckCircle2 className="h-3 w-3" />
+          Uploaded: <span className="text-stone-700">{doc.final_file_name}</span>
+        </p>
+      )}
+      {canUpload && !doc.final_file_id && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            onChange={onUpload}
+            disabled={busy}
+            className="hidden"
+            id={`upload_${doc.id}`}
+          />
+          <label
+            htmlFor={`upload_${doc.id}`}
+            className={`inline-flex cursor-pointer items-center gap-1 border border-stone-900/30 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-700 hover:border-stone-900 ${busy ? "opacity-50 pointer-events-none" : ""}`}
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            Upload stamped final
+          </label>
+          <span className="text-[11px] italic text-stone-500">
+            Brightly lit photo or PDF, on a flat surface — this goes to your universities.
+          </span>
+        </div>
+      )}
+      {err && (
+        <p className="mt-2 inline-flex items-center gap-1 text-xs text-red-700">
+          <AlertCircle className="h-3 w-3" /> {err}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const STATUS_PILL = {
+  awaiting_draft:   { label: "Counsellor drafting", tone: "bg-stone-100 text-stone-700 border-stone-300" },
+  drafted:          { label: "Ready to send",       tone: "bg-amber-50 text-amber-800 border-amber-300" },
+  drafted_sop:      { label: "Awaiting admin approval", tone: "bg-amber-50 text-amber-800 border-amber-300" },
+  requested:        { label: "Print on letterhead", tone: "bg-blue-50 text-blue-800 border-blue-300" },
+  received:         { label: "Received",            tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  approved:         { label: "Approved",            tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+};
+
+function computeStatus(doc) {
+  if (doc.kind === "sop") {
+    if (doc.approved_by_admin_at) return "approved";
+    if (doc.staff_draft) return "drafted_sop";
+    return "awaiting_draft";
+  }
+  if (doc.final_file_id) return "received";
+  if (doc.requested_at) return "requested";
+  if (doc.marked_done_at) return "drafted";
+  return "awaiting_draft";
+}
+
+// "Day N of 5" / urgent badge. Counts elapsed business days since the
+// request was sent (skips Sat/Sun, matches the deadline calculation
+// in server/routes/required-docs.js).
+function computeDayBadge(requestedAt, deadlineAt) {
+  if (!requestedAt) return null;
+  const start = new Date(requestedAt);
+  const today = new Date();
+  let elapsed = 0;
+  const cur = new Date(start);
+  cur.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  while (cur < today) {
+    cur.setDate(cur.getDate() + 1);
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) elapsed++;
+  }
+  // Map to "Day N of 5". Day 1 = same business day as the request (or next).
+  const day = Math.min(Math.max(elapsed + 1, 1), 5);
+  if (day >= 5) return { label: "Day 5 — URGENT", tone: "bg-red-50 text-red-800 border-red-300" };
+  if (day >= 3) return { label: `Day ${day} of 5`, tone: "bg-amber-50 text-amber-800 border-amber-300" };
+  return { label: `Day ${day} of 5`, tone: "bg-stone-100 text-stone-700 border-stone-300" };
+}
 
 function ResumeView({ latest }) {
   if (!latest) return null;

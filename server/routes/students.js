@@ -14,6 +14,7 @@ import { scheduleResume, executeResume } from "../generators/run.js";
 import { corpusHasExample } from "../generators/examples.js";
 import { runImportFromCorpusDir } from "../scripts/import-examples.js";
 import { validateIntakeRequired } from "../../lib/intakeSchema.js";
+import { seedRequiredDocsForStudent } from "./required-docs.js";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../middleware/auth.js";
 
@@ -645,6 +646,11 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
           WHERE student_id = $1`,
         [studentId]
       );
+      // Seed LOR / Internship / SOP rows from the student's intake
+      // briefs. Idempotent — uses ON CONFLICT (student_id, kind, seq) —
+      // so a re-fired phase transition (shouldn't happen, but defensive)
+      // doesn't duplicate rows.
+      await seedRequiredDocsForStudent(client, studentId, answers);
       // Seed pending applications from the student's selected paths.
       // Each {country, university, program} triple becomes one
       // intake_applications row with pending=true so it lands in the

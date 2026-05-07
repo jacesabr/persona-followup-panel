@@ -439,7 +439,8 @@ const pageFillState = (page, answers) => {
   // page like p_ielts shows "1 required left" forever when the student
   // picks "Won't take" — the score field is hidden but technically
   // non-optional in the schema).
-  const visible = page.fields.filter((f) => isFieldVisible(f, answers));
+  // Skip 'info' fields — they're explanatory cards with no value.
+  const visible = page.fields.filter((f) => isFieldVisible(f, answers) && f.type !== "info");
   const required = visible.filter((f) => !f.optional && !page.optional);
   const filledReq = required.filter((f) => isFieldFilled(answers[f.id])).length;
   const filledAny = visible.filter((f) => isFieldFilled(answers[f.id])).length;
@@ -1250,7 +1251,11 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
 
   // Visibility filter for showIf-driven fields — must run before any
   // gate logic so hidden fields don't show up as "missing".
-  const visibleFields = page.fields.filter((f) => isFieldVisible(f, answers));
+  // 'info' is a static explanatory card, not a real field — strip it
+  // from gating logic AND from the regular field grid (it gets its own
+  // wider card-style render below).
+  const visibleFields = page.fields.filter((f) => isFieldVisible(f, answers) && f.type !== "info");
+  const infoCards = page.fields.filter((f) => f.type === "info");
   const requiredFields = visibleFields.filter((f) => !f.optional && !page.optional);
   const allRequiredFilled = requiredFields.every((f) => isFieldFilled(answers[f.id]));
   // requireAtLeastOne (e.g. p_marks12) — page advances only when at
@@ -1322,6 +1327,28 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
       {page.helper && <p className="mt-3 text-sm italic text-stone-500">{page.helper}</p>}
 
+      {/* page.preamble: an array of {heading, body} blocks that render
+          above the fields. Used by p_required_docs to explain the LOR /
+          Internship / SOP procedure in large-print bullet points before
+          the student fills anything in. */}
+      {Array.isArray(page.preamble) && page.preamble.length > 0 && (
+        <div className="mt-6 space-y-4 border-l-2 border-stone-900/20 bg-[#f4f0e6]/60 px-5 py-5">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+            How this works
+          </p>
+          {page.preamble.map((block, i) => (
+            <div key={i}>
+              <p className="font-serif text-base font-semibold leading-snug text-stone-900 md:text-lg">
+                {block.heading}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-stone-700">
+                {block.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {page.id === "p_passport_scans" && (
         <div className="mt-5 inline-flex items-baseline gap-3 border-l-2 border-stone-300 pl-3 text-xs text-stone-600">
           <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Age</span>
@@ -1350,6 +1377,31 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
           {visibleFields.map((field, i) =>
             renderField(field, i === 0 ? firstFieldRef : undefined)
           )}
+        </div>
+      )}
+
+      {/* Info cards render below the field grid as full-width
+          explanatory blocks (e.g. the SOP "nothing to fill" card on the
+          required-docs page). They have no value, no input, no gating. */}
+      {infoCards.length > 0 && (
+        <div className="mt-8 space-y-5">
+          {infoCards.map((field) => (
+            <section
+              key={field.id}
+              className="border-l-4 border-stone-900/30 bg-[#f4f0e6] px-5 py-4"
+            >
+              {field.title && (
+                <h3 className="font-serif text-lg font-semibold text-stone-900">
+                  {field.title}
+                </h3>
+              )}
+              {field.body && (
+                <p className="mt-1 text-sm leading-relaxed text-stone-700">
+                  {field.body}
+                </p>
+              )}
+            </section>
+          ))}
         </div>
       )}
 
@@ -1933,6 +1985,58 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
           }}
           className="h-3.5 w-3.5"
         />
+      </div>
+    );
+  }
+  // Word-cap text fields (e.g. LOR reason_brief max 20, internship
+  // activity_brief max 30). Hard block: typing past the limit is
+  // truncated to the last word that fits. Counter shown beneath in red
+  // once over, otherwise stone. Soft "remind to be concise" hint comes
+  // from the parent field.helper, not here.
+  if (subfield.maxWords) {
+    const cap = subfield.maxWords;
+    const words = (typeof value === "string" ? value.trim() : "").split(/\s+/).filter(Boolean).length;
+    const handleChange = (raw) => {
+      // Truncate to cap. Preserve trailing whitespace so the user can
+      // type a space mid-word without losing it; only enforce the cap
+      // on completed words. Word boundary: any whitespace.
+      const tokens = raw.split(/(\s+)/); // keep separators
+      let count = 0;
+      const kept = [];
+      for (const tok of tokens) {
+        if (/^\s+$/.test(tok)) {
+          kept.push(tok);
+          continue;
+        }
+        if (tok.length === 0) {
+          kept.push(tok);
+          continue;
+        }
+        if (count >= cap) break;
+        kept.push(tok);
+        count++;
+      }
+      onChange(kept.join(""));
+    };
+    const over = words >= cap;
+    return (
+      <div className="flex flex-col bg-[#f4f0e6] px-2 py-1.5">
+        <input
+          ref={rootRef}
+          type="text"
+          value={value}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={onBlur}
+          placeholder={subfield.placeholder}
+          className="bg-transparent text-sm outline-none placeholder:italic placeholder:text-stone-400"
+        />
+        <span
+          className={`mt-0.5 self-end text-[10px] tabular-nums ${
+            over ? "text-stone-700" : "text-stone-400"
+          }`}
+        >
+          {words} / {cap} words
+        </span>
       </div>
     );
   }

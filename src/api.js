@@ -156,6 +156,38 @@ export const api = {
   staffRegenerateResume: (studentId, resumeId) =>
     request("POST", `/api/students/${studentId}/resumes/${resumeId}/regenerate`),
   // ----------------------------------------------------------------
+  // Required documents. Per-student LOR / Internship / SOP rows.
+  // Staff drafts; bulk send-requests flips to "awaiting student
+  // upload" with a 5-business-day deadline; student attaches finals.
+  // See server/routes/required-docs.js for the full lifecycle.
+  // ----------------------------------------------------------------
+  // Staff: list every row for one student (LOR/Internship/SOP).
+  listRequiredDocsForStudent: (studentId) =>
+    request("GET", `/api/required-docs/student/${studentId}`),
+  // Staff: edit any subset of {staff_draft, recipient_*, reason_brief,
+  // company_*, activity_brief}. Word caps enforced server-side.
+  updateRequiredDoc: (id, patch) =>
+    request("PATCH", `/api/required-docs/${id}`, patch),
+  // Staff: flip marked_done_at. Body { undo: true } clears it.
+  markRequiredDocDone: (id, undo = false) =>
+    request("POST", `/api/required-docs/${id}/mark-done`, { undo }),
+  // Admin only: approve an SOP draft. Body { undo: true } un-approves.
+  approveSop: (id, undo = false) =>
+    request("POST", `/api/required-docs/${id}/approve`, { undo }),
+  // Staff bulk: flip requested_at + deadline_at on every LOR/Internship
+  // row that's marked done and not yet sent. Pre-flight gate: every
+  // LOR/Internship row must be marked done; partial sends rejected.
+  sendRequiredDocRequests: (studentId) =>
+    request("POST", `/api/required-docs/student/${studentId}/send-requests`),
+  // Student: read own rows (drives the dashboard card).
+  listMyRequiredDocs: () => request("GET", "/api/required-docs/me"),
+  // Student: link a previously-uploaded intake_files row to a
+  // required-doc as the stamped final. The file itself rides the
+  // existing /api/students/me/upload endpoint.
+  attachRequiredDocFinal: (id, fileId) =>
+    request("POST", `/api/required-docs/me/${id}/attach-final`, { file_id: fileId }),
+
+  // ----------------------------------------------------------------
   // Applications. Per-(student × school) tracking. Replaces the
   // operator's xlsx for the active workflow. Returns three buckets in
   // one fetch: pending (awaiting counsellor review), active (in flight),

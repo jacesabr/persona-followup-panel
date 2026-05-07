@@ -412,6 +412,69 @@ CREATE INDEX IF NOT EXISTS idx_intake_applications_pending
   ON intake_applications(created_at DESC)
   WHERE pending = TRUE AND archived = FALSE;
 
+-- ============================================================
+-- intake_required_docs: per-student LOR / Internship / SOP items.
+-- One row per item. Replaces the legacy lor1/lor2/internship*/sop
+-- file fields on intake_students.data.answers.
+--
+-- Lifecycle (LOR / Internship):
+--   1. Student submits brief during intake → row created with the
+--      brief fields filled, staff_draft empty.
+--   2. Counsellor or admin writes staff_draft, then sets
+--      marked_done_at to flag it ready.
+--   3. Bulk "Send requests" flips requested_at + deadline_at on every
+--      row whose marked_done_at is set and requested_at is null.
+--      Deadline = +5 weekdays (Sat/Sun skipped, no holiday calendar).
+--   4. Student uploads stamped final to intake_files; final_file_id
+--      points at the upload row.
+--
+-- SOP (kind='sop'):
+--   - Auto-created with seq=1 on the first staff visit (or on intake
+--     completion — whichever comes first; see server/routes/students.js).
+--   - Student puts nothing in. Staff writes staff_draft. Admin
+--     approves via approved_by_admin_at. No requested_at, no upload.
+--
+-- Word-count caps on reason_brief (20) and activity_brief (30) are
+-- enforced both in the schema-driven UI and in lib/intakeSchema.js's
+-- validateIntakeRequired (server-side defence in depth).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intake_required_docs (
+  id                     BIGSERIAL PRIMARY KEY,
+  student_id             TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE CASCADE,
+  kind                   TEXT NOT NULL CHECK (kind IN ('lor', 'internship', 'sop')),
+  seq                    INT  NOT NULL DEFAULT 1,
+  -- LOR fields
+  recipient_name         TEXT,
+  recipient_role         TEXT,
+  reason_brief           TEXT,
+  -- Internship fields
+  company_name           TEXT,
+  company_website        TEXT,
+  activity_brief         TEXT,
+  -- Staff side
+  staff_draft            TEXT,
+  marked_done_at         TIMESTAMPTZ,
+  approved_by_admin_at   TIMESTAMPTZ,
+  -- Send-request lifecycle
+  requested_at           TIMESTAMPTZ,
+  deadline_at            DATE,
+  final_file_id          BIGINT REFERENCES intake_files(id) ON DELETE SET NULL,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- One slot per (student, kind, seq). Allows the API to upsert a row
+-- by (student_id, kind, seq) without race-creating duplicates from a
+-- double-submit.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_required_docs_slot
+  ON intake_required_docs(student_id, kind, seq);
+CREATE INDEX IF NOT EXISTS idx_required_docs_student
+  ON intake_required_docs(student_id);
+-- Pending-deadline scan: rows that have been requested but not yet
+-- received a final upload. Future reminder cron will read this.
+CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
+  ON intake_required_docs(deadline_at)
+  WHERE requested_at IS NOT NULL AND final_file_id IS NULL;
+
 -- Sessions: extend to allow user_kind='student' + carry student_id.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;
 -- Absolute upper bound on session lifetime independent of sliding window.

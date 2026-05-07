@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye, Send, Clock } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -149,6 +149,7 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
           <StudentRow
             key={s.student_id}
             row={s}
+            role={role}
             expanded={expandedId === s.student_id}
             onToggle={() => setExpandedId((p) => (p === s.student_id ? null : s.student_id))}
             onResetPassword={(account) => setCredentialsModal(account)}
@@ -573,7 +574,7 @@ function ImportExamplesButton() {
 // ============================================================
 // StudentRow — collapsed roster row + expandable detail view.
 // ============================================================
-function StudentRow({ row, expanded, onToggle, onResetPassword, onViewAs }) {
+function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }) {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [viewAsBusy, setViewAsBusy] = useState(false);
@@ -709,7 +710,7 @@ function StudentRow({ row, expanded, onToggle, onResetPassword, onViewAs }) {
             <p className="text-xs text-red-700">{detail.error}</p>
           )}
           {detail && !detail.error && (
-            <StudentDetail detail={detail} onRefresh={refreshDetail} />
+            <StudentDetail detail={detail} role={role} onRefresh={refreshDetail} />
           )}
         </div>
       )}
@@ -722,7 +723,7 @@ function StudentRow({ row, expanded, onToggle, onResetPassword, onViewAs }) {
 // + any generated resumes for one student. Staff can also trigger
 // a regenerate per resume row (no read-write surface beyond that).
 // ============================================================
-function StudentDetail({ detail, onRefresh }) {
+function StudentDetail({ detail, role, onRefresh }) {
   const { student, files, resumes } = detail;
   const [regen, setRegen] = useState({}); // { [resumeId]: { busy, err } }
   const handleRegen = useCallback(async (resumeId) => {
@@ -848,6 +849,13 @@ function StudentDetail({ detail, onRefresh }) {
         ) : (
           <p className="italic text-stone-500">No resumes generated yet.</p>
         )}
+      </Section>
+
+      <Section title="Required documents (LOR / Internship / SOP)">
+        <RequiredDocsStaff
+          studentId={student.student_id}
+          role={role}
+        />
       </Section>
 
       <Section title={`Uploaded documents (${files?.length || 0})`}>
@@ -982,6 +990,318 @@ function AnswerCell({ value }) {
     );
   }
   return <span>{String(value)}</span>;
+}
+
+// ============================================================
+// RequiredDocsStaff — staff workflow surface for one student's
+// LOR / Internship / SOP rows. Fetches /api/required-docs/student/:id;
+// renders each as an editable card with a counsellor draft textarea
+// + "Mark done" / "Approve" actions. Bulk "Send requests" button at
+// the bottom flips requested_at + deadline_at on every LOR/Internship
+// row that's marked done. Server enforces the gate (every L/I row
+// must be marked done before the bulk send works).
+// ============================================================
+function RequiredDocsStaff({ studentId, role }) {
+  const [docs, setDocs] = useState(null);
+  const [drafts, setDrafts] = useState({}); // local edit buffer keyed by row id
+  const [busy, setBusy] = useState({});     // per-row inflight flag
+  const [err, setErr] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api.listRequiredDocsForStudent(studentId);
+      setDocs(list);
+      // Re-seed drafts buffer with whatever is currently persisted so
+      // the textarea reflects DB state until the user starts typing.
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const d of list) {
+          if (next[d.id] === undefined) next[d.id] = d.staff_draft || "";
+        }
+        return next;
+      });
+      setErr(null);
+    } catch (e) {
+      setErr(e.message || "Couldn't load required documents.");
+    }
+  }, [studentId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (docs === null) {
+    return <p className="italic text-stone-500">Loading…</p>;
+  }
+  if (docs.length === 0) {
+    return (
+      <p className="italic text-stone-500">
+        No rows yet — student hasn't completed intake.
+      </p>
+    );
+  }
+
+  const lors = docs.filter((d) => d.kind === "lor");
+  const interns = docs.filter((d) => d.kind === "internship");
+  const sop = docs.find((d) => d.kind === "sop");
+
+  const allLIDone = [...lors, ...interns].every((d) => d.marked_done_at);
+  const anyLIPending = [...lors, ...interns].some((d) => d.marked_done_at && !d.requested_at);
+
+  const saveDraft = async (id) => {
+    setBusy((p) => ({ ...p, [id]: true }));
+    try {
+      await api.updateRequiredDoc(id, { staff_draft: drafts[id] || "" });
+      await refresh();
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy((p) => ({ ...p, [id]: false }));
+    }
+  };
+
+  const toggleDone = async (doc) => {
+    setBusy((p) => ({ ...p, [doc.id]: true }));
+    try {
+      await api.markRequiredDocDone(doc.id, !!doc.marked_done_at);
+      await refresh();
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy((p) => ({ ...p, [doc.id]: false }));
+    }
+  };
+
+  const toggleApprove = async (doc) => {
+    setBusy((p) => ({ ...p, [doc.id]: true }));
+    try {
+      await api.approveSop(doc.id, !!doc.approved_by_admin_at);
+      await refresh();
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy((p) => ({ ...p, [doc.id]: false }));
+    }
+  };
+
+  const sendBulk = async () => {
+    if (!confirm(`Send all marked-done LOR & Internship requests to the student? Deadline: 5 business days.`)) return;
+    setBulkBusy(true);
+    try {
+      await api.sendRequiredDocRequests(studentId);
+      await refresh();
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {err && (
+        <p className="inline-flex items-center gap-1 border border-red-300 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+          <AlertCircle className="h-3 w-3" /> {err}
+        </p>
+      )}
+
+      {lors.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Letters of recommendation</p>
+          {lors.map((d) => (
+            <DocStaffCard
+              key={d.id}
+              doc={d}
+              draft={drafts[d.id] ?? ""}
+              onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
+              onSave={() => saveDraft(d.id)}
+              onToggleDone={() => toggleDone(d)}
+              busy={!!busy[d.id]}
+            />
+          ))}
+        </div>
+      )}
+
+      {interns.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Internships</p>
+          {interns.map((d) => (
+            <DocStaffCard
+              key={d.id}
+              doc={d}
+              draft={drafts[d.id] ?? ""}
+              onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
+              onSave={() => saveDraft(d.id)}
+              onToggleDone={() => toggleDone(d)}
+              busy={!!busy[d.id]}
+            />
+          ))}
+        </div>
+      )}
+
+      {sop && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Statement of purpose</p>
+          <DocStaffCard
+            doc={sop}
+            draft={drafts[sop.id] ?? ""}
+            onDraftChange={(v) => setDrafts((p) => ({ ...p, [sop.id]: v }))}
+            onSave={() => saveDraft(sop.id)}
+            onToggleApprove={() => toggleApprove(sop)}
+            canApprove={role === "admin"}
+            busy={!!busy[sop.id]}
+          />
+        </div>
+      )}
+
+      {/* Bulk "Send requests" button at the bottom of the card,
+          mirroring the operator's mock per their spec. Only enabled
+          when (a) every LOR/Internship row is marked done AND (b) at
+          least one of those rows hasn't been sent yet. SOP doesn't
+          ride this loop. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 pt-3">
+        <span className="text-[11px] italic text-stone-500">
+          {allLIDone
+            ? anyLIPending
+              ? "All drafts ready. Send when you're set."
+              : "All requests already sent."
+            : `Mark every LOR & internship as done before sending.`}
+        </span>
+        <button
+          type="button"
+          onClick={sendBulk}
+          disabled={!allLIDone || !anyLIPending || bulkBusy}
+          className="inline-flex items-center gap-1 border border-stone-900 bg-stone-900 px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {bulkBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+          Send requests (mock)
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggleApprove, canApprove, busy }) {
+  const isSop = doc.kind === "sop";
+  const dirty = (draft || "") !== (doc.staff_draft || "");
+
+  const headline = doc.kind === "lor"
+    ? `LOR ${doc.seq} — ${doc.recipient_name || "(no name)"} · ${doc.recipient_role || "(no role)"}`
+    : doc.kind === "internship"
+    ? `Internship ${doc.seq} — ${doc.company_name || "(no company)"}`
+    : "SOP";
+
+  return (
+    <div className="border border-stone-200 bg-white p-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="text-stone-900">{headline}</span>
+        <span className="ml-auto inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-stone-500">
+          {doc.requested_at && (
+            <span className="border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-blue-800">
+              <Clock className="mr-1 inline h-2.5 w-2.5" />
+              Sent · deadline {doc.deadline_at}
+            </span>
+          )}
+          {doc.final_file_id && (
+            <span className="border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-800">
+              Final received
+            </span>
+          )}
+          {isSop && doc.approved_by_admin_at && (
+            <span className="border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-800">
+              Admin approved
+            </span>
+          )}
+          {!isSop && doc.marked_done_at && !doc.requested_at && (
+            <span className="border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-800">
+              Marked done — ready to send
+            </span>
+          )}
+          {!doc.marked_done_at && !doc.approved_by_admin_at && !doc.staff_draft && (
+            <span className="border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-stone-700">
+              Awaiting your draft
+            </span>
+          )}
+        </span>
+      </div>
+
+      {/* Student brief — read-only context for the counsellor. */}
+      {doc.kind === "lor" && (
+        <p className="mt-1 text-[11px] italic text-stone-600">
+          Reason: {doc.reason_brief || "—"}
+        </p>
+      )}
+      {doc.kind === "internship" && (
+        <p className="mt-1 text-[11px] italic text-stone-600">
+          {doc.company_website ? `Website: ${doc.company_website} — ` : ""}
+          What they did: {doc.activity_brief || "—"}
+        </p>
+      )}
+
+      <textarea
+        rows={5}
+        value={draft || ""}
+        onChange={(e) => onDraftChange(e.target.value)}
+        placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship document. The student will print this on the recommender's letterhead."}
+        className="mt-2 w-full border border-stone-300 bg-[#faf9f5] p-2 font-serif text-sm text-stone-900 outline-none focus:border-stone-900"
+      />
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!dirty || busy}
+          className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+          Save draft
+        </button>
+
+        {!isSop && (
+          <button
+            type="button"
+            onClick={onToggleDone}
+            disabled={busy || !!doc.requested_at}
+            title={doc.requested_at ? "Already sent — cannot un-mark" : ""}
+            className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] disabled:cursor-not-allowed disabled:opacity-30 ${
+              doc.marked_done_at
+                ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
+                : "border-stone-300 bg-white text-stone-700 hover:border-stone-700"
+            }`}
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            {doc.marked_done_at ? "Done — click to undo" : "Mark done"}
+          </button>
+        )}
+
+        {isSop && canApprove && (
+          <button
+            type="button"
+            onClick={onToggleApprove}
+            disabled={busy || !doc.staff_draft}
+            title={!doc.staff_draft ? "Save a draft first" : ""}
+            className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] disabled:cursor-not-allowed disabled:opacity-30 ${
+              doc.approved_by_admin_at
+                ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
+                : "border-stone-300 bg-white text-stone-700 hover:border-stone-700"
+            }`}
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            {doc.approved_by_admin_at ? "Approved — click to undo" : "Approve SOP"}
+          </button>
+        )}
+
+        {isSop && !canApprove && (
+          <span className="text-[10px] italic text-stone-500">
+            Admin must approve the final SOP.
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Section({ title, children }) {
