@@ -42,6 +42,7 @@ export default function ApplicationsPanel({ role = "admin" }) {
   const [sortBy, setSortBy] = useState("urgency"); // urgency | student | status | university
   const [reviewing, setReviewing] = useState(null); // pending row being reviewed in the modal
   const [creating, setCreating] = useState(false); // "+ New application" modal
+  const [detailRow, setDetailRow] = useState(null); // active row open in detail modal
 
   const refresh = useCallback(async () => {
     try {
@@ -121,9 +122,21 @@ export default function ApplicationsPanel({ role = "admin" }) {
     if (!window.confirm("Archive this application?")) return;
     try {
       await api.archiveApplication(id);
+      setDetailRow(null);
       await refresh();
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const onDetailSave = async (id, patch) => {
+    try {
+      await api.updateApplication(id, patch);
+      setDetailRow(null);
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+      throw e;
     }
   };
 
@@ -278,6 +291,7 @@ export default function ApplicationsPanel({ role = "admin" }) {
             gridCols={gridCols}
             onPatch={(p) => onPatch(r.id, p)}
             onArchive={() => onArchive(r.id)}
+            onClick={() => setDetailRow(r)}
           />
         ))}
       </div>
@@ -304,6 +318,15 @@ export default function ApplicationsPanel({ role = "admin" }) {
           students={students}
           onClose={() => setCreating(false)}
           onCreate={onCreate}
+        />
+      )}
+
+      {detailRow && (
+        <ApplicationDetailModal
+          row={detailRow}
+          onClose={() => setDetailRow(null)}
+          onSave={(patch) => onDetailSave(detailRow.id, patch)}
+          onArchive={() => onArchive(detailRow.id)}
         />
       )}
     </>
@@ -352,42 +375,30 @@ function PendingRow({ row, onReview }) {
   );
 }
 
-function ActiveRow({ row, gridCols, onPatch, onArchive }) {
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [notesDraft, setNotesDraft] = useState(row.notes || "");
-
-  // Re-sync local draft when the row changes from outside (auto-refresh).
-  useEffect(() => {
-    if (!editingNotes) setNotesDraft(row.notes || "");
-  }, [row.notes, editingNotes]);
-
-  const saveNotes = async () => {
-    await onPatch({ notes: notesDraft });
-    setEditingNotes(false);
-  };
-
+function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
   return (
     <div
-      className="grid items-center gap-2 border-b border-stone-200 px-3 py-3 text-sm text-stone-800 last:border-b-0 hover:bg-stone-50"
+      className="grid items-start gap-2 border-b border-stone-200 px-3 py-3 text-sm text-stone-800 last:border-b-0 hover:bg-stone-50 cursor-pointer"
       style={{ gridTemplateColumns: gridCols }}
+      onClick={onClick}
     >
-      <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
+      {/* Stop propagation so dropdown clicks don't open the modal */}
+      <div onClick={(e) => e.stopPropagation()}>
+        <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
+      </div>
       <StudentCell row={row} />
-
-      <span className="truncate text-sm text-stone-700">{row.country || "—"}</span>
-      <span className="truncate font-medium">{row.university}</span>
-      <span className="truncate text-sm text-stone-700">{row.program || "—"}</span>
-      <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
-      <NotesCell
-        editing={editingNotes}
-        value={editingNotes ? notesDraft : row.notes}
-        onEdit={() => setEditingNotes(true)}
-        onChangeDraft={setNotesDraft}
-        onSave={saveNotes}
-        onCancel={() => { setEditingNotes(false); setNotesDraft(row.notes || ""); }}
-      />
+      <span className="truncate text-sm text-stone-700 pt-1">{row.country || "—"}</span>
+      <span className="truncate font-medium pt-1">{row.university}</span>
+      <span className="truncate text-sm text-stone-700 pt-1">{row.program || "—"}</span>
+      <div onClick={(e) => e.stopPropagation()} className="pt-1">
+        <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
+      </div>
+      {/* Full note — no truncation */}
+      <span className="break-words text-sm text-stone-700 pt-1 leading-snug">
+        {row.notes || <span className="italic text-stone-400">—</span>}
+      </span>
       <button
-        onClick={onArchive}
+        onClick={(e) => { e.stopPropagation(); onArchive(); }}
         title="Archive this application"
         className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-2 py-1 text-xs uppercase tracking-[0.12em] text-stone-700 hover:border-stone-700"
       >
@@ -501,40 +512,6 @@ function DeadlineCell({ value, onChange }) {
   );
 }
 
-function NotesCell({ editing, value, onEdit, onChangeDraft, onSave, onCancel }) {
-  if (editing) {
-    return (
-      <span className="flex items-center gap-1">
-        <input
-          type="text"
-          value={value || ""}
-          onChange={(e) => onChangeDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSave();
-            if (e.key === "Escape") onCancel();
-          }}
-          autoFocus
-          className="min-w-0 flex-1 border border-[#cc785c] bg-white px-1 py-0.5 text-sm outline-none"
-        />
-        <button onClick={onSave} className="text-emerald-700 hover:text-emerald-900">
-          <Check className="h-3.5 w-3.5" />
-        </button>
-        <button onClick={onCancel} className="text-stone-500 hover:text-stone-800">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </span>
-    );
-  }
-  return (
-    <button
-      onClick={onEdit}
-      className="min-w-0 truncate text-left text-sm text-stone-600 hover:text-stone-900"
-      title="Click to edit notes"
-    >
-      {value ? value : <span className="italic text-stone-400">add notes…</span>}
-    </button>
-  );
-}
 
 function ArchivedRow({ row, onUnarchive }) {
   const meta = metaFor(row.status);
@@ -557,6 +534,179 @@ function ArchivedRow({ row, onUnarchive }) {
       >
         Unarchive
       </button>
+    </div>
+  );
+}
+
+function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
+  const [status,       setStatus]       = useState(row.status || "active");
+  const [deadline,     setDeadline]     = useState(row.deadline ? String(row.deadline).slice(0, 10) : "");
+  const [country,      setCountry]      = useState(row.country || "");
+  const [university,   setUniversity]   = useState(row.university || "");
+  const [program,      setProgram]      = useState(row.program || "");
+  const [requirements, setRequirements] = useState(row.requirements || "");
+  const [notes,        setNotes]        = useState(row.notes || "");
+  const [busy,         setBusy]         = useState(false);
+  const [localErr,     setLocalErr]     = useState(null);
+
+  const meta = metaFor(status);
+
+  const save = async () => {
+    if (!university.trim()) { setLocalErr("University is required."); return; }
+    setBusy(true);
+    setLocalErr(null);
+    try {
+      await onSave({
+        status,
+        deadline:     deadline || null,
+        country:      country.trim() || null,
+        university:   university.trim(),
+        program:      program.trim() || null,
+        requirements: requirements.trim() || null,
+        notes:        notes.trim() || null,
+      });
+    } catch (e) {
+      setLocalErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Close on backdrop click
+  const onBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
+
+  const studentLabel = row.student_name || row.student_username || "—";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onBackdrop}
+    >
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto border border-stone-300 bg-[#faf9f5] shadow-xl">
+        {/* Header */}
+        <div className="border-b border-stone-300 px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`shrink-0 border border-stone-400 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`}
+                  style={{ backgroundColor: meta.swatch }}
+                >
+                  {meta.label}
+                </span>
+                {!row.student_id && (
+                  <span className="shrink-0 border border-stone-400 bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-600">
+                    Unlinked
+                  </span>
+                )}
+              </div>
+              <h3 className="mt-2 text-xl font-bold text-stone-900">{studentLabel}</h3>
+              <p className="text-sm text-stone-500">
+                {row.university}
+                {row.program ? ` · ${row.program}` : ""}
+                {row.country ? ` · ${row.country}` : ""}
+              </p>
+            </div>
+            <button onClick={onClose} className="shrink-0 text-stone-400 hover:text-stone-900" aria-label="Close">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="space-y-4 px-5 py-4 text-[13px]">
+          {localErr && (
+            <div className="border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-800">{localErr}</div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none"
+              >
+                {STATUS_KEYS.map((k) => (
+                  <option key={k} value={k}>{STATUS_META[k].label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Deadline</label>
+              <input
+                type="date"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 tabular-nums focus:border-[#cc785c] focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">University *</label>
+              <input type="text" value={university} onChange={(e) => setUniversity(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Country</label>
+              <input type="text" value={country} onChange={(e) => setCountry(e.target.value)}
+                placeholder="e.g. India, UK, USA"
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Program</label>
+            <input type="text" value={program} onChange={(e) => setProgram(e.target.value)}
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Requirements</label>
+            <textarea
+              rows={3} value={requirements} onChange={(e) => setRequirements(e.target.value)}
+              placeholder="SOP, portfolio, recommendations…"
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Notes</label>
+            <textarea
+              rows={5} value={notes} onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any notes about this application…"
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-stone-300 px-5 py-3">
+          <button
+            onClick={onArchive}
+            disabled={busy}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600 hover:border-red-400 hover:text-red-600 disabled:opacity-50"
+          >
+            <Archive className="h-3.5 w-3.5" /> Archive
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              disabled={busy}
+              className="border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={busy}
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+            >
+              {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
