@@ -1,6 +1,6 @@
 import express from "express";
 import pool from "../db.js";
-import { requireStaff } from "../middleware/auth.js";
+import { requireStaff, requireStudent } from "../middleware/auth.js";
 import { audit } from "../audit.js";
 
 const router = express.Router();
@@ -142,6 +142,25 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
       },
     });
     res.status(201).json({ ...row, id: String(row.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/applications/me — student reads their own non-archived
+// applications (read-only; status + deadline visible, notes hidden).
+router.get("/me", requireStudent, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.country, a.university, a.program,
+              a.deadline, a.status, a.pending, a.created_at, a.updated_at
+         FROM intake_applications a
+        WHERE a.student_id = $1
+          AND a.archived  = FALSE
+        ORDER BY a.updated_at DESC`,
+      [req.user.studentId]
+    );
+    res.json(rows.map((r) => ({ ...r, id: String(r.id) })));
   } catch (e) {
     next(e);
   }

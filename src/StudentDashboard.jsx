@@ -44,6 +44,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
   );
   const [requiredDocs, setRequiredDocs] = useState(null);
+  const [myApplications, setMyApplications] = useState(null);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
 
@@ -52,25 +53,30 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
   const load = useCallback(async () => {
     try {
       if (isStaffPreview && studentId) {
-        const [detail, reqDocs] = await Promise.all([
+        const [detail, reqDocs, appsData] = await Promise.all([
           api.getStudent(studentId),
           api.listRequiredDocsForStudent(studentId).catch(() => []),
+          api.listApplications().catch(() => ({ pending: [], active: [], archived: [] })),
         ]);
         setFiles(detail.files || []);
         setAnswers(extractAnswers(detail.student?.data));
         setResumes(normalizeStaffResumes(detail.resumes));
         setRequiredDocs(reqDocs);
+        const allApps = [...(appsData.pending || []), ...(appsData.active || [])];
+        setMyApplications(allApps.filter((a) => a.student_id === studentId));
       } else {
-        const [fileList, record, resumeList, reqDocs] = await Promise.all([
+        const [fileList, record, resumeList, reqDocs, apps] = await Promise.all([
           listMyFiles(),
           loadRecord().catch(() => ({ data: {} })),
           listResumes().catch(() => []),
           api.listMyRequiredDocs().catch(() => []),
+          api.listMyApplications().catch(() => []),
         ]);
         setFiles(fileList);
         setAnswers(extractAnswers(record?.data));
         setResumes(resumeList);
         setRequiredDocs(reqDocs);
+        setMyApplications(apps);
       }
       setError(null);
     } catch (e) {
@@ -197,6 +203,22 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           </div>
         </section>
 
+        {/* Application status — read-only view of the student's school
+            applications managed by their counsellor. */}
+        {myApplications && myApplications.length > 0 && (
+          <section className="mt-10">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Application status</h2>
+            <p className="mt-1 text-xs text-stone-500">
+              Your school applications as tracked by your counsellor.
+            </p>
+            <div className="mt-3 space-y-2">
+              {myApplications.map((app) => (
+                <ApplicationStatusRow key={app.id} app={app} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Required documents — LOR / Internship / SOP lifecycle.
             Renders only when the student has at least one row (created
             on intake completion). Staff-preview view is read-only;
@@ -238,6 +260,63 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
 // ============================================================
 // Sub-components
 // ============================================================
+
+// ============================================================
+// ApplicationStatusRow — read-only card for one application.
+// Colors mirror the operator's xlsx palette from ApplicationsPanel.jsx.
+// ============================================================
+const APP_STATUS_META = {
+  active:    { label: "Active",                swatch: "#00FF00", tone: "#1c1917" },
+  submitted: { label: "Application submitted", swatch: "#93C47D", tone: "#1c1917" },
+  offer:     { label: "Offer received",        swatch: "#6AA84F", tone: "#ffffff" },
+  ongoing:   { label: "Ongoing",               swatch: "#F5F5F0", tone: "#1c1917", border: "#d6d3d1" },
+  on_hold:   { label: "On hold",               swatch: "#FF9900", tone: "#1c1917" },
+  cancelled: { label: "Cancelled",             swatch: "#FF0000", tone: "#ffffff" },
+};
+
+function fmtAppDate(d) {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  catch { return d; }
+}
+
+function ApplicationStatusRow({ app }) {
+  const meta = APP_STATUS_META[app.status] || { label: app.status || "—", swatch: "#E7E5E4", tone: "#1c1917" };
+  const isPending = app.pending;
+  return (
+    <div className="flex items-center gap-3 border border-stone-900/10 bg-white px-4 py-3">
+      {/* Status swatch */}
+      <span
+        className="shrink-0 rounded-sm px-2 py-0.5 text-xs font-medium"
+        style={{
+          background: meta.swatch,
+          color: meta.tone,
+          border: meta.border ? `1px solid ${meta.border}` : undefined,
+        }}
+      >
+        {isPending ? "Awaiting review" : meta.label}
+      </span>
+
+      {/* School info */}
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-medium text-stone-800 truncate">{app.university}</span>
+        {app.program && (
+          <span className="ml-2 text-xs text-stone-500 truncate">{app.program}</span>
+        )}
+        {app.country && (
+          <span className="ml-2 text-xs text-stone-400">{app.country}</span>
+        )}
+      </div>
+
+      {/* Deadline */}
+      {app.deadline && !isPending && (
+        <span className="shrink-0 text-xs text-stone-500">
+          Deadline: {fmtAppDate(app.deadline)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 // ============================================================
 // RequiredDocRow — one row per LOR / Internship / SOP item.

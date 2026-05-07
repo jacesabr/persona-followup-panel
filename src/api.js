@@ -206,6 +206,8 @@ export const api = {
   // IELTS-tracking archive (independent of full-student is_archived).
   // Used by the IELTS panel to mirror the lead-sheet archive UX —
   // hides the row from the active list, surfaces it under "Archived".
+  // Student: read own non-archived applications (status + deadline, no notes).
+  listMyApplications: () => request("GET", "/api/applications/me"),
   archiveStudentIelts: (studentId) =>
     request("POST", `/api/students/${studentId}/ielts-archive`),
   unarchiveStudentIelts: (studentId) =>

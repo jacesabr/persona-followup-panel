@@ -202,7 +202,8 @@ app.use("/api/leads", requireAuth, requireStaff, autoAudit("leads"), leadsRouter
 app.use("/api/counsellors", requireAuth, requireStaff, autoAudit("counsellors"), counsellorsRouter);
 app.use("/api/tasks", requireAuth, requireStaff, autoAudit("counsellor_tasks"), tasksRouter);
 app.use("/api/students", requireAuth, studentsRouter);
-app.use("/api/applications", requireAuth, requireStaff, autoAudit("intake_applications"), applicationsRouter);
+// Applications router carries both staff and student (/me) handlers.
+app.use("/api/applications", requireAuth, autoAudit("intake_applications"), applicationsRouter);
 // Required-docs router carries BOTH staff and student handlers, so it
 // can't be gated by requireStaff at the mount point — each handler
 // calls requireStaff or requireStudent itself. Audit wrapper still
