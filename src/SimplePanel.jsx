@@ -192,7 +192,11 @@ export default function SimplePanel({
         <ApplicationsPanel role={role} />
       )}
       {tab === "documents" && (
-        <RequiredDocsPanel role={role} />
+        <RequiredDocsPanel
+          role={role}
+          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewTasks={() => setTab("tasks")}
+        />
       )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin

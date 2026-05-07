@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2, AlertCircle, CheckCircle2, Clock,
-  Send, Save, Check, ChevronDown,
+  Send, Save, Check, ChevronDown, ExternalLink, ClipboardList,
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -92,7 +92,7 @@ function AutoTextarea({ value, onChange, placeholder, minRows = 4, className = "
 
 // ─── main panel ────────────────────────────────────────────────────────────
 
-export default function RequiredDocsPanel({ role }) {
+export default function RequiredDocsPanel({ role, onViewStudent, onViewTasks }) {
   const [students,   setStudents]   = useState(null);
   const [err,        setErr]        = useState(null);
   const [docsMap,    setDocsMap]    = useState({});   // { studentId: doc[] }
@@ -230,33 +230,70 @@ export default function RequiredDocsPanel({ role }) {
           <div key={sid} className="border border-stone-300 bg-white">
 
             {/* ── Student header ─────────────────────────── */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50 px-5 py-3">
-              <div className="flex items-center gap-3">
-                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
-                <span className="text-base font-bold text-stone-900">{name}</span>
-                <span className="text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">
-                  {OVERALL_LABEL[status]}
-                </span>
-                {!docs && <Loader2 className="h-3.5 w-3.5 animate-spin text-stone-400" />}
+            <div className="border-b border-stone-300 bg-[#fdf8f4] px-5 py-4">
+              {/* Top row: name + status + send button */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
+                  <span className="text-lg font-bold text-stone-900">{name}</span>
+                  <span className="rounded border border-[#cc785c]/40 bg-[#cc785c]/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.15em] text-[#cc785c]">
+                    {OVERALL_LABEL[status]}
+                  </span>
+                  {!docs && <Loader2 className="h-3.5 w-3.5 animate-spin text-stone-400" />}
+                </div>
+
+                {(lors.length > 0 || interns.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => sendBulk(sid, name)}
+                    disabled={!allLIDone || !anyLIPending || !!bulkBusy[sid]}
+                    className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-1.5 text-xs uppercase tracking-[0.15em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {bulkBusy[sid] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    {bulkBusy[sid] ? "Sending…" : "Send requests"}
+                  </button>
+                )}
               </div>
 
-              {(lors.length > 0 || interns.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => sendBulk(sid, name)}
-                  disabled={!allLIDone || !anyLIPending || !!bulkBusy[sid]}
-                  className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-4 py-1.5 text-xs uppercase tracking-[0.15em] text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  {bulkBusy[sid] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  {bulkBusy[sid] ? "Sending…" : "Send requests"}
-                </button>
-              )}
+              {/* Bottom row: counsellor + quick links */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-4">
+                {student.counsellor_name && (
+                  <span className="text-sm text-stone-700">
+                    <span className="font-semibold text-stone-500 uppercase tracking-wide text-[11px]">Counsellor: </span>
+                    <span className="font-semibold text-stone-900">{student.counsellor_name}</span>
+                  </span>
+                )}
+                {!student.counsellor_name && (
+                  <span className="text-xs italic text-stone-400">No counsellor assigned</span>
+                )}
+
+                <div className="ml-auto flex items-center gap-2">
+                  {onViewStudent && (
+                    <button
+                      type="button"
+                      onClick={() => onViewStudent(sid)}
+                      className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                    >
+                      <ExternalLink className="h-3 w-3" /> View profile
+                    </button>
+                  )}
+                  {onViewTasks && (
+                    <button
+                      type="button"
+                      onClick={() => onViewTasks(sid)}
+                      className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                    >
+                      <ClipboardList className="h-3 w-3" /> View tasks
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* ── Column headers ─────────────────────────── */}
             {docs && docs.length > 0 && (
               <div
-                className="grid items-center border-b border-stone-200 bg-stone-50/60 px-5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500"
+                className="grid items-center border-b border-stone-200 bg-stone-100 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-stone-700"
                 style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
               >
                 <span>Document</span>

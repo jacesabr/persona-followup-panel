@@ -82,14 +82,15 @@ export default function App() {
       .then((me) => {
         if (cancelled) return;
         if (me.user_kind === "admin") {
-          setSession({ role: "admin" });
+          setSession({ role: "admin", displayName: "Admin" });
         } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
-          setSession({ role: "counsellor", counsellorId: me.counsellor.id });
+          setSession({ role: "counsellor", counsellorId: me.counsellor.id, displayName: me.counsellor.name || "Counsellor" });
         } else if (me.user_kind === "student" && me.student?.student_id) {
           setSession({
             role: "student",
             studentId: me.student.student_id,
             studentName: me.student.display_name || me.student.username,
+            displayName: me.student.display_name || me.student.username,
           });
         } else {
           setSession(null);
@@ -122,9 +123,9 @@ export default function App() {
     try {
       const out = await api.login(username, password);
       if (out.user_kind === "admin") {
-        setSession({ role: "admin" });
+        setSession({ role: "admin", displayName: "Admin" });
       } else if (out.user_kind === "counsellor") {
-        setSession({ role: "counsellor", counsellorId: out.counsellor.id });
+        setSession({ role: "counsellor", counsellorId: out.counsellor.id, displayName: out.counsellor.name || "Counsellor" });
       } else if (out.user_kind === "student") {
         setSession({
           role: "student",
@@ -201,7 +202,7 @@ export default function App() {
     return (
       <>
         <VersionBanner />
-        <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
+        <Frame onSignOut={onSignOut} displayName={staffName} roleLabel="Counsellor">
           <BackToAdminBanner staffName={staffName} onExit={() => setImpersonating(null)} />
           <SimplePanel
             role="counsellor"
@@ -216,7 +217,7 @@ export default function App() {
     return (
       <>
         <VersionBanner />
-        <Frame onSignOut={onSignOut} viewLabel="Admin followup dashboard view">
+        <Frame onSignOut={onSignOut} displayName={session.displayName || "Admin"} roleLabel="Admin">
           <AdminPanel
             onImpersonate={(counsellorId) => setImpersonating({ counsellorId })}
           />
@@ -229,7 +230,7 @@ export default function App() {
   return (
     <>
       <VersionBanner />
-      <Frame onSignOut={onSignOut} viewLabel="Counsellor view">
+      <Frame onSignOut={onSignOut} displayName={session.displayName || "Counsellor"} roleLabel="Counsellor">
         <SimplePanel
           role="counsellor"
           scopedCounsellorId={session.counsellorId}
@@ -239,23 +240,29 @@ export default function App() {
   );
 }
 
-function Frame({ children, onSignOut, viewLabel }) {
+function Frame({ children, onSignOut, displayName, roleLabel }) {
+  const article = roleLabel === "Admin" ? "an" : "a";
   return (
     <div
       className="min-h-screen w-full font-serif text-stone-900"
       style={{ backgroundColor: "#faf9f5" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-10">
-        <header className="mb-10 flex items-center border-b border-stone-300 pb-4">
-          <div className="flex flex-1 items-baseline gap-3">
+        <header className="mb-10 flex items-start border-b border-stone-300 pb-4">
+          <div className="flex flex-1 flex-col gap-0.5">
             <span className="text-2xl font-semibold tracking-tight">Persona</span>
-            {viewLabel && (
-              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
-                · {viewLabel}
+            {displayName && (
+              <span className="text-sm text-stone-700">
+                Welcome,{" "}
+                <span className="font-bold text-stone-900">{displayName}</span>
+                {" · "}
+                <span className="text-[#cc785c]">
+                  you are {article} <span className="font-semibold">{roleLabel}</span> at Persona
+                </span>
               </span>
             )}
           </div>
-          <div className="flex flex-1 items-center justify-end gap-5">
+          <div className="flex items-center gap-5 pt-1">
             <LiveClock />
             <button
               onClick={onSignOut}
