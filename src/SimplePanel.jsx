@@ -5,6 +5,7 @@ import CounsellorAdmin from "./CounsellorAdmin.jsx";
 import StudentsAdmin from "./StudentsAdmin.jsx";
 import IeltsPanel from "./IeltsPanel.jsx";
 import ApplicationsPanel from "./ApplicationsPanel.jsx";
+import RequiredDocsPanel from "./RequiredDocsPanel.jsx";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
 
@@ -14,7 +15,7 @@ function loadTab(role) {
   if (typeof window === "undefined") return "followup";
   try {
     const t = sessionStorage.getItem(TAB_KEY);
-    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications") return t;
+    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents") return t;
     if (t === "counsellors" && role === "admin") return t;
   } catch {
     /* ignore */
@@ -114,6 +115,11 @@ export default function SimplePanel({
             active={tab === "applications"}
             onClick={() => setTab("applications")}
           />
+          <FolderTab
+            label="Student Document To Process"
+            active={tab === "documents"}
+            onClick={() => setTab("documents")}
+          />
           {role === "admin" && (
             /* Admin-only tab: list every counsellor + create new ones
                (with username/password) without diving into the Old
@@ -158,6 +164,9 @@ export default function SimplePanel({
       )}
       {tab === "applications" && (
         <ApplicationsPanel role={role} />
+      )}
+      {tab === "documents" && (
+        <RequiredDocsPanel role={role} />
       )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin
