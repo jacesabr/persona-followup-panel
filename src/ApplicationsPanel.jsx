@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus } from "lucide-react";
+import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus, ArrowUpDown } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
@@ -39,6 +39,7 @@ export default function ApplicationsPanel({ role = "admin" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState("");
+  const [sortBy, setSortBy] = useState("urgency"); // urgency | student | status | university
   const [reviewing, setReviewing] = useState(null); // pending row being reviewed in the modal
   const [creating, setCreating] = useState(false); // "+ New application" modal
 
@@ -76,8 +77,31 @@ export default function ApplicationsPanel({ role = "admin" }) {
     });
   };
   const pending  = useMemo(() => filterRows(data.pending),  [data.pending,  filter]);
-  const active   = useMemo(() => filterRows(data.active),   [data.active,   filter]);
   const archived = useMemo(() => filterRows(data.archived), [data.archived, filter]);
+
+  const active = useMemo(() => {
+    const rows = filterRows(data.active);
+    const sorted = [...rows];
+    switch (sortBy) {
+      case "urgency":
+        return sorted.sort((a, b) => {
+          if (!a.deadline && !b.deadline) return 0;
+          if (!a.deadline) return 1;
+          if (!b.deadline) return -1;
+          return new Date(a.deadline) - new Date(b.deadline);
+        });
+      case "student":
+        return sorted.sort((a, b) =>
+          (a.student_name || a.student_username || "").localeCompare(b.student_name || b.student_username || ""));
+      case "status":
+        return sorted.sort((a, b) =>
+          STATUS_KEYS.indexOf(a.status) - STATUS_KEYS.indexOf(b.status));
+      case "university":
+        return sorted.sort((a, b) => (a.university || "").localeCompare(b.university || ""));
+      default:
+        return sorted;
+    }
+  }, [data.active, filter, sortBy]);
 
   const onPatch = async (id, patch) => {
     // Optimistic: update local state immediately, snap back on error.
@@ -142,7 +166,7 @@ export default function ApplicationsPanel({ role = "admin" }) {
   }
 
   // 8 cols: status · student · country · university · program · deadline · notes · actions
-  const gridCols = "9rem 1.4fr 0.6fr 1.4fr 1.2fr 6rem 1fr 5.5rem";
+  const gridCols = "10rem 1.4fr 0.65fr 1.4fr 1.1fr 10rem 1fr 6rem";
 
   return (
     <>
@@ -202,9 +226,33 @@ export default function ApplicationsPanel({ role = "admin" }) {
         </div>
       )}
 
+      {/* Sort toolbar */}
+      <div className="mb-2 flex items-center gap-2">
+        <ArrowUpDown className="h-3.5 w-3.5 text-stone-400" />
+        <span className="text-[11px] uppercase tracking-[0.15em] text-stone-500">Sort:</span>
+        {[
+          { key: "urgency",    label: "Urgency" },
+          { key: "student",    label: "Student" },
+          { key: "status",     label: "Status" },
+          { key: "university", label: "University" },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setSortBy(key)}
+            className={`border px-2.5 py-1 text-[11px] uppercase tracking-[0.12em] transition ${
+              sortBy === key
+                ? "border-stone-900 bg-stone-900 text-white"
+                : "border-stone-300 bg-white text-stone-600 hover:border-stone-500"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-stone-700"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span>Status</span>
@@ -320,15 +368,15 @@ function ActiveRow({ row, gridCols, onPatch, onArchive }) {
 
   return (
     <div
-      className="grid items-center gap-2 border-b border-stone-200 px-3 py-2 text-[13px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+      className="grid items-center gap-2 border-b border-stone-200 px-3 py-3 text-sm text-stone-800 last:border-b-0 hover:bg-stone-50"
       style={{ gridTemplateColumns: gridCols }}
     >
       <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
       <StudentCell row={row} />
 
-      <span className="truncate text-[12px] text-stone-700">{row.country || "—"}</span>
-      <span className="truncate">{row.university}</span>
-      <span className="truncate text-[12px] text-stone-700">{row.program || "—"}</span>
+      <span className="truncate text-sm text-stone-700">{row.country || "—"}</span>
+      <span className="truncate font-medium">{row.university}</span>
+      <span className="truncate text-sm text-stone-700">{row.program || "—"}</span>
       <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
       <NotesCell
         editing={editingNotes}
@@ -341,9 +389,9 @@ function ActiveRow({ row, gridCols, onPatch, onArchive }) {
       <button
         onClick={onArchive}
         title="Archive this application"
-        className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700"
+        className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-2 py-1 text-xs uppercase tracking-[0.12em] text-stone-700 hover:border-stone-700"
       >
-        <Archive className="h-3 w-3" /> Archive
+        <Archive className="h-3.5 w-3.5" /> Archive
       </button>
     </div>
   );
@@ -353,13 +401,13 @@ function StudentCell({ row }) {
   const linked = !!row.student_id;
   return (
     <span className="min-w-0 flex items-center gap-1.5 truncate">
-      <span className="font-semibold truncate">
+      <span className="text-sm font-bold truncate text-stone-900">
         {row.student_name || row.student_username || "—"}
       </span>
       {!linked && (
         <span
           title="Unlinked: this application has no intake account yet"
-          className="shrink-0 border border-stone-400 bg-stone-100 px-1 py-px text-[9px] font-semibold uppercase tracking-[0.1em] text-stone-600"
+          className="shrink-0 border border-stone-400 bg-stone-100 px-1 py-px text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-600"
         >
           Unlinked
         </span>
@@ -411,14 +459,44 @@ function StatusDropdown({ value, onChange }) {
 }
 
 function DeadlineCell({ value, onChange }) {
-  // ISO-string-or-null going in; <input type="date"> wants YYYY-MM-DD.
   const isoDate = value ? String(value).slice(0, 10) : "";
+  const [editing, setEditing] = useState(false);
+
+  // When a deadline is set: show formatted plain text + 📅 to switch to edit
+  if (value && !editing) {
+    const date = new Date(value);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const daysLeft = Math.round((date - today) / 86400000);
+    const urgent = daysLeft >= 0 && daysLeft <= 7;
+    const overdue = daysLeft < 0;
+    return (
+      <span className="flex items-center gap-1.5 group">
+        <span className={`text-sm font-bold tabular-nums ${overdue ? "text-red-700" : urgent ? "text-amber-700" : "text-stone-900"}`}>
+          {fmtDate(value)}
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          title="Change deadline"
+          className="text-base leading-none opacity-40 hover:opacity-90 transition-opacity"
+        >
+          📅
+        </button>
+      </span>
+    );
+  }
+
   return (
     <input
       type="date"
       value={isoDate}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full border border-stone-300 bg-transparent px-1 py-0.5 text-[11px] tabular-nums text-stone-700 hover:border-stone-500 focus:border-[#cc785c] focus:outline-none"
+      autoFocus={editing}
+      onChange={(e) => {
+        onChange(e.target.value || null);
+        setEditing(false);
+      }}
+      onBlur={() => setEditing(false)}
+      className="w-full border border-stone-300 bg-transparent px-1 py-0.5 text-sm tabular-nums text-stone-700 hover:border-stone-500 focus:border-[#cc785c] focus:outline-none"
     />
   );
 }
@@ -436,7 +514,7 @@ function NotesCell({ editing, value, onEdit, onChangeDraft, onSave, onCancel }) 
             if (e.key === "Escape") onCancel();
           }}
           autoFocus
-          className="min-w-0 flex-1 border border-[#cc785c] bg-white px-1 py-0.5 text-[12px] outline-none"
+          className="min-w-0 flex-1 border border-[#cc785c] bg-white px-1 py-0.5 text-sm outline-none"
         />
         <button onClick={onSave} className="text-emerald-700 hover:text-emerald-900">
           <Check className="h-3.5 w-3.5" />
@@ -450,7 +528,7 @@ function NotesCell({ editing, value, onEdit, onChangeDraft, onSave, onCancel }) 
   return (
     <button
       onClick={onEdit}
-      className="min-w-0 truncate text-left text-[12px] text-stone-600 hover:text-stone-900"
+      className="min-w-0 truncate text-left text-sm text-stone-600 hover:text-stone-900"
       title="Click to edit notes"
     >
       {value ? value : <span className="italic text-stone-400">add notes…</span>}
