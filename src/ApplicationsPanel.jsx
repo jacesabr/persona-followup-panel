@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus, ArrowUpDown } from "lucide-react";
+import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus, ArrowUpDown, ExternalLink, ClipboardList } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
@@ -33,7 +33,7 @@ function fmtDate(d) {
   } catch { return d; }
 }
 
-export default function ApplicationsPanel({ role = "admin" }) {
+export default function ApplicationsPanel({ role = "admin", counsellors = [], onViewStudent, onViewTasks }) {
   const [data, setData] = useState({ pending: [], active: [], archived: [] });
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -151,7 +151,15 @@ export default function ApplicationsPanel({ role = "admin" }) {
 
   const onPromote = async (id, extras) => {
     try {
-      await api.promoteApplication(id, extras || {});
+      // university + student_name aren't accepted by the promote endpoint — patch them first
+      const { university, student_name, ...promoteFields } = extras || {};
+      if (university !== undefined || student_name !== undefined) {
+        await api.updateApplication(id, {
+          ...(university    !== undefined ? { university }    : {}),
+          ...(student_name  !== undefined ? { student_name }  : {}),
+        });
+      }
+      await api.promoteApplication(id, promoteFields);
       setReviewing(null);
       await refresh();
     } catch (e) {
@@ -308,8 +316,13 @@ export default function ApplicationsPanel({ role = "admin" }) {
       {reviewing && (
         <ReviewModal
           row={reviewing}
+          students={students}
+          counsellors={counsellors}
+          role={role}
           onClose={() => setReviewing(null)}
           onPromote={(extras) => onPromote(reviewing.id, extras)}
+          onViewStudent={onViewStudent}
+          onViewTasks={onViewTasks}
         />
       )}
 
@@ -324,9 +337,15 @@ export default function ApplicationsPanel({ role = "admin" }) {
       {detailRow && (
         <ApplicationDetailModal
           row={detailRow}
+          students={students}
+          counsellors={counsellors}
+          role={role}
           onClose={() => setDetailRow(null)}
           onSave={(patch) => onDetailSave(detailRow.id, patch)}
           onArchive={() => onArchive(detailRow.id)}
+          onViewStudent={onViewStudent}
+          onViewTasks={onViewTasks}
+          onCounsellorAssigned={() => { setDetailRow(null); refresh(); }}
         />
       )}
     </>
@@ -538,7 +557,7 @@ function ArchivedRow({ row, onUnarchive }) {
   );
 }
 
-function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
+function ApplicationDetailModal({ row, students, counsellors, role, onClose, onSave, onArchive, onViewStudent, onViewTasks, onCounsellorAssigned }) {
   const [status,       setStatus]       = useState(row.status || "active");
   const [deadline,     setDeadline]     = useState(row.deadline ? String(row.deadline).slice(0, 10) : "");
   const [country,      setCountry]      = useState(row.country || "");
@@ -548,6 +567,27 @@ function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
   const [notes,        setNotes]        = useState(row.notes || "");
   const [busy,         setBusy]         = useState(false);
   const [localErr,     setLocalErr]     = useState(null);
+
+  // Counsellor assign (admin only, linked students only)
+  const linkedStudent   = students.find(s => s.student_id === row.student_id);
+  const currentCounsellorId   = linkedStudent?.counsellor_id || null;
+  const currentCounsellorName = counsellors.find(c => c.id === currentCounsellorId)?.name;
+  const [assignCounsellor, setAssignCounsellor] = useState(currentCounsellorId || "");
+  const [assignBusy,       setAssignBusy]       = useState(false);
+  const counsellorChanged = assignCounsellor !== (currentCounsellorId || "");
+
+  const saveCounsellor = async () => {
+    if (!row.student_id) return;
+    setAssignBusy(true);
+    try {
+      await api.assignStudentCounsellor(row.student_id, assignCounsellor || null);
+      onCounsellorAssigned?.();
+    } catch (e) {
+      setLocalErr(e.message);
+    } finally {
+      setAssignBusy(false);
+    }
+  };
 
   const meta = metaFor(status);
 
@@ -572,39 +612,28 @@ function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
     }
   };
 
-  // Close on backdrop click
   const onBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
-
   const studentLabel = row.student_name || row.student_username || "—";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={onBackdrop}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onBackdrop}>
       <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto border border-stone-300 bg-[#faf9f5] shadow-xl">
+
         {/* Header */}
         <div className="border-b border-stone-300 px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`shrink-0 border border-stone-400 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`}
-                  style={{ backgroundColor: meta.swatch }}
-                >
+                <span className={`shrink-0 border border-stone-400 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`} style={{ backgroundColor: meta.swatch }}>
                   {meta.label}
                 </span>
                 {!row.student_id && (
-                  <span className="shrink-0 border border-stone-400 bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-600">
-                    Unlinked
-                  </span>
+                  <span className="shrink-0 border border-stone-400 bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-600">Unlinked</span>
                 )}
               </div>
               <h3 className="mt-2 text-xl font-bold text-stone-900">{studentLabel}</h3>
               <p className="text-sm text-stone-500">
-                {row.university}
-                {row.program ? ` · ${row.program}` : ""}
-                {row.country ? ` · ${row.country}` : ""}
+                {row.university}{row.program ? ` · ${row.program}` : ""}{row.country ? ` · ${row.country}` : ""}
               </p>
             </div>
             <button onClick={onClose} className="shrink-0 text-stone-400 hover:text-stone-900" aria-label="Close">
@@ -613,42 +642,89 @@ function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
           </div>
         </div>
 
-        {/* Body */}
+        {/* Quick-action bar — only for linked students */}
+        {row.student_id && (
+          <div className="border-b border-stone-200 bg-stone-50 px-5 py-3 space-y-3">
+            {/* View buttons */}
+            <div className="flex flex-wrap gap-2">
+              {onViewStudent && (
+                <button
+                  type="button"
+                  onClick={() => { onClose(); onViewStudent(row.student_id); }}
+                  className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> View student profile
+                </button>
+              )}
+              {onViewTasks && (
+                <button
+                  type="button"
+                  onClick={() => { onClose(); onViewTasks(); }}
+                  className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition"
+                >
+                  <ClipboardList className="h-3.5 w-3.5" /> View tasks for this student
+                </button>
+              )}
+            </div>
+
+            {/* Counsellor row */}
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-stone-500 font-medium">Counsellor:</span>
+              {currentCounsellorName
+                ? <span className="font-semibold text-stone-900">{currentCounsellorName}</span>
+                : <span className="font-semibold text-stone-400">None assigned</span>
+              }
+              {role === "admin" && counsellors.length > 0 && (
+                <>
+                  <select
+                    value={assignCounsellor}
+                    onChange={e => setAssignCounsellor(e.target.value)}
+                    className="border border-stone-300 bg-white px-2 py-1 text-xs text-stone-900 focus:border-[#cc785c] focus:outline-none"
+                  >
+                    <option value="">— Assign —</option>
+                    {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  {counsellorChanged && (
+                    <button
+                      type="button"
+                      onClick={saveCounsellor}
+                      disabled={assignBusy}
+                      className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                    >
+                      {assignBusy && <Loader2 className="h-3 w-3 animate-spin" />} Save
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Edit fields */}
         <div className="space-y-4 px-5 py-4 text-[13px]">
-          {localErr && (
-            <div className="border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-800">{localErr}</div>
-          )}
+          {localErr && <div className="border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-800">{localErr}</div>}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none"
-              >
-                {STATUS_KEYS.map((k) => (
-                  <option key={k} value={k}>{STATUS_META[k].label}</option>
-                ))}
+              <select value={status} onChange={e => setStatus(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none">
+                {STATUS_KEYS.map(k => <option key={k} value={k}>{STATUS_META[k].label}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Deadline</label>
-              <input
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="w-full border border-stone-300 bg-white px-2 py-1.5 tabular-nums focus:border-[#cc785c] focus:outline-none"
-              />
+              <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 tabular-nums focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">University *</label>
-              <input type="text" value={university} onChange={(e) => setUniversity(e.target.value)}
+              <input type="text" value={university} onChange={e => setUniversity(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Country</label>
-              <input type="text" value={country} onChange={(e) => setCountry(e.target.value)}
+              <input type="text" value={country} onChange={e => setCountry(e.target.value)}
                 placeholder="e.g. India, UK, USA"
                 className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
             </div>
@@ -656,53 +732,37 @@ function ApplicationDetailModal({ row, onClose, onSave, onArchive }) {
 
           <div>
             <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Program</label>
-            <input type="text" value={program} onChange={(e) => setProgram(e.target.value)}
+            <input type="text" value={program} onChange={e => setProgram(e.target.value)}
               className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
           </div>
-
           <div>
             <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Requirements</label>
-            <textarea
-              rows={3} value={requirements} onChange={(e) => setRequirements(e.target.value)}
+            <textarea rows={3} value={requirements} onChange={e => setRequirements(e.target.value)}
               placeholder="SOP, portfolio, recommendations…"
-              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none"
-            />
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
-
           <div>
             <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Notes</label>
-            <textarea
-              rows={5} value={notes} onChange={(e) => setNotes(e.target.value)}
+            <textarea rows={5} value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Any notes about this application…"
-              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none"
-            />
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-stone-300 px-5 py-3">
-          <button
-            onClick={onArchive}
-            disabled={busy}
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600 hover:border-red-400 hover:text-red-600 disabled:opacity-50"
-          >
+          <button onClick={onArchive} disabled={busy}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600 hover:border-red-400 hover:text-red-600 disabled:opacity-50">
             <Archive className="h-3.5 w-3.5" /> Archive
           </button>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              disabled={busy}
-              className="border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50"
-            >
+            <button onClick={onClose} disabled={busy}
+              className="border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50">
               Cancel
             </button>
-            <button
-              onClick={save}
-              disabled={busy}
-              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
-            >
-              {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-              Save
+            <button onClick={save} disabled={busy}
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+              {busy && <Loader2 className="h-3 w-3 animate-spin" />} Save
             </button>
           </div>
         </div>
@@ -958,100 +1018,186 @@ function CreateModal({ students, onClose, onCreate }) {
   );
 }
 
-function ReviewModal({ row, onClose, onPromote }) {
-  const [deadline, setDeadline] = useState(row.deadline ? String(row.deadline).slice(0, 10) : "");
+function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onViewStudent, onViewTasks }) {
+  const [studentName,  setStudentName]  = useState(row.student_name || "");
+  const [university,   setUniversity]   = useState(row.university || "");
+  const [country,      setCountry]      = useState(row.country || "");
+  const [program,      setProgram]      = useState(row.program || "");
+  const [status,       setStatus]       = useState(row.status || "active");
+  const [deadline,     setDeadline]     = useState(row.deadline ? String(row.deadline).slice(0, 10) : "");
   const [requirements, setRequirements] = useState(row.requirements || "");
-  const [notes, setNotes] = useState(row.notes || "");
-  const [busy, setBusy] = useState(false);
+  const [notes,        setNotes]        = useState(row.notes || "");
+  const [busy,         setBusy]         = useState(false);
+  const [localErr,     setLocalErr]     = useState(null);
+
+  // Counsellor assign (admin only, linked students only)
+  const linkedStudent         = students.find(s => s.student_id === row.student_id);
+  const currentCounsellorId   = linkedStudent?.counsellor_id || null;
+  const currentCounsellorName = counsellors.find(c => c.id === currentCounsellorId)?.name;
+  const [assignCounsellor, setAssignCounsellor] = useState(currentCounsellorId || "");
+  const [assignBusy,       setAssignBusy]       = useState(false);
+  const counsellorChanged = assignCounsellor !== (currentCounsellorId || "");
+
+  const saveCounsellor = async () => {
+    if (!row.student_id) return;
+    setAssignBusy(true);
+    try {
+      await api.assignStudentCounsellor(row.student_id, assignCounsellor || null);
+    } catch (e) {
+      setLocalErr(e.message);
+    } finally {
+      setAssignBusy(false);
+    }
+  };
 
   const submit = async () => {
+    if (!university.trim()) { setLocalErr("University is required."); return; }
     setBusy(true);
+    setLocalErr(null);
     try {
       await onPromote({
-        deadline: deadline || null,
-        requirements: requirements || null,
-        notes: notes || null,
+        student_name: !row.student_id ? (studentName.trim() || null) : undefined,
+        university:   university.trim(),
+        country:      country.trim() || null,
+        program:      program.trim() || null,
+        status,
+        deadline:     deadline || null,
+        requirements: requirements.trim() || null,
+        notes:        notes.trim() || null,
       });
+    } catch (e) {
+      setLocalErr(e.message);
     } finally {
       setBusy(false);
     }
   };
 
+  const onBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-lg border border-stone-300 bg-[#faf9f5] shadow-xl">
-        <div className="flex items-center justify-between border-b border-stone-300 px-4 py-3">
-          <h3 className="text-sm font-semibold tracking-tight">
-            Review &amp; push to active workflow
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-stone-500 hover:text-stone-900"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onBackdrop}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto border border-stone-300 bg-[#faf9f5] shadow-xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-stone-300 px-5 py-4">
+          <div>
+            <h3 className="text-base font-bold text-stone-900">Review application</h3>
+            <p className="text-xs text-stone-500">Fill in details, then push to active workflow</p>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-900" aria-label="Close">
+            <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="space-y-3 px-4 py-4 text-[13px]">
-          <div className="grid grid-cols-[8rem_1fr] gap-2">
-            <span className="text-stone-500">Student</span>
-            <span className="font-semibold">{row.student_name || row.student_username}</span>
-            <span className="text-stone-500">University</span>
-            <span>{row.university}</span>
-            {row.country && (<><span className="text-stone-500">Country</span><span>{row.country}</span></>)}
-            {row.program && (<><span className="text-stone-500">Program</span><span>{row.program}</span></>)}
+
+        {/* Quick-action bar — linked students only */}
+        {row.student_id && (
+          <div className="border-b border-stone-200 bg-stone-50 px-5 py-3 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {onViewStudent && (
+                <button type="button" onClick={() => { onClose(); onViewStudent(row.student_id); }}
+                  className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  <ExternalLink className="h-3.5 w-3.5" /> View student profile
+                </button>
+              )}
+              {onViewTasks && (
+                <button type="button" onClick={() => { onClose(); onViewTasks(); }}
+                  className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  <ClipboardList className="h-3.5 w-3.5" /> View tasks for this student
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-stone-500 font-medium">Counsellor:</span>
+              {currentCounsellorName
+                ? <span className="font-semibold text-stone-900">{currentCounsellorName}</span>
+                : <span className="font-semibold text-stone-400">None assigned</span>
+              }
+              {role === "admin" && counsellors.length > 0 && (
+                <>
+                  <select value={assignCounsellor} onChange={e => setAssignCounsellor(e.target.value)}
+                    className="border border-stone-300 bg-white px-2 py-1 text-xs focus:border-[#cc785c] focus:outline-none">
+                    <option value="">— Assign —</option>
+                    {counsellors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  {counsellorChanged && (
+                    <button type="button" onClick={saveCounsellor} disabled={assignBusy}
+                      className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+                      {assignBusy && <Loader2 className="h-3 w-3 animate-spin" />} Save
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Edit fields */}
+        <div className="space-y-3 px-5 py-4 text-[13px]">
+          {localErr && <div className="border border-red-300 bg-red-50 px-3 py-1.5 text-xs text-red-800">{localErr}</div>}
+
+          {/* Student name — only editable for unlinked rows */}
+          <div>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Student</label>
+            {row.student_id
+              ? <p className="px-2 py-1.5 text-[13px] font-semibold text-stone-900 border border-transparent">{row.student_name || row.student_username}</p>
+              : <input type="text" value={studentName} onChange={e => setStudentName(e.target.value)}
+                  className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            }
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">University *</label>
+              <input type="text" value={university} onChange={e => setUniversity(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Country</label>
+              <input type="text" value={country} onChange={e => setCountry(e.target.value)}
+                placeholder="e.g. India, UK, USA"
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Program</label>
+              <input type="text" value={program} onChange={e => setProgram(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)}
+                className="w-full border border-stone-300 bg-white px-2 py-1.5 focus:border-[#cc785c] focus:outline-none">
+                {STATUS_KEYS.map(k => <option key={k} value={k}>{STATUS_META[k].label}</option>)}
+              </select>
+            </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">
-              Deadline
-            </label>
-            <input
-              type="date"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              className="w-full border border-stone-300 bg-white px-2 py-1 text-[13px] tabular-nums focus:border-[#cc785c] focus:outline-none"
-            />
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Deadline</label>
+            <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 tabular-nums focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">
-              Requirements
-            </label>
-            <textarea
-              rows={2}
-              value={requirements}
-              onChange={(e) => setRequirements(e.target.value)}
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Requirements</label>
+            <textarea rows={2} value={requirements} onChange={e => setRequirements(e.target.value)}
               placeholder="SOP, portfolio, recommendations…"
-              className="w-full border border-stone-300 bg-white px-2 py-1 text-[13px] focus:border-[#cc785c] focus:outline-none"
-            />
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">
-              Notes
-            </label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full border border-stone-300 bg-white px-2 py-1 text-[13px] focus:border-[#cc785c] focus:outline-none"
-            />
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-500">Notes</label>
+            <textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)}
+              className="w-full border border-stone-300 bg-white px-2 py-1.5 font-serif text-sm leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-stone-300 px-4 py-3">
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className="border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50"
-          >
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 border-t border-stone-300 px-5 py-3">
+          <button onClick={onClose} disabled={busy}
+            className="border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50">
             Cancel
           </button>
-          <button
-            onClick={submit}
-            disabled={busy}
-            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
-          >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-            Push to active
+          <button onClick={submit} disabled={busy}
+            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+            {busy && <Loader2 className="h-3 w-3 animate-spin" />} Push to active
           </button>
         </div>
       </div>

@@ -189,7 +189,12 @@ export default function SimplePanel({
         />
       )}
       {tab === "applications" && (
-        <ApplicationsPanel role={role} />
+        <ApplicationsPanel
+          role={role}
+          counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
+          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewTasks={() => setTab("tasks")}
+        />
       )}
       {tab === "documents" && (
         <RequiredDocsPanel
