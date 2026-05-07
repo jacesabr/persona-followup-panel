@@ -232,9 +232,9 @@ export default function RequiredDocsPanel({ role }) {
             {/* ── Student header ─────────────────────────── */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-stone-50 px-5 py-3">
               <div className="flex items-center gap-3">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
-                <span className="font-semibold text-stone-900">{name}</span>
-                <span className="text-xs text-stone-400 uppercase tracking-wide">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
+                <span className="text-base font-bold text-stone-900">{name}</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">
                   {OVERALL_LABEL[status]}
                 </span>
                 {!docs && <Loader2 className="h-3.5 w-3.5 animate-spin text-stone-400" />}
@@ -252,6 +252,19 @@ export default function RequiredDocsPanel({ role }) {
                 </button>
               )}
             </div>
+
+            {/* ── Column headers ─────────────────────────── */}
+            {docs && docs.length > 0 && (
+              <div
+                className="grid items-center border-b border-stone-200 bg-stone-50/60 px-5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500"
+                style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
+              >
+                <span>Document</span>
+                <span>Date Submitted</span>
+                <span>Status</span>
+                <span />
+              </div>
+            )}
 
             {/* ── Document rows ──────────────────────────── */}
             {!docs ? (
@@ -274,22 +287,23 @@ export default function RequiredDocsPanel({ role }) {
                     <button
                       type="button"
                       onClick={() => toggleExpand(doc.id)}
-                      className="flex w-full items-center gap-4 px-5 py-3.5 text-left transition hover:bg-stone-50"
+                      className="grid w-full items-center px-5 py-4 text-left transition hover:bg-stone-50"
+                      style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
                     >
                       {/* Doc type */}
-                      <span className="min-w-[220px] text-sm font-medium text-stone-800">
+                      <span className="text-base font-semibold text-stone-900">
                         {heading}
                       </span>
 
                       {/* Date submitted */}
-                      <span className="text-xs text-stone-400">
+                      <span className="text-sm font-medium text-stone-700">
                         {humanDate(doc.created_at)}
                       </span>
 
                       {/* Status badge */}
-                      <span className={`ml-auto inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium ${cls}`}>
-                        {(doc.final_file_id || doc.approved_by_admin_at) && <CheckCircle2 className="h-3 w-3" />}
-                        {doc.requested_at && !doc.final_file_id          && <Clock         className="h-3 w-3" />}
+                      <span className={`inline-flex items-center gap-1.5 border px-2.5 py-1 text-xs font-semibold ${cls}`}>
+                        {(doc.final_file_id || doc.approved_by_admin_at) && <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {doc.requested_at && !doc.final_file_id          && <Clock         className="h-3.5 w-3.5" />}
                         {label}
                       </span>
 
