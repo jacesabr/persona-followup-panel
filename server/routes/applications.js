@@ -212,6 +212,15 @@ router.patch("/:id", requireStaff, express.json(), async (req, res, next) => {
     ];
     const sets = [];
     const params = [];
+    // student_id handled separately: positive int to link, null to unlink
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "student_id")) {
+      const sid = req.body.student_id;
+      if (sid !== null && !isPositiveInt(sid)) {
+        return res.status(400).json({ error: "invalid student_id" });
+      }
+      params.push(sid === null ? null : Number(sid));
+      sets.push(`student_id = $${params.length}`);
+    }
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
         const v = req.body[key];
