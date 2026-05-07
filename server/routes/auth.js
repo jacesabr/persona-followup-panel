@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { COUNSELLOR_PUBLIC_COLUMNS } from "./counsellors.js";
 import { hashPassword, isHashed, verifyHashed } from "../../lib/password.js";
 import { audit } from "../audit.js";
+import { getAdmins } from "../admins.js";
 
 // Static dummy scrypt hash used to equalize timing on the no-such-user
 // path. We always run a verifyHashed (~50ms) before responding 401, so
@@ -82,41 +83,12 @@ async function tryStudentLogin(username, password, res) {
   };
 }
 
-// Admin credentials live in env vars only — server refuses to start
-// (server/index.js) when ADMIN_USERNAME / ADMIN_PASSWORD are unset, so
-// reading them once at module load is safe. Rotate by changing env +
-// restarting; nothing in source.
-//
-// EXTRA_ADMINS is an optional JSON array of additional admin records:
-//   [{"username":"...","password":"..."}, ...]
-// Same role as the primary admin (full read across the system). Empty
-// or unset = primary admin only. Parse failures fall through to "no
-// extras" rather than crashing the boot.
-const ADMIN_USER = process.env.ADMIN_USERNAME.toLowerCase();
-const ADMIN_PASS = process.env.ADMIN_PASSWORD;
-
-function parseExtraAdmins(raw) {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((e) => e && typeof e.username === "string" && typeof e.password === "string")
-      .map((e) => ({ username: e.username.toLowerCase(), password: e.password }));
-  } catch {
-    console.error("[auth] EXTRA_ADMINS env var is not valid JSON; ignoring");
-    return [];
-  }
-}
-
-const ADMINS = [
-  { username: ADMIN_USER, password: ADMIN_PASS },
-  ...parseExtraAdmins(process.env.EXTRA_ADMINS),
-];
-
+// Admin credentials live in env vars only — see server/admins.js for
+// the shared parsing logic. getAdmins() is called at request time so
+// EXTRA_ADMINS changes take effect on restart without touching this file.
 function matchAdmin(typedUsername, typedPassword) {
   const u = typedUsername.toLowerCase();
-  for (const a of ADMINS) {
+  for (const a of getAdmins()) {
     if (u === a.username && safeStrEqual(typedPassword, a.password)) {
       return a;
     }

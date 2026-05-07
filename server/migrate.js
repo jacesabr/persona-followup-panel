@@ -475,6 +475,23 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
   ON intake_required_docs(deadline_at)
   WHERE requested_at IS NOT NULL AND final_file_id IS NULL;
 
+-- Counsellor supervision chain (one level deep). Himani.supervisor_id =
+-- Simran.id lets Simran view and assign tasks to Himani; Simran has NULL.
+-- ON DELETE SET NULL so removing a supervisor doesn't cascade to the report.
+ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS supervisor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
+
+-- Tasks can now be assigned to admin accounts, not just counsellors.
+--   assignee_kind: 'counsellor' (default, all legacy rows) or 'admin'.
+--   assignee_admin_username: the specific admin username (e.g. 'adminSuhas')
+--     when assignee_kind = 'admin'; NULL otherwise.
+--   creator_id / creator_kind: who created the task. Lets counsellors see
+--     back tasks they assigned to admin (only their own; admin tasks they
+--     didn't create stay invisible to them).
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_kind TEXT NOT NULL DEFAULT 'counsellor';
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_admin_username TEXT;
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_kind TEXT NOT NULL DEFAULT 'counsellor';
+
 -- Sessions: extend to allow user_kind='student' + carry student_id.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;
 -- Absolute upper bound on session lifetime independent of sliding window.

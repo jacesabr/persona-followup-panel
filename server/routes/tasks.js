@@ -1,6 +1,7 @@
 import express from "express";
 import pool from "../db.js";
 import { isValidYmd } from "../../lib/time.js";
+import { adminUsernameSet } from "../admins.js";
 
 const router = express.Router();
 
@@ -8,22 +9,24 @@ function isString(v) {
   return typeof v === "string";
 }
 
-// Per-task ownership gate. Admin always passes; counsellors only on
-// tasks they're either directly assigned to (assignee_id = self) OR
-// pinned to a student whose lead.counsellor_id is them. Mirrors the
-// client-side visibility filter so wire and UI agree.
+// Per-task ownership gate. Returns the task row on success, null on failure
+// (caller should return immediately when null). 404 instead of 403 so
+// a probe can't distinguish "not yours" from "doesn't exist".
 //
-// 404 (not 403) for non-owners so a poker can't probe ID space. Path
-// param is validated as digits-only here too — without that, a request
-// like /api/tasks/abc/archive would cast-error at the bigint layer
-// and surface as a 500.
+// Access rules:
+//   admin → always allowed
+//   counsellor on assignee_kind='admin' task → only the creator (creator_id = me)
+//   counsellor on assignee_kind='counsellor' task → assignee_id = me, OR
+//     lead.counsellor_id = me, OR the assignee is my direct subordinate
 async function checkTaskAccess(req, res, taskId) {
   if (!/^\d+$/.test(String(taskId))) {
     res.status(400).json({ error: "invalid task id" });
-    return false;
+    return null;
   }
   const { rows } = await pool.query(
-    `SELECT t.assignee_id, l.counsellor_id AS lead_counsellor_id
+    `SELECT t.assignee_id, t.assignee_kind, t.assignee_admin_username,
+            t.creator_id, t.creator_kind,
+            l.counsellor_id AS lead_counsellor_id
      FROM counsellor_tasks t
      LEFT JOIN leads l ON l.id = t.lead_id
      WHERE t.id = $1`,
@@ -31,29 +34,39 @@ async function checkTaskAccess(req, res, taskId) {
   );
   if (rows.length === 0) {
     res.status(404).json({ error: "task not found" });
-    return false;
+    return null;
   }
-  if (req.user?.kind === "admin") return true;
+  if (req.user?.kind === "admin") return rows[0];
+
   const me = req.user?.counsellorId;
-  if (rows[0].assignee_id !== me && rows[0].lead_counsellor_id !== me) {
+  const t = rows[0];
+
+  if (t.assignee_kind === "admin") {
+    // Counsellor can only access an admin-assigned task they themselves created
+    if (t.creator_id === me) return t;
     res.status(404).json({ error: "task not found" });
-    return false;
+    return null;
   }
-  return true;
+
+  // assignee_kind = 'counsellor'
+  if (t.assignee_id === me || t.lead_counsellor_id === me) return t;
+
+  // Check supervisor: can I see tasks assigned to my subordinates?
+  if (t.assignee_id) {
+    const { rows: sub } = await pool.query(
+      "SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2",
+      [t.assignee_id, me]
+    );
+    if (sub.length > 0) return t;
+  }
+
+  res.status(404).json({ error: "task not found" });
+  return null;
 }
 
-// Single source of truth for the joined SELECT used after every mutation.
-// LEFT JOIN both leads and counsellors because tasks may have a free-text
-// student_name (no lead FK) and may also be unassigned. The optional
-// appointment join surfaces the session a task was logged from so the UI
-// can render a "from session of <date>" badge without a second round-trip.
-// comment_count is a correlated subquery so the row carries the badge
-// number for the UI's Comment button without an N+1 fetch.
-//
-// latest_comment_* feeds the inline preview ("@Simran: call back tmrw…")
-// shown under each task row when the comment thread is collapsed. LATERAL
-// + LIMIT 1 keeps it cheap; the join falls through to NULLs for tasks
-// with no comments yet.
+// Joined SELECT reused after every mutation. Includes assignee_kind and
+// assignee_admin_username so the client can display admin-assigned tasks
+// correctly and hide archive/delete controls on them.
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
@@ -79,13 +92,11 @@ const SELECT_JOINED = `
   ) lc ON TRUE
 `;
 
-// GET /api/tasks — admin sees the flat list of every task. Counsellors
-// see only tasks they own (assignee_id = self OR lead.counsellor_id =
-// self). Server-side scoping prevents another counsellor's tasks
-// leaking via devtools — without it, the client filter alone meant the
-// raw network response carried tasks from across the firm.
-//
-// Default hides archived; ?include_archived=true returns both sets.
+// GET /api/tasks
+// Admin: all tasks (counsellor-assigned + admin-assigned).
+// Counsellor: tasks where they are the assignee, the lead owner, OR a
+//   direct supervisor of the assignee — PLUS admin-assigned tasks they
+//   themselves created.
 router.get("/", async (req, res, next) => {
   try {
     const includeArchived = req.query.include_archived === "true";
@@ -95,12 +106,14 @@ router.get("/", async (req, res, next) => {
     if (req.user?.kind === "counsellor") {
       params.push(req.user.counsellorId);
       const i = `$${params.length}`;
-      conds.push(`(t.assignee_id = ${i} OR l.counsellor_id = ${i})`);
+      conds.push(`(
+        (t.assignee_kind = 'counsellor' AND (t.assignee_id = ${i} OR l.counsellor_id = ${i}))
+        OR (t.assignee_kind = 'counsellor' AND t.assignee_id IN (
+              SELECT id FROM counsellors WHERE supervisor_id = ${i}
+            ))
+        OR (t.assignee_kind = 'admin' AND t.creator_id = ${i})
+      )`);
     }
-    // Optional ?appointment_id=N filter — used by the Session popup to
-    // list only the tasks created during one specific appointment. The
-    // counsellor scope above still applies so a counsellor can never see
-    // another counsellor's session-tasks via this filter.
     if (req.query.appointment_id !== undefined) {
       const apptId = String(req.query.appointment_id);
       if (!/^\d+$/.test(apptId)) {
@@ -121,34 +134,27 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// POST /api/tasks — create a new task. Either lead_id (FK to a real lead)
-// or student_name (free-text label) is required for the student field.
-// assignee_id is optional — admin's create flow sets it, counsellor's
-// create flow auto-assigns to themselves (also via assignee_id). Tasks
-// with no assignee render as "Unassigned" in the admin view.
+// POST /api/tasks
+// Counsellors may assign to: self, a direct subordinate, or a named admin.
+// Admin may assign to: any counsellor, or a named admin.
 router.post("/", async (req, res, next) => {
   try {
-    let { lead_id, student_name, assignee_id, text, due_date, priority, appointment_id } = req.body;
+    let {
+      lead_id, student_name, assignee_id, assignee_admin_username,
+      text, due_date, priority, appointment_id,
+    } = req.body;
+
     if (
-      (lead_id === undefined || lead_id === null || lead_id === "") &&
-      (student_name === undefined || student_name === null || student_name === "")
+      (lead_id == null || lead_id === "") &&
+      (student_name == null || student_name === "")
     ) {
       return res.status(400).json({ error: "lead_id or student_name is required" });
     }
-    if (lead_id) {
-      if (!isString(lead_id) || lead_id.length > 50) {
-        return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
-      }
+    if (lead_id && (!isString(lead_id) || lead_id.length > 50)) {
+      return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
     }
-    if (student_name) {
-      if (!isString(student_name) || student_name.length > 200) {
-        return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
-      }
-    }
-    if (assignee_id) {
-      if (!isString(assignee_id) || assignee_id.length > 50) {
-        return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
-      }
+    if (student_name && (!isString(student_name) || student_name.length > 200)) {
+      return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
     }
     if (!isString(text) || text.trim().length < 1 || text.length > 1000) {
       return res.status(400).json({ error: "text must be 1–1000 chars" });
@@ -157,65 +163,99 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
     }
 
-    // Counsellors: clamp assignee_id to self regardless of body
-    // (stops them dumping work onto someone else's queue) and refuse
-    // a lead_id they don't manage.
-    //
-    // Admin: assignee_id is REQUIRED. Letting it be null would create
-    // an "Unassigned" task that nobody owns — same fabrication risk
-    // class as orphan leads. The UI already enforces this; the server
-    // check is the second line of defense for direct API calls.
+    let assigneeKind = "counsellor";
+    let cleanAssigneeAdminUsername = null;
+    let creatorId = null;
+    let creatorKind = "counsellor";
+
     if (req.user?.kind === "counsellor") {
-      assignee_id = req.user.counsellorId;
-      if (lead_id) {
-        const own = await pool.query(
-          "SELECT 1 FROM leads WHERE id = $1 AND counsellor_id = $2",
-          [lead_id, req.user.counsellorId]
-        );
-        if (own.rows.length === 0) {
-          return res.status(404).json({ error: "lead not found" });
+      creatorId = req.user.counsellorId;
+      creatorKind = "counsellor";
+
+      if (assignee_admin_username) {
+        // Assigning to a named admin
+        const normalized = String(assignee_admin_username).toLowerCase().trim();
+        if (!adminUsernameSet().has(normalized)) {
+          return res.status(400).json({ error: "unknown admin username" });
+        }
+        assigneeKind = "admin";
+        cleanAssigneeAdminUsername = normalized;
+        assignee_id = null;
+      } else {
+        // Assigning to counsellor — default to self, else validate subordinate
+        if (!assignee_id) assignee_id = req.user.counsellorId;
+        if (assignee_id !== req.user.counsellorId) {
+          const sub = await pool.query(
+            "SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2",
+            [assignee_id, req.user.counsellorId]
+          );
+          if (sub.rows.length === 0) {
+            return res.status(403).json({ error: "cannot assign tasks to this counsellor" });
+          }
+        }
+        assigneeKind = "counsellor";
+        // Lead ownership check — lead must belong to the assigning counsellor
+        if (lead_id) {
+          const own = await pool.query(
+            "SELECT 1 FROM leads WHERE id = $1 AND counsellor_id = $2",
+            [lead_id, req.user.counsellorId]
+          );
+          if (own.rows.length === 0) {
+            return res.status(404).json({ error: "lead not found" });
+          }
         }
       }
     } else {
-      if (!isString(assignee_id) || assignee_id.trim().length === 0) {
-        return res.status(400).json({ error: "assignee_id is required" });
+      // Admin creating a task
+      creatorKind = "admin";
+      creatorId = null;
+
+      if (assignee_admin_username) {
+        const normalized = String(assignee_admin_username).toLowerCase().trim();
+        if (!adminUsernameSet().has(normalized)) {
+          return res.status(400).json({ error: "unknown admin username" });
+        }
+        assigneeKind = "admin";
+        cleanAssigneeAdminUsername = normalized;
+        assignee_id = null;
+      } else {
+        if (!isString(assignee_id) || assignee_id.trim().length === 0) {
+          return res.status(400).json({ error: "assignee_id is required" });
+        }
+        if (!isString(assignee_id) || assignee_id.length > 50) {
+          return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
+        }
+        assigneeKind = "counsellor";
+        if (lead_id) {
+          const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [lead_id]);
+          if (leadCheck.rows.length === 0) {
+            return res.status(404).json({ error: "lead not found" });
+          }
+        }
       }
     }
 
-    const cleanLeadId = lead_id || null;
-    const cleanStudentName =
-      student_name && student_name.trim() ? student_name.trim() : null;
-    const cleanAssigneeId = assignee_id || null;
-
-    if (cleanLeadId && req.user?.kind === "admin") {
-      const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [cleanLeadId]);
-      if (leadCheck.rows.length === 0) {
-        return res.status(404).json({ error: "lead not found" });
-      }
-    }
-    if (cleanAssigneeId) {
-      const cCheck = await pool.query("SELECT 1 FROM counsellors WHERE id = $1", [cleanAssigneeId]);
+    // Validate counsellor assignee exists
+    if (assigneeKind === "counsellor" && assignee_id) {
+      const cCheck = await pool.query("SELECT 1 FROM counsellors WHERE id = $1", [assignee_id]);
       if (cCheck.rows.length === 0) {
         return res.status(404).json({ error: "assignee (counsellor) not found" });
       }
     }
 
-    // Optional appointment_id (integer) — must point at an appointment
-    // belonging to the same lead the task is attached to. Without that
-    // pairing check, a caller could link a task to an unrelated lead's
-    // appointment and the badge would render the wrong session date.
     let cleanAppointmentId = null;
-    if (appointment_id !== undefined && appointment_id !== null && appointment_id !== "") {
+    if (appointment_id != null && appointment_id !== "") {
       const apptStr = String(appointment_id);
       if (!/^\d+$/.test(apptStr)) {
         return res.status(400).json({ error: "appointment_id must be a positive integer" });
       }
-      if (!cleanLeadId) {
+      const cleanLeadIdForAppt = lead_id || null;
+      if (!cleanLeadIdForAppt) {
         return res.status(400).json({ error: "appointment_id requires a lead_id" });
       }
       const apptCheck = await pool.query(
         "SELECT 1 FROM lead_appointments WHERE id = $1 AND lead_id = $2",
-        [apptStr, cleanLeadId]
+        [apptStr, cleanLeadIdForAppt]
       );
       if (apptCheck.rows.length === 0) {
         return res.status(404).json({ error: "appointment not found for this lead" });
@@ -223,11 +263,20 @@ router.post("/", async (req, res, next) => {
       cleanAppointmentId = apptStr;
     }
 
+    const cleanLeadId = lead_id || null;
+    const cleanStudentName = student_name?.trim() || null;
+    const cleanAssigneeId = assigneeKind === "counsellor" ? (assignee_id || null) : null;
+
     const { rows } = await pool.query(
-      `INSERT INTO counsellor_tasks (lead_id, student_name, assignee_id, text, due_date, priority, appointment_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO counsellor_tasks
+         (lead_id, student_name, assignee_id, assignee_kind, assignee_admin_username,
+          text, due_date, priority, appointment_id, creator_id, creator_kind)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [cleanLeadId, cleanStudentName, cleanAssigneeId, text.trim(), due_date, !!priority, cleanAppointmentId]
+      [
+        cleanLeadId, cleanStudentName, cleanAssigneeId, assigneeKind, cleanAssigneeAdminUsername,
+        text.trim(), due_date, !!priority, cleanAppointmentId, creatorId, creatorKind,
+      ]
     );
     const { rows: enriched } = await pool.query(
       `${SELECT_JOINED} WHERE t.id = $1`,
@@ -239,19 +288,16 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// PATCH /api/tasks/:id — toggle priority/completed, edit text, change date,
-// or rename the free-text student. Counsellors can only patch tasks they
-// own and cannot reassign them; admin has full reach.
+// PATCH /api/tasks/:id
+// Admin: full edit. Counsellor: priority + completed toggles only.
+// Supervisor counsellors have the same (limited) edit rights on their
+// subordinates' tasks as on their own.
 router.patch("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!(await checkTaskAccess(req, res, id))) return;
+    const taskRow = await checkTaskAccess(req, res, id);
+    if (!taskRow) return;
 
-    // Admin can edit anything about a task. Counsellors are restricted
-    // to status toggles (priority pin + done). They cannot rewrite the
-    // task text, change the due date, or rename the student — that's
-    // admin-only since the admin is the one assigning work. If a
-    // counsellor needs to add context they use the comments thread.
     const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id"];
     const allowedCounsellor = ["priority", "completed"];
     const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
@@ -264,67 +310,55 @@ router.patch("/:id", async (req, res, next) => {
         return res.status(400).json({ error: "text must be 1–1000 chars" });
       }
     }
-    if (req.body.due_date !== undefined) {
-      if (!isValidYmd(req.body.due_date)) {
-        return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
-      }
+    if (req.body.due_date !== undefined && !isValidYmd(req.body.due_date)) {
+      return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
     }
-    if (req.body.student_name) {
-      if (!isString(req.body.student_name) || req.body.student_name.length > 200) {
-        return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
-      }
+    if (req.body.student_name && (!isString(req.body.student_name) || req.body.student_name.length > 200)) {
+      return res.status(400).json({ error: "student_name must be a string up to 200 chars" });
     }
-    if (req.body.assignee_id) {
-      if (!isString(req.body.assignee_id) || req.body.assignee_id.length > 50) {
-        return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
-      }
+    if (req.body.assignee_id && (!isString(req.body.assignee_id) || req.body.assignee_id.length > 50)) {
+      return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
     }
-    if (req.body.lead_id) {
-      if (!isString(req.body.lead_id) || req.body.lead_id.length > 50) {
-        return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
-      }
+    if (req.body.lead_id && (!isString(req.body.lead_id) || req.body.lead_id.length > 50)) {
+      return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
     }
 
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
       const v = req.body[f];
       if (f === "text" && typeof v === "string") return v.trim();
-      if (f === "student_name") {
-        if (typeof v !== "string") return null;
-        return v.trim() || null;
-      }
-      // assignee_id / lead_id: coerce empty string to null so admin can
-      // unassign a task or unlink it from a lead via the form.
-      if (f === "assignee_id" || f === "lead_id") {
-        return v && v !== "" ? v : null;
-      }
+      if (f === "student_name") return typeof v === "string" ? (v.trim() || null) : null;
+      if (f === "assignee_id" || f === "lead_id") return v && v !== "" ? v : null;
       if (f === "priority" || f === "completed") return !!v;
       return v;
     })];
 
     const { rows } = await pool.query(
-      `UPDATE counsellor_tasks SET ${set}, updated_at = NOW()
-       WHERE id = $1 RETURNING *`,
+      `UPDATE counsellor_tasks SET ${set}, updated_at = NOW() WHERE id = $1 RETURNING *`,
       values
     );
     if (rows.length === 0) return res.status(404).json({ error: "task not found" });
 
-    const { rows: enriched } = await pool.query(
-      `${SELECT_JOINED} WHERE t.id = $1`,
-      [rows[0].id]
-    );
+    const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [rows[0].id]);
     res.json(enriched[0]);
   } catch (e) {
     next(e);
   }
 });
 
-// POST /api/tasks/:id/archive — soft-delete: hide from active list but
-// keep the row recoverable via the Archived section.
+// POST /api/tasks/:id/archive
+// Counsellors cannot archive admin-assigned tasks (they don't own them enough
+// to remove them from the admin's queue — they can only view them).
 router.post("/:id/archive", async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!(await checkTaskAccess(req, res, id))) return;
+    const taskRow = await checkTaskAccess(req, res, id);
+    if (!taskRow) return;
+
+    if (req.user?.kind === "counsellor" && taskRow.assignee_kind === "admin") {
+      return res.status(403).json({ error: "cannot archive tasks assigned to admin" });
+    }
+
     const { rows } = await pool.query(
       `UPDATE counsellor_tasks
        SET archived = TRUE, archived_at = NOW(), updated_at = NOW()
@@ -348,7 +382,13 @@ router.post("/:id/archive", async (req, res, next) => {
 router.post("/:id/unarchive", async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!(await checkTaskAccess(req, res, id))) return;
+    const taskRow = await checkTaskAccess(req, res, id);
+    if (!taskRow) return;
+
+    if (req.user?.kind === "counsellor" && taskRow.assignee_kind === "admin") {
+      return res.status(403).json({ error: "cannot unarchive tasks assigned to admin" });
+    }
+
     const { rows } = await pool.query(
       `UPDATE counsellor_tasks
        SET archived = FALSE, archived_at = NULL, updated_at = NOW()
@@ -369,9 +409,7 @@ router.post("/:id/unarchive", async (req, res, next) => {
   }
 });
 
-// GET /api/tasks/:id/comments — chronological list. Same access gate as
-// the task itself: admin sees any task's thread, counsellors only see
-// threads on tasks they own.
+// GET /api/tasks/:id/comments
 router.get("/:id/comments", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -392,10 +430,7 @@ router.get("/:id/comments", async (req, res, next) => {
   }
 });
 
-// POST /api/tasks/:id/comments — append a comment. Append-only by
-// design: no PATCH/DELETE so the thread stays an honest record.
-// Author_kind tracks whether admin or counsellor wrote it; admin posts
-// have null author_counsellor_id.
+// POST /api/tasks/:id/comments — append-only by design.
 router.post("/:id/comments", async (req, res, next) => {
   try {
     const { id } = req.params;

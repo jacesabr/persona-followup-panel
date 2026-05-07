@@ -86,6 +86,8 @@ export const api = {
     );
   },
   listCounsellors: () => request("GET", "/api/counsellors"),
+  // Named admins (from EXTRA_ADMINS) shown in the counsellor assignee picker.
+  listAdminAccounts: () => request("GET", "/api/counsellors/admin-accounts"),
   createCounsellor: (data) => request("POST", "/api/counsellors", data),
   updateCounsellor: (id, patch) =>
     request("PATCH", `/api/counsellors/${id}`, patch),
@@ -116,6 +118,8 @@ export const api = {
     if (appointmentId != null) qs.push(`appointment_id=${encodeURIComponent(appointmentId)}`);
     return request("GET", `/api/tasks${qs.length ? `?${qs.join("&")}` : ""}`);
   },
+  // data may include assignee_admin_username (string) instead of assignee_id
+  // when the task target is a named admin account.
   createTask: (data) => request("POST", "/api/tasks", data),
   updateTask: (id, patch) => request("PATCH", `/api/tasks/${id}`, patch),
   archiveTask: (id) => request("POST", `/api/tasks/${id}/archive`),

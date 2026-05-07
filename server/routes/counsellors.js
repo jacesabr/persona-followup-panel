@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireAdmin, SESSION_COOKIE_NAME } from "../middleware/auth.js";
+import { namedAdmins } from "../admins.js";
 
 const router = express.Router();
 
@@ -105,24 +106,31 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
 // so server/routes/auth.js can reuse the same allow-list — preventing
 // drift where one endpoint leaks a column the other hides.
 export const COUNSELLOR_PUBLIC_COLUMNS =
-  "id, name, whatsapp, email, username, password_plain, created_at";
+  "id, name, whatsapp, email, username, password_plain, created_at, supervisor_id";
 const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
+// GET /api/counsellors/admin-accounts — named admin accounts for the
+// assignee picker. Returns the EXTRA_ADMINS list (not the primary admin)
+// so counsellors can assign tasks to specific named admins.
+// Staff-only; mount-level requireStaff already gates this.
+router.get("/admin-accounts", (req, res) => {
+  res.json(namedAdmins());
+});
+
 // GET /api/counsellors — admin sees the full roster (used by the
-// counsellors tab + the assignee dropdown). Counsellor sessions only
-// see their own row (for the impersonation-banner name lookup + the
-// lead-counsellor name map — both self-only for a counsellor view) so
-// other counsellors' contact details don't leak via devtools.
+// counsellors tab + the assignee dropdown). Counsellor sessions see
+// their own row PLUS any counsellors they supervise (supervisor_id = me),
+// so the tasks assignee picker and the team-panel tab know who's below them.
+// Other counsellors' contact details don't leak — a peer without supervisor
+// relationship returns only [self].
 //
 // Mount-level requireStaff (server/index.js) gates the route, so any
-// non-staff role (student, no-role) gets 403 before reaching this
-// handler — the previous student-fallback `else { return [] }` is
-// therefore unreachable and was removed by the audit-on-change pass.
+// non-staff role (student, no-role) gets 403 before reaching this handler.
 router.get("/", async (req, res, next) => {
   try {
     const kind = req.user?.kind;
     const sql = kind === "counsellor"
-      ? `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 ORDER BY name ASC`
+      ? `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 OR supervisor_id = $1 ORDER BY name ASC`
       : `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
     const params = kind === "counsellor" ? [req.user.counsellorId] : [];
     const { rows } = await pool.query(sql, params);
@@ -178,9 +186,21 @@ router.post("/", requireAdmin, async (req, res, next) => {
 router.patch("/:id", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const allowed = ["name", "whatsapp", "email", "username", "password"];
+    const allowed = ["name", "whatsapp", "email", "username", "password", "supervisor_id"];
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return res.status(400).json({ error: "no valid fields to update" });
+
+    // Validate supervisor_id when present: must be a real counsellor or null.
+    if ("supervisor_id" in req.body && req.body.supervisor_id !== null) {
+      const sid = req.body.supervisor_id;
+      if (typeof sid !== "string" || sid.length > 50) {
+        return res.status(400).json({ error: "supervisor_id must be a counsellor id string or null" });
+      }
+      const check = await pool.query("SELECT 1 FROM counsellors WHERE id = $1", [sid]);
+      if (check.rows.length === 0) {
+        return res.status(404).json({ error: "supervisor counsellor not found" });
+      }
+    }
 
     const validationError = validateCounsellorInput(req.body, { mode: "patch" });
     if (validationError) return res.status(400).json({ error: validationError });
@@ -219,6 +239,7 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       else if (f === "username" && typeof v === "string") stored = v.trim().toLowerCase() || null;
       else if (f === "whatsapp") stored = v || null;
       else if (f === "password" && typeof v === "string") stored = hashPassword(v);
+      else if (f === "supervisor_id") stored = v || null;
       values.push(stored);
       setParts.push(`${f} = $${values.length}`);
     });

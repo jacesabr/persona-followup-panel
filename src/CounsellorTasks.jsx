@@ -9,6 +9,7 @@ import {
   Undo2,
   Pencil,
   MessageSquare,
+  Lock,
 } from "lucide-react";
 import { api } from "./api.js";
 import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
@@ -19,11 +20,13 @@ function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
 }
 
-const EMPTY_NEW = () => ({
+// assigneeValue encodes both kind and target: "counsellor:{id}" or "admin:{username}".
+// Default is the scoped counsellor (self) when in counsellor view.
+const EMPTY_NEW = (defaultAssigneeValue = "") => ({
   studentName: "",
   text: "",
   dueDate: todayIstYmd(),
-  assigneeId: "",
+  assigneeValue: defaultAssigneeValue,
 });
 
 export default function CounsellorTasks({
@@ -44,6 +47,8 @@ export default function CounsellorTasks({
   // passed (i.e. counsellor view, where nobody mutates counsellors).
   const [counsellorsLocal, setCounsellorsLocal] = useState([]);
   const counsellors = counsellorsProp ?? counsellorsLocal;
+  // Named admin accounts for the assignee picker (e.g. adminSuhas, adminJyoti).
+  const [adminAccounts, setAdminAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   // sortBy: "date" (default) or "student". Within "student" we still sort
@@ -54,7 +59,7 @@ export default function CounsellorTasks({
   // dates at the top.
   const [sortBy, setSortBy] = useState(["date"]);
   const [showNew, setShowNew] = useState(false);
-  const [newTask, setNewTask] = useState(EMPTY_NEW());
+  const [newTask, setNewTask] = useState(EMPTY_NEW(isScoped ? `counsellor:${scopedCounsellorId}` : ""));
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
   // Admin-only inline edit. editingId holds the task id whose row is
@@ -95,11 +100,13 @@ export default function CounsellorTasks({
           includeArchived: true,
           counsellorId: isScoped ? scopedCounsellorId : null,
         }),
+        api.listAdminAccounts(),
       ];
       if (counsellorsProp == null) fetches.push(api.listCounsellors());
-      const [t, l, c] = await Promise.all(fetches);
+      const [t, l, admins, c] = await Promise.all(fetches);
       setTasks(t);
       setLeads(l);
+      setAdminAccounts(admins || []);
       if (c) setCounsellorsLocal(c);
       setError(null);
     } catch (e) {
@@ -355,9 +362,10 @@ export default function CounsellorTasks({
     }
   };
 
+  const defaultAssigneeValue = isScoped ? `counsellor:${scopedCounsellorId}` : "";
   const cancelNew = () => {
     setShowNew(false);
-    setNewTask(EMPTY_NEW());
+    setNewTask(EMPTY_NEW(defaultAssigneeValue));
     setError(null);
   };
 
