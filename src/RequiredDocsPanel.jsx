@@ -92,7 +92,7 @@ function AutoTextarea({ value, onChange, placeholder, minRows = 4, className = "
 
 // ─── main panel ────────────────────────────────────────────────────────────
 
-export default function RequiredDocsPanel({ role, onViewStudent, onViewTasks }) {
+export default function RequiredDocsPanel({ role, counsellors = [], onViewStudent, onViewTasks }) {
   const [students,   setStudents]   = useState(null);
   const [err,        setErr]        = useState(null);
   const [docsMap,    setDocsMap]    = useState({});   // { studentId: doc[] }
@@ -231,59 +231,64 @@ export default function RequiredDocsPanel({ role, onViewStudent, onViewTasks }) 
 
             {/* ── Student header ─────────────────────────── */}
             <div className="border-b border-stone-300 bg-[#fdf8f4] px-5 py-4">
-              {/* Top row: name + status + send button */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
-                  <span className="text-lg font-bold text-stone-900">{name}</span>
-                  <span className="rounded border border-[#cc785c]/40 bg-[#cc785c]/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.15em] text-[#cc785c]">
-                    {OVERALL_LABEL[status]}
-                  </span>
-                  {!docs && <Loader2 className="h-3.5 w-3.5 animate-spin text-stone-400" />}
+              <div className="flex flex-wrap items-start justify-between gap-4">
+
+                {/* Left: name + status + counsellor */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
+                    <span className="text-xl font-bold text-stone-900">{name}</span>
+                    <span className="rounded border border-[#cc785c]/40 bg-[#cc785c]/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-[0.15em] text-[#cc785c]">
+                      {OVERALL_LABEL[status]}
+                    </span>
+                    {!docs && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+                  </div>
+
+                  {/* Counsellor row */}
+                  <CounsellorAssign
+                    student={student}
+                    counsellors={counsellors}
+                    role={role}
+                    onAssigned={() => refreshStudent(sid).then(() =>
+                      // Re-fetch students list so the name updates in parent
+                      api.listStudents().then(list => {
+                        const ready = list.filter(s => s.intake_complete);
+                        setStudents(ready);
+                      }).catch(() => {})
+                    )}
+                  />
                 </div>
 
-                {(lors.length > 0 || interns.length > 0) && (
-                  <button
-                    type="button"
-                    onClick={() => sendBulk(sid, name)}
-                    disabled={!allLIDone || !anyLIPending || !!bulkBusy[sid]}
-                    className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-1.5 text-xs uppercase tracking-[0.15em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    {bulkBusy[sid] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                    {bulkBusy[sid] ? "Sending…" : "Send requests"}
-                  </button>
-                )}
-              </div>
+                {/* Right: stacked action buttons + send */}
+                <div className="flex flex-col items-end gap-2">
+                  {(lors.length > 0 || interns.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => sendBulk(sid, name)}
+                      disabled={!allLIDone || !anyLIPending || !!bulkBusy[sid]}
+                      className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      {bulkBusy[sid] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {bulkBusy[sid] ? "Sending…" : "Send requests"}
+                    </button>
+                  )}
 
-              {/* Bottom row: counsellor + quick links */}
-              <div className="mt-2.5 flex flex-wrap items-center gap-4">
-                {student.counsellor_name && (
-                  <span className="text-sm text-stone-700">
-                    <span className="font-semibold text-stone-500 uppercase tracking-wide text-[11px]">Counsellor: </span>
-                    <span className="font-semibold text-stone-900">{student.counsellor_name}</span>
-                  </span>
-                )}
-                {!student.counsellor_name && (
-                  <span className="text-xs italic text-stone-400">No counsellor assigned</span>
-                )}
-
-                <div className="ml-auto flex items-center gap-2">
                   {onViewStudent && (
                     <button
                       type="button"
                       onClick={() => onViewStudent(sid)}
-                      className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
-                      <ExternalLink className="h-3 w-3" /> View profile
+                      <ExternalLink className="h-4 w-4" /> View this student's profile
                     </button>
                   )}
                   {onViewTasks && (
                     <button
                       type="button"
                       onClick={() => onViewTasks(sid)}
-                      className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
-                      <ClipboardList className="h-3 w-3" /> View tasks
+                      <ClipboardList className="h-4 w-4" /> View tasks related to this student
                     </button>
                   )}
                 </div>
@@ -333,12 +338,12 @@ export default function RequiredDocsPanel({ role, onViewStudent, onViewTasks }) 
                       </span>
 
                       {/* Date submitted */}
-                      <span className="text-sm font-medium text-stone-700">
+                      <span className="text-base font-medium text-stone-700">
                         {humanDate(doc.created_at)}
                       </span>
 
                       {/* Status badge */}
-                      <span className={`inline-flex items-center gap-1.5 border px-2.5 py-1 text-xs font-semibold ${cls}`}>
+                      <span className={`inline-flex items-center gap-1.5 border px-2.5 py-1 text-sm font-semibold ${cls}`}>
                         {(doc.final_file_id || doc.approved_by_admin_at) && <CheckCircle2 className="h-3.5 w-3.5" />}
                         {doc.requested_at && !doc.final_file_id          && <Clock         className="h-3.5 w-3.5" />}
                         {label}
@@ -371,6 +376,74 @@ export default function RequiredDocsPanel({ role, onViewStudent, onViewTasks }) 
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── counsellor assignment row (admin: dropdown + save; counsellor: read-only) ─
+
+function CounsellorAssign({ student, counsellors, role, onAssigned }) {
+  const currentId   = student.counsellor_id;
+  const currentName = counsellors.find(c => c.id === currentId)?.name;
+  const [selected,  setSelected]  = useState(currentId || "");
+  const [busy,      setBusy]      = useState(false);
+  const [assignErr, setAssignErr] = useState(null);
+
+  const changed = selected !== (currentId || "");
+
+  const assign = async () => {
+    setBusy(true);
+    setAssignErr(null);
+    try {
+      await api.assignStudentCounsellor(student.student_id, selected || null);
+      onAssigned?.();
+    } catch (e) {
+      setAssignErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (role !== "admin") {
+    return (
+      <p className="text-sm text-stone-600">
+        Counsellor:{" "}
+        <span className="font-semibold text-stone-900">{currentName || "None assigned"}</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {currentName ? (
+        <span className="text-sm text-stone-600">
+          Counsellor: <span className="font-semibold text-stone-900">{currentName}</span>
+        </span>
+      ) : (
+        <span className="text-base font-semibold text-stone-500">No counsellor assigned</span>
+      )}
+      <select
+        value={selected}
+        onChange={e => setSelected(e.target.value)}
+        className="border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-900 outline-none focus:border-[#cc785c]"
+      >
+        <option value="">— Assign counsellor —</option>
+        {counsellors.map(c => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      {changed && (
+        <button
+          type="button"
+          onClick={assign}
+          disabled={busy}
+          className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
+        >
+          {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+          Save
+        </button>
+      )}
+      {assignErr && <span className="text-xs text-red-700">{assignErr}</span>}
     </div>
   );
 }

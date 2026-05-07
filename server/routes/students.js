@@ -307,6 +307,35 @@ router.post("/:student_id/ielts-unarchive", requireStaff, async (req, res, next)
   } catch (e) { next(e); }
 });
 
+// PATCH /api/students/:student_id/assign-counsellor — admin reassigns a student
+// to a different counsellor (or clears the assignment with counsellor_id: null).
+router.patch("/:student_id/assign-counsellor", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    if (req.user.kind !== "admin") return res.status(403).json({ error: "admin only" });
+    const sid = req.params.student_id;
+    const { counsellor_id } = req.body;
+    if (counsellor_id !== null && typeof counsellor_id !== "string") {
+      return res.status(400).json({ error: "counsellor_id must be a string or null" });
+    }
+    // Verify student exists
+    const check = await pool.query(`SELECT student_id FROM intake_students WHERE student_id = $1`, [sid]);
+    if (!check.rows.length) return res.status(404).json({ error: "student not found" });
+    // Verify counsellor exists (if provided)
+    if (counsellor_id) {
+      const ccheck = await pool.query(`SELECT id FROM counsellors WHERE id = $1`, [counsellor_id]);
+      if (!ccheck.rows.length) return res.status(404).json({ error: "counsellor not found" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE intake_students SET counsellor_id = $1, updated_at = NOW()
+         WHERE student_id = $2
+         RETURNING student_id, counsellor_id`,
+      [counsellor_id || null, sid]
+    );
+    audit(req, { table: "intake_students", id: sid, action: "assign_counsellor", notes: `counsellor_id=${counsellor_id}` });
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+
 // GET /api/students — list all student accounts (admin sees everyone,
 // counsellor sees only their own creations).
 //

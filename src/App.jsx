@@ -248,21 +248,24 @@ function Frame({ children, onSignOut, displayName, roleLabel }) {
       style={{ backgroundColor: "#faf9f5" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-10">
-        <header className="mb-10 flex items-start border-b border-stone-300 pb-4">
-          <div className="flex flex-1 flex-col gap-0.5">
-            <span className="text-2xl font-semibold tracking-tight">Persona</span>
-            {displayName && (
-              <span className="text-sm text-stone-700">
-                Welcome,{" "}
-                <span className="font-bold text-stone-900">{displayName}</span>
-                {" · "}
-                <span className="text-[#cc785c]">
-                  you are {article} <span className="font-semibold">{roleLabel}</span> at Persona
-                </span>
+        <header className="mb-10 flex items-center gap-4 border-b border-stone-300 pb-4">
+          {/* Left: wordmark */}
+          <span className="shrink-0 text-2xl font-semibold tracking-tight">Persona</span>
+
+          {/* Centre: welcome */}
+          {displayName && (
+            <div className="flex-1 text-center">
+              <span className="text-base font-bold text-stone-900">Welcome, {displayName}</span>
+              <span className="text-base text-stone-500"> · </span>
+              <span className="text-base text-[#cc785c]">
+                you are {article} <span className="font-bold">{roleLabel}</span> at Persona
               </span>
-            )}
-          </div>
-          <div className="flex items-center gap-5 pt-1">
+            </div>
+          )}
+          {!displayName && <div className="flex-1" />}
+
+          {/* Right: clock + sign out */}
+          <div className="shrink-0 flex items-center gap-5">
             <LiveClock />
             <button
               onClick={onSignOut}

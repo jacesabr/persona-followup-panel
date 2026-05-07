@@ -194,6 +194,7 @@ export default function SimplePanel({
       {tab === "documents" && (
         <RequiredDocsPanel
           role={role}
+          counsellors={counsellors || []}
           onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
           onViewTasks={() => setTab("tasks")}
         />

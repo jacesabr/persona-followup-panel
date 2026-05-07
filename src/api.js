@@ -148,6 +148,8 @@ export const api = {
   // Roster: admin sees all student accounts, counsellor sees only the
   // ones they created.
   listStudents: () => request("GET", "/api/students"),
+  assignStudentCounsellor: (studentId, counsellorId) =>
+    request("PATCH", `/api/students/${studentId}/assign-counsellor`, { counsellor_id: counsellorId }),
   // Detail: full intake data + uploaded files + resumes for one
   // student. Same scoping rules as listStudents.
   getStudent: (studentId) => request("GET", `/api/students/${studentId}`),
