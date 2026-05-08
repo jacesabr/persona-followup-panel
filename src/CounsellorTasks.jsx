@@ -163,10 +163,19 @@ export default function CounsellorTasks({
         const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
         return bt - at;
       });
+    // Strip "admin" prefix for comparison — stored as "adminSuhas" but
+    // adminUsername is the display name "Suhas".
+    const toDisplay = (u) => {
+      if (!u) return u;
+      const rest = u.replace(/^admin/i, "");
+      return rest && /^[a-zA-Z]/.test(rest)
+        ? rest.charAt(0).toUpperCase() + rest.slice(1)
+        : u;
+    };
     const isMine = (t) =>
       isScoped
         ? t.assignee_id === scopedCounsellorId
-        : t.assignee_kind === "admin" && t.assignee_admin_username === adminUsername;
+        : t.assignee_kind === "admin" && toDisplay(t.assignee_admin_username) === adminUsername;
     return {
       myActiveTasks: active.filter(isMine),
       otherPeopleActiveTasks: isScoped ? [] : active.filter((t) => !isMine(t)),
