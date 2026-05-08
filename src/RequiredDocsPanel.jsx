@@ -36,7 +36,7 @@ function docStatus(doc) {
   if (doc.kind === "sop") {
     if (doc.approved_by_admin_at) return { label: "Approved",               cls: "bg-emerald-50 text-emerald-800 border-emerald-300" };
     if (doc.staff_draft)          return { label: "Awaiting admin approval", cls: "bg-amber-50 text-amber-800 border-amber-300" };
-    return                               { label: "Awaiting draft",          cls: "bg-stone-100 text-stone-500 border-stone-300" };
+    return                               { label: "Awaiting draft",          cls: "bg-stone-100 text-black border-stone-300" };
   }
   if (doc.final_file_id)   return { label: "Complete",               cls: "bg-emerald-50 text-emerald-800 border-emerald-300" };
   if (doc.requested_at) {
@@ -49,8 +49,8 @@ function docStatus(doc) {
     return { label, cls: urgent ? "bg-red-50 text-red-800 border-red-300" : "bg-blue-50 text-blue-800 border-blue-300" };
   }
   if (doc.marked_done_at) return { label: "Ready to send",   cls: "bg-amber-50 text-amber-800 border-amber-300" };
-  if (doc.staff_draft)    return { label: "Draft in progress", cls: "bg-stone-100 text-stone-500 border-stone-300" };
-  return                         { label: "Awaiting draft",   cls: "bg-stone-100 text-stone-500 border-stone-300" };
+  if (doc.staff_draft)    return { label: "Draft in progress", cls: "bg-stone-100 text-black border-stone-300" };
+  return                         { label: "Awaiting draft",   cls: "bg-stone-100 text-black border-stone-300" };
 }
 
 function docHeading(doc) {
@@ -198,13 +198,13 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
   );
 
   if (students === null) return (
-    <div className="flex items-center gap-2 text-sm text-stone-400">
+    <div className="flex items-center gap-2 text-sm text-black">
       <Loader2 className="h-4 w-4 animate-spin" /> Loading…
     </div>
   );
 
   if (students.length === 0) return (
-    <p className="text-sm italic text-stone-500">No students have completed intake yet.</p>
+    <p className="text-sm  text-black">No students have completed intake yet.</p>
   );
 
   return (
@@ -237,11 +237,11 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
-                    <span className="text-xl font-bold text-stone-900">{name}</span>
+                    <span className="text-xl font-bold text-black">{name}</span>
                     <span className="rounded border border-[#cc785c]/40 bg-[#cc785c]/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-[0.15em] text-[#cc785c]">
                       {OVERALL_LABEL[status]}
                     </span>
-                    {!docs && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+                    {!docs && <Loader2 className="h-4 w-4 animate-spin text-black" />}
                   </div>
 
                   {/* Counsellor row */}
@@ -277,7 +277,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                     <button
                       type="button"
                       onClick={() => onViewStudent(sid)}
-                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
                       <ExternalLink className="h-4 w-4" /> View this student's profile
                     </button>
@@ -286,7 +286,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                     <button
                       type="button"
                       onClick={() => onViewTasks(sid)}
-                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:border-[#cc785c] hover:text-[#cc785c]"
+                      className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
                       <ClipboardList className="h-4 w-4" /> View tasks related to this student
                     </button>
@@ -298,7 +298,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
             {/* ── Column headers ─────────────────────────── */}
             {docs && docs.length > 0 && (
               <div
-                className="grid items-center border-b border-stone-200 bg-stone-100 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-stone-700"
+                className="grid items-center border-b border-stone-200 bg-stone-100 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-black"
                 style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
               >
                 <span>Document</span>
@@ -310,11 +310,11 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
 
             {/* ── Document rows ──────────────────────────── */}
             {!docs ? (
-              <div className="flex items-center gap-2 px-5 py-4 text-xs text-stone-400">
+              <div className="flex items-center gap-2 px-5 py-4 text-xs text-black">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading documents…
               </div>
             ) : docs.length === 0 ? (
-              <p className="px-5 py-4 text-xs italic text-stone-400">No required documents.</p>
+              <p className="px-5 py-4 text-xs  text-black">No required documents.</p>
             ) : (
               docs.map((doc, idx) => {
                 const isOpen = expanded.has(doc.id);
@@ -333,12 +333,12 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                       style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
                     >
                       {/* Doc type */}
-                      <span className="text-base font-semibold text-stone-900">
+                      <span className="text-base font-semibold text-black">
                         {heading}
                       </span>
 
                       {/* Date submitted */}
-                      <span className="text-base font-medium text-stone-700">
+                      <span className="text-base font-medium text-black">
                         {humanDate(doc.created_at)}
                       </span>
 
@@ -350,7 +350,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                       </span>
 
                       {/* Chevron */}
-                      <ChevronDown className={`h-4 w-4 shrink-0 text-stone-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-black transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
                     </button>
 
                     {/* Expanded detail */}
@@ -406,9 +406,9 @@ function CounsellorAssign({ student, counsellors, role, onAssigned }) {
 
   if (role !== "admin") {
     return (
-      <p className="text-sm text-stone-600">
+      <p className="text-sm text-black">
         Counsellor:{" "}
-        <span className="font-semibold text-stone-900">{currentName || "None assigned"}</span>
+        <span className="font-semibold text-black">{currentName || "None assigned"}</span>
       </p>
     );
   }
@@ -416,16 +416,16 @@ function CounsellorAssign({ student, counsellors, role, onAssigned }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       {currentName ? (
-        <span className="text-sm text-stone-600">
-          Counsellor: <span className="font-semibold text-stone-900">{currentName}</span>
+        <span className="text-sm text-black">
+          Counsellor: <span className="font-semibold text-black">{currentName}</span>
         </span>
       ) : (
-        <span className="text-base font-semibold text-stone-500">No counsellor assigned</span>
+        <span className="text-base font-semibold text-black">No counsellor assigned</span>
       )}
       <select
         value={selected}
         onChange={e => setSelected(e.target.value)}
-        className="border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-900 outline-none focus:border-[#cc785c]"
+        className="border border-stone-300 bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-[#cc785c]"
       >
         <option value="">— Assign counsellor —</option>
         {counsellors.map(c => (
@@ -462,16 +462,16 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
       {/* Student brief — LOR */}
       {doc.kind === "lor" && (
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
             Context from student
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
-            <span className="text-stone-400">Recommender</span>
-            <span className="text-stone-800">{doc.recipient_name || <em className="text-stone-400">—</em>}</span>
-            <span className="text-stone-400">Position / Subject</span>
-            <span className="text-stone-800">{doc.recipient_role || <em className="text-stone-400">—</em>}</span>
-            <span className="text-stone-400">Student's reason</span>
-            <span className="text-stone-800">{doc.reason_brief   || <em className="text-stone-400">—</em>}</span>
+            <span className="text-black">Recommender</span>
+            <span className="text-black">{doc.recipient_name || <em className="text-black">—</em>}</span>
+            <span className="text-black">Position / Subject</span>
+            <span className="text-black">{doc.recipient_role || <em className="text-black">—</em>}</span>
+            <span className="text-black">Student's reason</span>
+            <span className="text-black">{doc.reason_brief   || <em className="text-black">—</em>}</span>
           </div>
         </div>
       )}
@@ -479,23 +479,23 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
       {/* Student brief — Internship */}
       {doc.kind === "internship" && (
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
             Context from student
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
-            <span className="text-stone-400">Company</span>
-            <span className="text-stone-800">{doc.company_name    || <em className="text-stone-400">—</em>}</span>
-            <span className="text-stone-400">Website</span>
-            <span className="text-stone-800">{doc.company_website || <em className="text-stone-400">—</em>}</span>
-            <span className="text-stone-400">What they did</span>
-            <span className="text-stone-800">{doc.activity_brief  || <em className="text-stone-400">—</em>}</span>
+            <span className="text-black">Company</span>
+            <span className="text-black">{doc.company_name    || <em className="text-black">—</em>}</span>
+            <span className="text-black">Website</span>
+            <span className="text-black">{doc.company_website || <em className="text-black">—</em>}</span>
+            <span className="text-black">What they did</span>
+            <span className="text-black">{doc.activity_brief  || <em className="text-black">—</em>}</span>
           </div>
         </div>
       )}
 
       {/* SOP note */}
       {isSop && (
-        <p className="border-l-4 border-stone-300 pl-4 text-sm italic text-stone-500">
+        <p className="border-l-4 border-stone-300 pl-4 text-sm  text-black">
           Use the student's academic record, activities, internships, and personal summary from their intake to draft a complete Statement of Purpose. Admin approval is required before this is shown to the student.
         </p>
       )}
@@ -503,10 +503,10 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
       {/* Draft area */}
       <div>
         <div className="mb-2 flex items-baseline justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
             {isSop ? "SOP draft" : "Document draft"}
           </p>
-          {words > 0 && <span className="text-[10px] text-stone-400">{words} words</span>}
+          {words > 0 && <span className="text-[10px] text-black">{words} words</span>}
         </div>
         <AutoTextarea
           value={draft}
@@ -517,16 +517,16 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
               ? "Write the full Statement of Purpose here. Admin must approve before it is shown to the student."
               : `Write the full ${heading} here. The student will have this printed on official letterhead and signed.`
           }
-          className="w-full border border-stone-300 bg-[#faf9f5] px-4 py-3 font-serif text-sm leading-relaxed text-stone-900 outline-none focus:border-stone-700"
+          className="w-full border border-stone-300 bg-[#faf9f5] px-4 py-3 font-serif text-sm leading-relaxed text-black outline-none focus:border-stone-700"
         />
-        {dirty && <p className="mt-1 text-[11px] italic text-amber-700">Unsaved changes</p>}
+        {dirty && <p className="mt-1 text-[11px]  text-amber-700">Unsaved changes</p>}
       </div>
 
       {/* Action row */}
       <div className="flex flex-wrap items-center gap-3 border-t border-stone-100 pt-4">
         <button
           type="button" onClick={onSave} disabled={!dirty || busy}
-          className="inline-flex items-center gap-2 border border-stone-700 bg-white px-4 py-2 text-xs uppercase tracking-[0.15em] text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-2 border border-stone-700 bg-white px-4 py-2 text-xs uppercase tracking-[0.15em] text-black transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           Save draft
@@ -540,7 +540,7 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
             className={`inline-flex items-center gap-2 border px-4 py-2 text-xs uppercase tracking-[0.15em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
               doc.marked_done_at
                 ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-400 bg-white text-stone-700 hover:border-stone-700"
+                : "border-stone-400 bg-white text-black hover:border-stone-700"
             }`}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -556,7 +556,7 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
             className={`inline-flex items-center gap-2 border px-4 py-2 text-xs uppercase tracking-[0.15em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
               doc.approved_by_admin_at
                 ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-400 bg-white text-stone-700 hover:border-stone-700"
+                : "border-stone-400 bg-white text-black hover:border-stone-700"
             }`}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -565,7 +565,7 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
         )}
 
         {isSop && !canApprove && (
-          <span className="text-xs italic text-stone-400">
+          <span className="text-xs  text-black">
             Admin must approve this SOP before it appears on the student's profile.
           </span>
         )}

@@ -283,7 +283,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-stone-600">
+      <div className="flex items-center justify-center py-20 text-black">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -342,7 +342,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       <div className="mb-4 flex items-baseline justify-between border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Lead sheet</h2>
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">
             {activeLeads.length} {activeLeads.length === 1 ? "row" : "rows"}
           </span>
         </div>
@@ -370,14 +370,14 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
       {selectedIds.size > 0 && (
         <div className="mb-2 flex items-center justify-between border border-[#cc785c] bg-[#cc785c]/10 px-3 py-1.5 text-[12px]">
-          <span className="text-stone-800">
+          <span className="text-black">
             <strong>{selectedIds.size}</strong> selected
           </span>
           <span className="flex items-center gap-2">
             <button
               onClick={clearSelection}
               disabled={bulkBusy}
-              className="text-[11px] uppercase tracking-[0.18em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+              className="text-[11px] uppercase tracking-[0.18em] text-black hover:text-black disabled:opacity-50"
             >
               Clear
             </button>
@@ -399,7 +399,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           {/* Empty span (not sr-only) holds the grid cell for the
@@ -419,7 +419,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
 
         {showNew && (
           <div
-            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-3 py-2 text-[14px] text-stone-800"
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-3 py-2 text-[14px] text-black"
             style={{ gridTemplateColumns: gridCols }}
           >
             {/* Status, Next-follow are no longer collected at lead-creation.
@@ -481,15 +481,15 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
             {/* Status + Next-follow columns: empty placeholders so the
                 grid cells still exist for layout symmetry with rendered
                 rows above/below. */}
-            <span className="text-[11px] italic text-stone-400">auto</span>
-            <span className="text-[11px] italic text-stone-400">later</span>
+            <span className="text-[11px]  text-black">auto</span>
+            <span className="text-[11px]  text-black">later</span>
             {/* History column: nothing to view yet for an unsaved lead. */}
             <span></span>
             <span className="flex items-center gap-1">
               {isScoped ? (
                 /* Scoped users always assign new leads to themselves;
                    the picker would just be redundant. */
-                <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[12px] italic text-stone-500">
+                <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[12px]  text-black">
                   you
                 </span>
               ) : (
@@ -544,7 +544,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 onClick={cancelNew}
                 disabled={creating}
                 title="Cancel"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -563,7 +563,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           return (
             <div
               key={lead.id}
-              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2.5 text-[15px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2.5 text-[15px] text-black last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
               <span className="pt-1">
@@ -575,20 +575,20 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   aria-label={`Select ${lead.name}`}
                 />
               </span>
-              <span className="text-[14px] text-stone-600">
+              <span className="text-[14px] text-black">
                 {lead.inquiry_date ? formatDateInIst(lead.inquiry_date) : "—"}
               </span>
               <span className="flex flex-col leading-tight">
-                <span className="text-[16px] font-semibold text-stone-900">
+                <span className="text-[16px] font-semibold text-black">
                   {lead.name || "—"}
                 </span>
                 <span
-                  className="truncate text-[14px] text-stone-700"
+                  className="truncate text-[14px] text-black"
                   title={lead.email || ""}
                 >
                   {lead.email || "—"}
                 </span>
-                <span className="text-[14px] tabular-nums text-stone-700">
+                <span className="text-[14px] tabular-nums text-black">
                   {lead.contact || "—"}
                 </span>
               </span>
@@ -599,13 +599,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               <span className="whitespace-pre-wrap break-words" title={lead.purpose || ""}>
                 {lead.purpose || "—"}
               </span>
-              <span className="text-[12px] uppercase tracking-[0.12em] text-stone-700">
+              <span className="text-[12px] uppercase tracking-[0.12em] text-black">
                 {STATUS_LABEL[lead.status] || lead.status || "—"}
               </span>
               <button
                 onClick={() => setCalendarLead(lead)}
                 title="Open calendar"
-                className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1.5 text-left text-[14px] text-stone-800 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1.5 text-left text-[14px] text-black outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
@@ -613,7 +613,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 <button
                   onClick={() => setHistoryLead(lead)}
                   title="View appointment history"
-                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] text-stone-700 outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] text-black outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
                 >
                   <History className="h-3.5 w-3.5" /> View
                 </button>
@@ -634,7 +634,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   </button>
                 )}
               </span>
-              <span className="text-[14px] text-stone-700">
+              <span className="text-[14px] text-black">
                 {counsellorNameById.get(lead.counsellor_id) ||
                   lead.counsellor_name ||
                   "—"}
@@ -643,7 +643,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 <button
                   onClick={() => archiveOne(lead)}
                   title="Archive this lead"
-                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
+                  className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                   aria-label={`Archive ${lead.name || "lead"}`}
                 >
                   <Archive className="h-3.5 w-3.5" />
@@ -654,7 +654,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         })}
 
         {sortedLeads.length === 0 && !showNew && (
-          <p className="py-10 text-center text-sm italic text-stone-600">
+          <p className="py-10 text-center text-sm  text-black">
             No leads yet. Click "+ New" to add one.
           </p>
         )}
@@ -715,24 +715,24 @@ function ArchivedLeads({ role, leads, counsellors, onUnarchive, onDelete }) {
       renderRow={(lead) => (
         <li
           key={lead.id}
-          className="flex items-center justify-between gap-3 px-3 py-2 text-[13px] text-stone-700"
+          className="flex items-center justify-between gap-3 px-3 py-2 text-[13px] text-black"
         >
           <div className="min-w-0 flex-1 truncate">
-            <span className="font-semibold text-stone-900">
+            <span className="font-semibold text-black">
               {lead.name || "—"}
             </span>
             {lead.purpose && (
-              <span className="ml-2 text-stone-600">— {lead.purpose}</span>
+              <span className="ml-2 text-black">— {lead.purpose}</span>
             )}
             {(lead.counsellor_id || lead.counsellor_name) && (
-              <span className="ml-2 text-[12px] text-stone-500">
+              <span className="ml-2 text-[12px] text-black">
                 ·{" "}
                 {counsellorNameById.get(lead.counsellor_id) ||
                   lead.counsellor_name}
               </span>
             )}
             {lead.archived_at && (
-              <span className="ml-2 text-[11px] text-stone-400">
+              <span className="ml-2 text-[11px] text-black">
                 · archived {formatDateInIst(lead.archived_at)}
               </span>
             )}
@@ -740,7 +740,7 @@ function ArchivedLeads({ role, leads, counsellors, onUnarchive, onDelete }) {
           <span className="flex shrink-0 items-center gap-1.5">
             <button
               onClick={() => onUnarchive(lead.id)}
-              className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900"
+              className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-600 hover:text-black"
             >
               <Undo2 className="h-3 w-3" /> Unarchive
             </button>
@@ -880,15 +880,15 @@ function HistoryPopup({ lead, onClose }) {
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
               Appointment history
             </p>
-            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-stone-900">
+            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-black">
               {lead.name}
             </h3>
-            <p className="text-[14px] text-stone-600">{lead.purpose}</p>
+            <p className="text-[14px] text-black">{lead.purpose}</p>
           </div>
           <button
             onClick={tryClose}
             disabled={!!savingId}
-            className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+            className="text-black hover:text-black disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -903,11 +903,11 @@ function HistoryPopup({ lead, onClose }) {
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-stone-500">
+            <div className="flex items-center justify-center py-8 text-black">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
           ) : appointments.length === 0 ? (
-            <p className="py-10 text-center text-[15px] italic text-stone-500">
+            <p className="py-10 text-center text-[15px]  text-black">
               No appointments yet. Open the calendar to schedule one.
             </p>
           ) : (
@@ -959,7 +959,7 @@ function HistoryPopup({ lead, onClose }) {
 function Section({ title, children }) {
   return (
     <div>
-      <p className="border-b border-stone-200 bg-stone-50 px-5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] text-stone-600">
+      <p className="border-b border-stone-200 bg-stone-50 px-5 py-2 text-[12px] font-bold uppercase tracking-[0.18em] text-black">
         {title}
       </p>
       <ul className="divide-y divide-stone-100">{children}</ul>
@@ -987,16 +987,16 @@ function HistoryRow({
   return (
     <li className="px-5 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[16px] font-semibold tabular-nums text-stone-900">
+        <span className="text-[16px] font-semibold tabular-nums text-black">
           {formatDateInIst(appt.scheduled_for)}
-          <span className="ml-2 font-normal text-stone-500">
+          <span className="ml-2 font-normal text-black">
             {formatTimeInIst(appt.scheduled_for)}
           </span>
         </span>
         {!isEditing && (
           <button
             onClick={onStartEdit}
-            className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.15em] text-black hover:border-[#cc785c] hover:text-[#cc785c]"
           >
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
@@ -1019,7 +1019,7 @@ function HistoryRow({
             <button
               onClick={onCancel}
               disabled={isSaving}
-              className="text-[11px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+              className="text-[11px] uppercase tracking-[0.15em] text-black hover:text-black disabled:opacity-50"
             >
               Cancel
             </button>
@@ -1037,9 +1037,9 @@ function HistoryRow({
           Session Missed: No Session Notes Created
         </p>
       ) : (
-        <p className="mt-1 text-[15px] leading-relaxed text-stone-700">
+        <p className="mt-1 text-[15px] leading-relaxed text-black">
           {appt.notes || (
-            <span className="italic text-stone-400">
+            <span className=" text-black">
               No notes yet — upcoming session.
             </span>
           )}
@@ -1320,12 +1320,12 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <p className="text-[10px] uppercase tracking-[0.22em] text-[#cc785c]">
               {lead.name}
             </p>
-            <p className="text-[12px] text-stone-600">{lead.purpose}</p>
+            <p className="text-[12px] text-black">{lead.purpose}</p>
           </div>
           <button
             onClick={tryClose}
             disabled={busy}
-            className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+            className="text-black hover:text-black disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -1347,7 +1347,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <button
               onClick={() => navMonth(-1)}
               disabled={busy}
-              className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+              className="text-black hover:text-black disabled:opacity-50"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -1357,20 +1357,20 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             <button
               onClick={() => navMonth(1)}
               disabled={busy}
-              className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+              className="text-black hover:text-black disabled:opacity-50"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-[0.08em] text-stone-500">
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-[0.08em] text-black">
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d, i) => (
               <span key={i} className="py-0.5">{d}</span>
             ))}
           </div>
 
           {loadingAppts ? (
-            <div className="flex items-center justify-center py-6 text-stone-500">
+            <div className="flex items-center justify-center py-6 text-black">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             </div>
           ) : (
@@ -1399,7 +1399,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                     key={i}
                     onClick={() => onPickDay(c.ymd)}
                     disabled={busy}
-                    className={`aspect-square text-[12px] tabular-nums text-stone-800 outline-none ${bg} ${todayClass} disabled:opacity-50`}
+                    className={`aspect-square text-[12px] tabular-nums text-black outline-none ${bg} ${todayClass} disabled:opacity-50`}
                   >
                     {c.d}
                   </button>
@@ -1411,7 +1411,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 
         {selectedYmd && (
           <div className="border-t border-stone-200 px-4 py-3">
-            <p className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-stone-600">
+            <p className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-black">
               {formatDateInIst(`${selectedYmd}T00:00:00Z`)}
               {selectedIsPast
                 ? " · past"
@@ -1421,16 +1421,16 @@ function CalendarPopup({ lead, onClose, onCreated }) {
             </p>
 
             {selectedDayAppts.length > 0 && (
-              <ul className="mb-2 space-y-1 border-l-2 border-stone-200 pl-2 text-[12px] leading-snug text-stone-700">
+              <ul className="mb-2 space-y-1 border-l-2 border-stone-200 pl-2 text-[12px] leading-snug text-black">
                 {selectedDayAppts.map((a) => (
                   <li key={a.id}>
-                    <span className="tabular-nums text-stone-600">
+                    <span className="tabular-nums text-black">
                       {formatTimeInIst(a.scheduled_for)}
                     </span>
                     {a.notes ? (
                       <span className="ml-2">— {a.notes}</span>
                     ) : (
-                      <span className="ml-2 italic text-stone-400">
+                      <span className="ml-2  text-black">
                         — no notes
                       </span>
                     )}
@@ -1452,11 +1452,11 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                   has to spell that out so the user isn't stuck wondering. */}
             {!editingApptId && selectedIsPast ? (
               selectedDayAppts.length === 0 ? (
-                <p className="text-[13px] italic text-stone-500">
+                <p className="text-[13px]  text-black">
                   No appointment on this day.
                 </p>
               ) : selectedDayAppts.every((a) => a.synthetic) ? (
-                <p className="text-[13px] italic text-stone-500">
+                <p className="text-[13px]  text-black">
                   Scheduled time on this day, but no appointment record to
                   edit. Schedule a new appointment in the future to add notes.
                 </p>
@@ -1465,7 +1465,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
               <>
                 {!editingApptId && (
                   <div className="mb-2 flex items-center gap-2">
-                    <label className="text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                    <label className="text-[11px] uppercase tracking-[0.15em] text-black">
                       Time (IST)
                     </label>
                     <input
@@ -1500,7 +1500,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
                       setSubmitErr(null);
                     }}
                     disabled={busy}
-                    className="text-[11px] uppercase tracking-[0.18em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+                    className="text-[11px] uppercase tracking-[0.18em] text-black hover:text-black disabled:opacity-50"
                   >
                     Clear
                   </button>
@@ -1655,18 +1655,18 @@ function SessionPopup({ lead, onClose }) {
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
               Session
               {isPastSession && (
-                <span className="ml-2 border border-stone-400 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-stone-600">
+                <span className="ml-2 border border-stone-400 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-black">
                   Past · awaiting notes
                 </span>
               )}
             </p>
-            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-stone-900">
+            <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-black">
               {lead.name}
             </h3>
-            <p className="text-[14px] text-stone-600">
+            <p className="text-[14px] text-black">
               {apptDate ? formatDateInIst(apptDate) : "—"}
               {apptDate && (
-                <span className="ml-2 tabular-nums text-stone-500">
+                <span className="ml-2 tabular-nums text-black">
                   {formatTimeInIst(apptDate)}
                 </span>
               )}
@@ -1675,7 +1675,7 @@ function SessionPopup({ lead, onClose }) {
           <button
             onClick={onClose}
             disabled={savingNotes || creatingTask}
-            className="text-stone-500 hover:text-stone-900 disabled:opacity-50"
+            className="text-black hover:text-black disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -1684,7 +1684,7 @@ function SessionPopup({ lead, onClose }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <section>
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-black">
               Notes
             </p>
             <textarea
@@ -1712,18 +1712,18 @@ function SessionPopup({ lead, onClose }) {
           </section>
 
           <section className="mt-6 border-t border-stone-200 pt-5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-black">
               Tasks from this session
             </p>
 
             {tasksLoading ? (
-              <div className="flex items-center justify-center py-4 text-stone-500">
+              <div className="flex items-center justify-center py-4 text-black">
                 <Loader2 className="h-4 w-4 animate-spin" />
               </div>
             ) : tasksErr ? (
               <p className="text-xs text-red-700">{tasksErr}</p>
             ) : tasks.length === 0 ? (
-              <p className="text-[13px] italic text-stone-500">
+              <p className="text-[13px]  text-black">
                 None yet — add the first one below.
               </p>
             ) : (
@@ -1739,8 +1739,8 @@ function SessionPopup({ lead, onClose }) {
                         fill="currentColor"
                       />
                     )}
-                    <span className="flex-1 text-stone-800">{t.text}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-stone-500">
+                    <span className="flex-1 text-black">{t.text}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-black">
                       due {formatDateInIst(t.due_date)}
                     </span>
                   </li>
@@ -1758,7 +1758,7 @@ function SessionPopup({ lead, onClose }) {
                 className="w-full border-b border-stone-300 bg-transparent py-1 text-[14px] outline-none focus:border-[#cc785c]"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-black">
                   Due
                   <input
                     type="date"
@@ -1767,7 +1767,7 @@ function SessionPopup({ lead, onClose }) {
                     className="border border-stone-300 bg-white px-2 py-1 text-[12px] tabular-nums outline-none focus:border-[#cc785c]"
                   />
                 </label>
-                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-stone-600">
+                <label className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.15em] text-black">
                   <input
                     type="checkbox"
                     checked={newPriority}

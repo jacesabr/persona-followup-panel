@@ -13,7 +13,7 @@ export default function ArchivedSection({ items, renderRow }) {
     <div className="mt-4 border border-stone-300 bg-stone-50">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-stone-700 hover:bg-stone-100"
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-black hover:bg-stone-100"
       >
         <span className="inline-flex items-center gap-1.5">
           {open ? (
@@ -23,7 +23,7 @@ export default function ArchivedSection({ items, renderRow }) {
           )}
           Archived ({items.length})
         </span>
-        <span className="text-[10px] font-normal normal-case tracking-normal text-stone-500">
+        <span className="text-[10px] font-normal normal-case tracking-normal text-black">
           {open ? "click to collapse" : "click to expand"}
         </span>
       </button>

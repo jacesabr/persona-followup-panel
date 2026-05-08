@@ -121,21 +121,21 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     || "student";
 
   return (
-    <div className="min-h-screen w-full font-serif text-stone-900" style={{ backgroundColor: "#f4f0e6" }}>
+    <div className="min-h-screen w-full font-serif text-black" style={{ backgroundColor: "#f4f0e6" }}>
       {!isStaffPreview && (
         <header className="border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm italic text-stone-500">the</span>
+              <span className="text-sm  text-black">the</span>
               <span className="text-lg font-semibold tracking-tight">Persona</span>
-              <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+              <span className="text-[10px] uppercase tracking-[0.25em] text-black">
                 · {headerName}
               </span>
             </div>
             <button
               type="button"
               onClick={onExit}
-              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
             >
               <LogOut className="h-3 w-3" /> Sign out
             </button>
@@ -155,17 +155,17 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         )}
 
         <section className="mt-10">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your information</h2>
-          <p className="mt-1 text-xs text-stone-500">
+          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your information</h2>
+          <p className="mt-1 text-xs text-black">
             Everything you submitted on the intake form, grouped the same way you filled it out.
           </p>
           <div className="mt-3 space-y-4">
             {answers === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-stone-500">
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-black">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
               </div>
             ) : grouped.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs italic text-stone-500">
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs  text-black">
                 No answers recorded yet.
               </p>
             ) : (
@@ -177,17 +177,17 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         </section>
 
         <section className="mt-10">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your documents</h2>
-          <p className="mt-1 text-xs text-stone-500">
+          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your documents</h2>
+          <p className="mt-1 text-xs text-black">
             Everything you uploaded — marksheets, passport pages, photos, certificates. Click any tile to open the file.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {files === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-stone-500 sm:col-span-2">
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-black sm:col-span-2">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
               </div>
             ) : files.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs italic text-stone-500 sm:col-span-2">
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs  text-black sm:col-span-2">
                 No documents uploaded.
               </p>
             ) : (
@@ -207,8 +207,8 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             applications managed by their counsellor. */}
         {myApplications && myApplications.length > 0 && (
           <section className="mt-10">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Application status</h2>
-            <p className="mt-1 text-xs text-stone-500">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Application status</h2>
+            <p className="mt-1 text-xs text-black">
               Your school applications as tracked by your counsellor.
             </p>
             <div className="mt-3 space-y-2">
@@ -225,8 +225,8 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             actual uploads only happen from the student-facing path. */}
         {requiredDocs && requiredDocs.length > 0 && (
           <section className="mt-10">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Required documents</h2>
-            <p className="mt-1 text-xs text-stone-500">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required documents</h2>
+            <p className="mt-1 text-xs text-black">
               Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
             <div className="mt-3 space-y-2">
@@ -246,7 +246,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             the staff side; the student just sees the latest output. */}
         {latestResume && (
           <section className="mt-10">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-stone-500">Your resume</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your resume</h2>
             <div className="mt-3 border border-stone-900/15 bg-white p-6">
               <ResumeView latest={latestResume} />
             </div>
@@ -299,18 +299,18 @@ function ApplicationStatusRow({ app }) {
 
       {/* School info */}
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-stone-800 truncate">{app.university}</span>
+        <span className="text-sm font-medium text-black truncate">{app.university}</span>
         {app.program && (
-          <span className="ml-2 text-xs text-stone-500 truncate">{app.program}</span>
+          <span className="ml-2 text-xs text-black truncate">{app.program}</span>
         )}
         {app.country && (
-          <span className="ml-2 text-xs text-stone-400">{app.country}</span>
+          <span className="ml-2 text-xs text-black">{app.country}</span>
         )}
       </div>
 
       {/* Deadline */}
       {app.deadline && !isPending && (
-        <span className="shrink-0 text-xs text-stone-500">
+        <span className="shrink-0 text-xs text-black">
           Deadline: {fmtAppDate(app.deadline)}
         </span>
       )}
@@ -347,7 +347,7 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
     : "Drafted by your counsellor; approved by admin.";
 
   const status = computeStatus(doc);
-  const pill = STATUS_PILL[status] || { label: status, tone: "bg-stone-100 text-stone-700 border-stone-300" };
+  const pill = STATUS_PILL[status] || { label: status, tone: "bg-stone-100 text-black border-stone-300" };
 
   // Deadline countdown for requested-but-not-uploaded rows.
   let dayBadge = null;
@@ -381,8 +381,8 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
   return (
     <div className="border border-stone-900/15 bg-white px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">{kindLabel}</span>
-        <span className="text-sm text-stone-800">{summary}</span>
+        <span className="text-[10px] uppercase tracking-[0.2em] text-black">{kindLabel}</span>
+        <span className="text-sm text-black">{summary}</span>
         <span className={`ml-auto inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${pill.tone}`}>
           {pill.label}
         </span>
@@ -394,10 +394,10 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
       </div>
       {showStaffDraft && (
         <details className="mt-2">
-          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-800">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.15em] text-black hover:text-black">
             View counsellor draft
           </summary>
-          <pre className="mt-2 whitespace-pre-wrap border border-stone-900/10 bg-[#faf9f5] p-3 font-serif text-sm text-stone-800">
+          <pre className="mt-2 whitespace-pre-wrap border border-stone-900/10 bg-[#faf9f5] p-3 font-serif text-sm text-black">
 {doc.staff_draft}
           </pre>
         </details>
@@ -405,7 +405,7 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
       {doc.kind !== "sop" && doc.final_file_name && (
         <p className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-700">
           <CheckCircle2 className="h-3 w-3" />
-          Uploaded: <span className="text-stone-700">{doc.final_file_name}</span>
+          Uploaded: <span className="text-black">{doc.final_file_name}</span>
         </p>
       )}
       {canUpload && !doc.final_file_id && (
@@ -421,12 +421,12 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
           />
           <label
             htmlFor={`upload_${doc.id}`}
-            className={`inline-flex cursor-pointer items-center gap-1 border border-stone-900/30 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-700 hover:border-stone-900 ${busy ? "opacity-50 pointer-events-none" : ""}`}
+            className={`inline-flex cursor-pointer items-center gap-1 border border-stone-900/30 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-black hover:border-stone-900 ${busy ? "opacity-50 pointer-events-none" : ""}`}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
             Upload stamped final
           </label>
-          <span className="text-[11px] italic text-stone-500">
+          <span className="text-[11px]  text-black">
             Brightly lit photo or PDF, on a flat surface — this goes to your universities.
           </span>
         </div>
@@ -441,7 +441,7 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
 }
 
 const STATUS_PILL = {
-  awaiting_draft:   { label: "Counsellor drafting", tone: "bg-stone-100 text-stone-700 border-stone-300" },
+  awaiting_draft:   { label: "Counsellor drafting", tone: "bg-stone-100 text-black border-stone-300" },
   drafted:          { label: "Ready to send",       tone: "bg-amber-50 text-amber-800 border-amber-300" },
   drafted_sop:      { label: "Awaiting admin approval", tone: "bg-amber-50 text-amber-800 border-amber-300" },
   requested:        { label: "Print on letterhead", tone: "bg-blue-50 text-blue-800 border-blue-300" },
@@ -481,18 +481,18 @@ function computeDayBadge(requestedAt, deadlineAt) {
   const day = Math.min(Math.max(elapsed + 1, 1), 5);
   if (day >= 5) return { label: "Day 5 — URGENT", tone: "bg-red-50 text-red-800 border-red-300" };
   if (day >= 3) return { label: `Day ${day} of 5`, tone: "bg-amber-50 text-amber-800 border-amber-300" };
-  return { label: `Day ${day} of 5`, tone: "bg-stone-100 text-stone-700 border-stone-300" };
+  return { label: `Day ${day} of 5`, tone: "bg-stone-100 text-black border-stone-300" };
 }
 
 function ResumeView({ latest }) {
   if (!latest) return null;
   if (latest.status === "pending" || latest.status === "running") {
     return (
-      <div className="flex items-center gap-3 text-sm text-stone-600">
+      <div className="flex items-center gap-3 text-sm text-black">
         <Loader2 className="h-4 w-4 animate-spin" />
         <div>
           Generating your resume… this usually takes 30–60 seconds.
-          <div className="mt-1 text-xs text-stone-400">Status: {latest.status}</div>
+          <div className="mt-1 text-xs text-black">Status: {latest.status}</div>
         </div>
       </div>
     );
@@ -505,7 +505,7 @@ function ResumeView({ latest }) {
           <div>Resume generation failed. Your counsellor has been notified — they can re-run it from their panel.</div>
         </div>
         {latest.error && (
-          <details className="text-xs text-stone-500">
+          <details className="text-xs text-black">
             <summary className="cursor-pointer">Technical details</summary>
             <pre className="mt-2 overflow-auto bg-stone-50 p-2 text-[10px]">
               {String(latest.error).slice(0, 600)}
@@ -526,7 +526,7 @@ function ChapterBlock({ chapter }) {
   return (
     <div className="border border-stone-900/15 bg-white">
       <div className="border-b border-stone-200 px-4 py-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
           {chapter.title}
         </p>
       </div>
@@ -542,9 +542,9 @@ function ChapterBlock({ chapter }) {
 function PageBlock({ page }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-[11px] font-medium text-stone-700">{page.title}</p>
+      <p className="text-[11px] font-medium text-black">{page.title}</p>
       {page.helper && (
-        <p className="mt-0.5 text-[10px] italic text-stone-400">{page.helper}</p>
+        <p className="mt-0.5 text-[10px]  text-black">{page.helper}</p>
       )}
       <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-[180px_1fr]">
         {page.fields.map((f) => (
@@ -558,8 +558,8 @@ function PageBlock({ page }) {
 function FieldRow({ field, value }) {
   return (
     <>
-      <dt className="text-[11px] text-stone-500">{field.label}</dt>
-      <dd className="text-[12px] text-stone-900">
+      <dt className="text-[11px] text-black">{field.label}</dt>
+      <dd className="text-[12px] text-black">
         <FieldValue value={value} field={field} />
       </dd>
     </>
@@ -568,7 +568,7 @@ function FieldRow({ field, value }) {
 
 function FieldValue({ value, field }) {
   if (value == null || value === "") {
-    return <span className="italic text-stone-400">—</span>;
+    return <span className=" text-black">—</span>;
   }
   if (typeof value === "boolean") {
     return <span>{value ? "Yes" : "No"}</span>;
@@ -578,20 +578,20 @@ function FieldValue({ value, field }) {
   // was uploaded against this field.
   if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
     return (
-      <span className="text-stone-600">
-        <Paperclip className="mr-1 inline-block h-3 w-3 -translate-y-px text-stone-400" />
+      <span className="text-black">
+        <Paperclip className="mr-1 inline-block h-3 w-3 -translate-y-px text-black" />
         {value.name || "(file)"}
         {value.status === "uploaded" ? (
           <span className="ml-1 text-emerald-700">✓</span>
         ) : (
-          <span className="ml-1 text-stone-400">({value.status})</span>
+          <span className="ml-1 text-black">({value.status})</span>
         )}
       </span>
     );
   }
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <span className="italic text-stone-400">(none)</span>;
+      return <span className=" text-black">(none)</span>;
     }
     // Repeater rows. Each item is a sub-object keyed by itemFields[].id.
     const itemFields = field?.itemFields || [];
@@ -600,7 +600,7 @@ function FieldValue({ value, field }) {
         {value.map((row, i) => (
           <li key={i}>
             {row && typeof row === "object" ? (
-              <span className="text-stone-700">
+              <span className="text-black">
                 {itemFields.length > 0
                   ? itemFields
                       .map((f) => {
@@ -626,7 +626,7 @@ function FieldValue({ value, field }) {
   }
   if (typeof value === "object") {
     return (
-      <pre className="overflow-auto whitespace-pre-wrap text-[10px] text-stone-600">
+      <pre className="overflow-auto whitespace-pre-wrap text-[10px] text-black">
         {JSON.stringify(value, null, 2)}
       </pre>
     );
@@ -662,16 +662,16 @@ function DocumentTile({ file, fieldIndex, studentId }) {
       rel="noopener noreferrer"
       className="group flex items-start gap-3 border border-stone-900/15 bg-white px-4 py-3 transition hover:border-stone-900/40"
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-stone-500 group-hover:text-stone-900" />
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-black group-hover:text-black" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-medium text-stone-900">{title}</p>
+        <p className="truncate text-[12px] font-medium text-black">{title}</p>
         {description && (
-          <p className="mt-1 text-[11px] text-stone-600">{description}</p>
+          <p className="mt-1 text-[11px] text-black">{description}</p>
         )}
-        <p className="mt-1 truncate text-[11px] text-stone-500">
-          <span className="text-stone-400">File:</span> {file.original_name}
+        <p className="mt-1 truncate text-[11px] text-black">
+          <span className="text-black">File:</span> {file.original_name}
         </p>
-        <p className="mt-0.5 text-[10px] text-stone-400">
+        <p className="mt-0.5 text-[10px] text-black">
           {humanSize(file.size)} · {friendlyMimeLabel(file.mime_type)}
         </p>
       </div>

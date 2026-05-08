@@ -28,7 +28,7 @@ function safeUrl(url) {
 
 export default function ResumeMarkdown({ children }) {
   return (
-    <div className="prose prose-sm max-w-none font-serif prose-headings:font-serif prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-base prose-h2:uppercase prose-h2:tracking-[0.15em] prose-h2:text-stone-700 prose-h2:mt-6 prose-h2:mb-2 prose-h2:border-b prose-h2:border-stone-200 prose-h2:pb-1 prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-stone-900 prose-a:text-stone-700">
+    <div className="prose prose-sm max-w-none font-serif prose-headings:font-serif prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-base prose-h2:uppercase prose-h2:tracking-[0.15em] prose-h2:text-black prose-h2:mt-6 prose-h2:mb-2 prose-h2:border-b prose-h2:border-stone-200 prose-h2:pb-1 prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-black prose-a:text-black">
       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={safeUrl}>
         {children || ""}
       </ReactMarkdown>

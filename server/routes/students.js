@@ -74,12 +74,15 @@ function newStudentId() {
 // All gated by requireStaff (auth was already applied at mount).
 // ============================================================
 
-// POST /api/students — counsellor signs a lead up as a student.
-// Body: { username, lead_id?, display_name? }
+// POST /api/students — staff signs a new student up.
+// Body: { username, counsellor_id?, lead_id?, display_name? }
+// counsellor_id: admin-only — picks the owning counsellor. Counsellor
+// sessions ignore this field and self-assign (otherwise a counsellor
+// could shift ownership to someone else by lying in the body).
 // Returns: { student_id, username, password (PLAINTEXT, ONE TIME) }
 router.post("/", requireStaff, express.json(), async (req, res, next) => {
   try {
-    const { username, lead_id, display_name, password: explicitPassword } = req.body || {};
+    const { username, lead_id, counsellor_id: bodyCounsellorId, display_name, password: explicitPassword } = req.body || {};
     if (!isString(username) || username.trim().length < 3 || username.length > 50) {
       return res.status(400).json({ error: "username must be 3-50 characters" });
     }
@@ -94,6 +97,9 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     }
     if (lead_id != null && !isString(lead_id)) {
       return res.status(400).json({ error: "lead_id must be a string" });
+    }
+    if (bodyCounsellorId != null && !isString(bodyCounsellorId)) {
+      return res.status(400).json({ error: "counsellor_id must be a string" });
     }
     if (display_name != null && (!isString(display_name) || display_name.length > 200)) {
       return res.status(400).json({ error: "display_name must be a string up to 200 chars" });
@@ -132,8 +138,26 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     const password_hash = hashPassword(password);
     const studentId = newStudentId();
 
-    // Counsellor that created this — admins act on behalf of nobody.
-    const counsellorId = req.user.kind === "counsellor" ? req.user.counsellorId : null;
+    // Owning counsellor. Counsellor sessions self-assign (we ignore any
+    // bodyCounsellorId — a counsellor must NOT be able to hand a fresh
+    // student over to someone else by lying in the body). Admin sessions
+    // pick from the form's "Assign to counsellor" dropdown; null is
+    // accepted (legacy unassigned behaviour) but the UI marks it required.
+    let counsellorId;
+    if (req.user.kind === "counsellor") {
+      counsellorId = req.user.counsellorId;
+    } else {
+      counsellorId = bodyCounsellorId || null;
+      if (counsellorId) {
+        const ck = await pool.query(
+          `SELECT 1 FROM counsellors WHERE id = $1`,
+          [counsellorId]
+        );
+        if (ck.rows.length === 0) {
+          return res.status(400).json({ error: "counsellor_id does not exist" });
+        }
+      }
+    }
 
     try {
       const { rows } = await pool.query(
@@ -151,6 +175,7 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
         diff: {
           username: row.username,
           lead_id: row.lead_id,
+          counsellor_id: row.counsellor_id,
           display_name: row.display_name,
           password_source: explicitPassword ? "admin_supplied" : "system_generated",
         },

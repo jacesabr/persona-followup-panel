@@ -12,7 +12,7 @@ import StudentDashboard from "./StudentDashboard.jsx";
 //      one-time generated password the counsellor copies and sends.
 //   2. Browse the roster + drill into each student's intake data, uploaded
 //      files, and generated resume.
-export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = null, onAutoExpandConsumed }) {
+export default function StudentsAdmin({ role, counsellors = [], autoExpandStudentId = null, onAutoExpandConsumed }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -91,23 +91,23 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
 
   return (
     <div>
-      <CreateStudentForm role={role} leads={leads} onCreated={onCreated} />
+      <CreateStudentForm role={role} counsellors={counsellors} onCreated={onCreated} />
 
       {role === "admin" && <ImportExamplesButton />}
 
       <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-stone-700">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
           Students {students.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-stone-500">
+            <span className="ml-2 text-xs font-normal text-black">
               ({filteredStudents.length}
               {filteredStudents.length !== students.length ? ` of ${students.length}` : ""})
             </span>
           )}
         </h2>
         <div className="flex items-center gap-2">
-          {loading && <Loader2 className="h-4 w-4 animate-spin text-stone-400" />}
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-black" />}
           <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
-            <Search className="h-3 w-3 text-stone-400" />
+            <Search className="h-3 w-3 text-black" />
             <input
               type="search"
               value={filter}
@@ -120,7 +120,7 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
             onClick={() => downloadStudentsCsv(filteredStudents)}
             disabled={filteredStudents.length === 0}
             title="Download visible rows as CSV"
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700 disabled:opacity-30"
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:opacity-30"
           >
             <Download className="h-3 w-3" /> CSV
           </button>
@@ -134,12 +134,12 @@ export default function StudentsAdmin({ role, leads = [], autoExpandStudentId = 
       )}
 
       {students.length === 0 && !loading && !error && (
-        <p className="mt-6 text-sm italic text-stone-500">
+        <p className="mt-6 text-sm  text-black">
           No students yet. Sign someone up using the form above.
         </p>
       )}
       {students.length > 0 && filteredStudents.length === 0 && (
-        <p className="mt-6 text-sm italic text-stone-500">
+        <p className="mt-6 text-sm  text-black">
           No students match "{filter}".
         </p>
       )}
@@ -200,13 +200,13 @@ function ViewAsStudentModal({ detail, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
             <Eye className="mr-2 inline-block h-3 w-3" />
             Viewing as {detail.student?.display_name || detail.student?.username}
           </p>
           <button
             onClick={onClose}
-            className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700"
+            className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
           >
             <X className="h-3 w-3" /> Close
           </button>
@@ -219,18 +219,26 @@ function ViewAsStudentModal({ detail, onClose }) {
 
 // ============================================================
 // CreateStudentForm — the counsellor / admin signup form.
+// Admin sees an "Assign to counsellor" dropdown (required); counsellor
+// session self-assigns server-side (they create students for themselves
+// only — letting them pick another counsellor would shift ownership).
 // ============================================================
-function CreateStudentForm({ role, leads, onCreated }) {
+function CreateStudentForm({ role, counsellors, onCreated }) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [leadId, setLeadId] = useState("");
+  const [counsellorId, setCounsellorId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
 
-  const eligibleLeads = useMemo(
-    () => (Array.isArray(leads) ? leads.filter((l) => !l.archived) : []),
-    [leads]
+  const counsellorOptions = useMemo(
+    () => (Array.isArray(counsellors) ? counsellors : []),
+    [counsellors]
   );
+
+  const isAdmin = role === "admin";
+  const requiresCounsellor = isAdmin;
+  const canSubmit =
+    !submitting && username.trim() && (!requiresCounsellor || counsellorId);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -240,12 +248,12 @@ function CreateStudentForm({ role, leads, onCreated }) {
       const account = await api.createStudent({
         username: username.trim(),
         display_name: displayName.trim() || null,
-        lead_id: leadId || null,
+        counsellor_id: isAdmin ? counsellorId || null : null,
       });
       onCreated(account);
       setUsername("");
       setDisplayName("");
-      setLeadId("");
+      setCounsellorId("");
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -258,12 +266,12 @@ function CreateStudentForm({ role, leads, onCreated }) {
       onSubmit={submit}
       className="rounded-none border border-stone-300 bg-white p-5"
     >
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
         Sign up a new student
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-4 ${isAdmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.15em] text-black">
             Username *
           </span>
           <input
@@ -276,7 +284,7 @@ function CreateStudentForm({ role, leads, onCreated }) {
           />
         </label>
         <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.15em] text-black">
             Display name (optional)
           </span>
           <input
@@ -287,28 +295,31 @@ function CreateStudentForm({ role, leads, onCreated }) {
             className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
           />
         </label>
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
-            Link to lead (optional)
-          </span>
-          <select
-            value={leadId}
-            onChange={(e) => setLeadId(e.target.value)}
-            className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
-          >
-            <option value="">— no lead —</option>
-            {eligibleLeads.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}{l.contact ? ` · ${l.contact}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        {isAdmin && (
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-black">
+              Assign to counsellor *
+            </span>
+            <select
+              value={counsellorId}
+              onChange={(e) => setCounsellorId(e.target.value)}
+              required
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            >
+              <option value="">— select counsellor —</option>
+              {counsellorOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       <div className="mt-4 flex items-center gap-3">
         <button
           type="submit"
-          disabled={submitting || !username.trim()}
+          disabled={!canSubmit}
           className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
         >
           {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
@@ -398,13 +409,13 @@ function CredentialsModal({ account, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-baseline justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
             <KeyRound className="mr-2 inline-block h-3 w-3" />
             Account ready — send to student
           </p>
           <button
             onClick={onClose}
-            className="text-stone-500 hover:text-stone-900"
+            className="text-black hover:text-black"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -426,7 +437,7 @@ function CredentialsModal({ account, onClose }) {
             they want to. Auto-fills the student's own messenger; we
             don't talk to WhatsApp / email APIs from the server. */}
         <div className="mt-5 border-t border-stone-200 pt-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-600">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-black">
             Send to student
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -446,17 +457,17 @@ function CredentialsModal({ account, onClose }) {
             </a>
             <button
               onClick={() => copy(message, "message")}
-              className="inline-flex items-center justify-center gap-2 border border-stone-300 bg-white px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700"
+              className="inline-flex items-center justify-center gap-2 border border-stone-300 bg-white px-3 py-2 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
             >
               {copied === "message" ? <Check className="h-3 w-3 text-emerald-700" /> : <Link2 className="h-3 w-3" />}
               {copied === "message" ? "Copied" : "Copy text"}
             </button>
           </div>
           <details className="mt-3">
-            <summary className="cursor-pointer text-[10px] uppercase tracking-[0.15em] text-stone-500 hover:text-stone-900">
+            <summary className="cursor-pointer text-[10px] uppercase tracking-[0.15em] text-black hover:text-black">
               Preview message
             </summary>
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap border border-stone-200 bg-stone-50 p-2 text-[11px] text-stone-700">
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap border border-stone-200 bg-stone-50 p-2 text-[11px] text-black">
               {message}
             </pre>
           </details>
@@ -464,7 +475,7 @@ function CredentialsModal({ account, onClose }) {
 
         <button
           onClick={onClose}
-          className="mt-6 w-full border border-stone-400 px-4 py-2 text-xs uppercase tracking-[0.2em] text-stone-600 hover:bg-stone-50"
+          className="mt-6 w-full border border-stone-400 px-4 py-2 text-xs uppercase tracking-[0.2em] text-black hover:bg-stone-50"
         >
           I've sent them
         </button>
@@ -476,14 +487,14 @@ function CredentialsModal({ account, onClose }) {
 function CredField({ label, value, onCopy, copied, mono }) {
   return (
     <div className="mb-3">
-      <p className="text-[10px] uppercase tracking-[0.15em] text-stone-500">{label}</p>
+      <p className="text-[10px] uppercase tracking-[0.15em] text-black">{label}</p>
       <div className="mt-1 flex items-center justify-between gap-2 border border-stone-300 bg-stone-50 px-3 py-2">
-        <span className={`select-all truncate text-sm text-stone-900 ${mono ? "font-mono" : ""}`}>
+        <span className={`select-all truncate text-sm text-black ${mono ? "font-mono" : ""}`}>
           {value}
         </span>
         <button
           onClick={onCopy}
-          className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700"
+          className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
         >
           {copied ? <Check className="h-3 w-3 text-emerald-700" /> : <Copy className="h-3 w-3" />}
           {copied ? "copied" : "copy"}
@@ -529,10 +540,10 @@ function ImportExamplesButton() {
     <div className="mt-6 border border-stone-300 bg-white px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-black">
             Resume style corpus
           </p>
-          <p className="mt-0.5 text-xs text-stone-500">
+          <p className="mt-0.5 text-xs text-black">
             Re-imports <span className="font-mono">resume/example_resume/</span> into the database. Run after replacing the example file or on a fresh deploy.
           </p>
         </div>
@@ -551,17 +562,17 @@ function ImportExamplesButton() {
         </p>
       )}
       {result && (
-        <ul className="mt-2 space-y-0.5 text-[11px] text-stone-600">
+        <ul className="mt-2 space-y-0.5 text-[11px] text-black">
           {result.results.map((r, i) => (
             <li key={i} className="font-mono">
               <span className={
                 r.action === "inserted" ? "text-emerald-700"
-                : r.action === "updated" ? "text-stone-700"
+                : r.action === "updated" ? "text-black"
                 : r.action === "deactivated" ? "text-amber-700"
                 : "text-red-700"
               }>{r.action}</span>
               {" "}{r.label || r.file}
-              {r.word_count ? <span className="ml-1 text-stone-400">· {r.word_count}w</span> : null}
+              {r.word_count ? <span className="ml-1 text-black">· {r.word_count}w</span> : null}
               {r.reason ? <span className="ml-1 text-red-700">— {r.reason}</span> : null}
             </li>
           ))}
@@ -647,34 +658,34 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-stone-500" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-black" />
         ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-stone-500" />
+          <ChevronRight className="h-4 w-4 shrink-0 text-black" />
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-stone-900">
+          <p className="truncate font-semibold text-black">
             {row.display_name || row.username}
             {row.display_name && (
-              <span className="ml-2 text-xs font-normal text-stone-500">@{row.username}</span>
+              <span className="ml-2 text-xs font-normal text-black">@{row.username}</span>
             )}
           </p>
-          <p className="mt-0.5 text-xs text-stone-500">
+          <p className="mt-0.5 text-xs text-black">
             <ProgressLabel row={row} />
             {" · "}
             {row.file_count} files{" · "}
             {row.resume_count} resumes
             {" · "}
-            <span className="text-stone-400">{activityLabel(row)}</span>
-            {row.lead_name && <> {" · "} from lead: <span className="text-stone-700">{row.lead_name}</span></>}
+            <span className="text-black">{activityLabel(row)}</span>
+            {row.lead_name && <> {" · "} from lead: <span className="text-black">{row.lead_name}</span></>}
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
           {/* Plain-text login credential. Operator opted in — see
               migrate.js password_plain column comment. */}
           {row.password_plain && (
-            <p className="mt-1 text-[11px] text-stone-500">
+            <p className="mt-1 text-[11px] text-black">
               pw:{" "}
               <span
-                className="select-all font-mono text-stone-800"
+                className="select-all font-mono text-black"
                 onClick={(e) => e.stopPropagation()}
               >
                 {row.password_plain}
@@ -687,14 +698,14 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
             onClick={openViewAs}
             disabled={viewAsBusy}
             title="Open this student's panel — the same page they see after intake"
-            className="inline-flex items-center gap-1 border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:border-stone-700 hover:text-stone-900 disabled:opacity-50"
+            className="inline-flex items-center gap-1 border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black disabled:opacity-50"
           >
             {viewAsBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
             View as
           </button>
           <button
             onClick={resetPassword}
-            className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:border-stone-700 hover:text-stone-900"
+            className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black"
           >
             Reset pw
           </button>
@@ -704,7 +715,7 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
       {expanded && (
         <div className="border-t border-stone-200 bg-stone-50 p-4">
           {detailLoading && (
-            <p className="text-xs italic text-stone-500">Loading…</p>
+            <p className="text-xs  text-black">Loading…</p>
           )}
           {detail?.error && (
             <p className="text-xs text-red-700">{detail.error}</p>
@@ -749,11 +760,11 @@ function StudentDetail({ detail, role, onRefresh }) {
   return (
     <div className="space-y-5 text-xs">
       <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">Pipeline phase</span>
+        <span className="text-[10px] uppercase tracking-[0.2em] text-black">Pipeline phase</span>
         <span className={`text-[11px] font-medium ${
           student?.intake_phase === "done" ? "text-emerald-700"
           : student?.intake_phase === "generating" ? "text-amber-700"
-          : "text-stone-600"
+          : "text-black"
         }`}>{phaseLabel}</span>
       </div>
 
@@ -761,7 +772,7 @@ function StudentDetail({ detail, role, onRefresh }) {
         {student?.data && Object.keys(student.data).length > 0 ? (
           <IntakeAnswers data={student.data} />
         ) : (
-          <p className="italic text-stone-500">Student hasn't started filling the form yet.</p>
+          <p className=" text-black">Student hasn't started filling the form yet.</p>
         )}
       </Section>
 
@@ -782,7 +793,7 @@ function StudentDetail({ detail, role, onRefresh }) {
               return (
               <div key={r.id} className="border border-stone-200 bg-white">
                 <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
-                  <span className="text-stone-900">
+                  <span className="text-black">
                     {r.label || `Resume #${r.id}`}
                     {stale && (
                       <span
@@ -794,7 +805,7 @@ function StudentDetail({ detail, role, onRefresh }) {
                     )}
                   </span>
                   <div className="flex items-center gap-3">
-                    <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+                    <span className="text-[10px] uppercase tracking-[0.15em] text-black">
                       {snapshot?.actual_words && snapshot?.target_words
                         ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
                             {snapshot.actual_words}w / {snapshot.target_words}w target
@@ -812,7 +823,7 @@ function StudentDetail({ detail, role, onRefresh }) {
                         type="button"
                         onClick={() => handleRegen(r.id)}
                         disabled={regen[r.id]?.busy}
-                        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700 hover:text-stone-900 disabled:opacity-50"
+                        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:text-black disabled:opacity-50"
                       >
                         <RefreshCw className={`h-3 w-3 ${regen[r.id]?.busy ? "animate-spin" : ""}`} />
                         {regen[r.id]?.busy ? "Starting…" : "Regenerate"}
@@ -840,14 +851,14 @@ function StudentDetail({ detail, role, onRefresh }) {
                 ) : r.error ? (
                   <p className="px-3 py-2 text-[10px] text-red-700">{String(r.error).slice(0, 300)}</p>
                 ) : (
-                  <p className="px-3 py-2 text-[10px] italic text-stone-500">Generation in progress…</p>
+                  <p className="px-3 py-2 text-[10px]  text-black">Generation in progress…</p>
                 )}
               </div>
               );
             })}
           </div>
         ) : (
-          <p className="italic text-stone-500">No resumes generated yet.</p>
+          <p className=" text-black">No resumes generated yet.</p>
         )}
       </Section>
 
@@ -863,23 +874,23 @@ function StudentDetail({ detail, role, onRefresh }) {
           <div className="space-y-1">
             {files.map((f) => (
               <div key={f.id} className="flex items-center gap-2 border border-stone-200 bg-white px-3 py-2">
-                <span className="font-mono text-[10px] text-stone-400">{f.field_id}</span>
+                <span className="font-mono text-[10px] text-black">{f.field_id}</span>
                 <a
                   href={`/api/students/${student.student_id}/files/${f.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 truncate text-stone-900 underline-offset-2 hover:underline"
+                  className="flex-1 truncate text-black underline-offset-2 hover:underline"
                 >
                   {f.original_name}
                 </a>
-                <span className="shrink-0 text-[10px] text-stone-400">
+                <span className="shrink-0 text-[10px] text-black">
                   {humanSize(f.size)}{f.superseded_at && " · superseded"}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="italic text-stone-500">No files uploaded.</p>
+          <p className=" text-black">No files uploaded.</p>
         )}
       </Section>
     </div>
@@ -940,7 +951,7 @@ function IntakeAnswers({ data }) {
   const answers = (data && typeof data === "object" && data.answers) || data || {};
   const entries = Object.entries(answers).filter(([, v]) => v != null && v !== "");
   if (entries.length === 0) {
-    return <p className="italic text-stone-500">No answers yet.</p>;
+    return <p className=" text-black">No answers yet.</p>;
   }
   return (
     <div className="border border-stone-200 bg-white">
@@ -948,8 +959,8 @@ function IntakeAnswers({ data }) {
         <tbody>
           {entries.map(([key, val]) => (
             <tr key={key} className="border-b border-stone-100 last:border-0">
-              <td className="w-1/3 px-3 py-1.5 align-top font-mono text-[10px] text-stone-500">{key}</td>
-              <td className="px-3 py-1.5 text-[11px] text-stone-800">
+              <td className="w-1/3 px-3 py-1.5 align-top font-mono text-[10px] text-black">{key}</td>
+              <td className="px-3 py-1.5 text-[11px] text-black">
                 <AnswerCell value={val} />
               </td>
             </tr>
@@ -965,20 +976,20 @@ function AnswerCell({ value }) {
     // File slot shape: { name, status, uploadedUrl, ... }
     if (typeof value.name === "string" && "status" in value) {
       return (
-        <span className="font-mono text-[10px] text-stone-600">
+        <span className="font-mono text-[10px] text-black">
           [file: {value.name}{value.status === "uploaded" ? " ✓" : ` (${value.status})`}]
         </span>
       );
     }
     // Generic nested object — fall back to compact JSON.
     return (
-      <pre className="overflow-auto text-[10px] text-stone-600">
+      <pre className="overflow-auto text-[10px] text-black">
         {JSON.stringify(value, null, 2)}
       </pre>
     );
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="italic text-stone-400">(empty)</span>;
+    if (value.length === 0) return <span className=" text-black">(empty)</span>;
     return (
       <ol className="list-decimal pl-4">
         {value.map((item, i) => (
@@ -1030,11 +1041,11 @@ function RequiredDocsStaff({ studentId, role }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   if (docs === null) {
-    return <p className="italic text-stone-500">Loading…</p>;
+    return <p className=" text-black">Loading…</p>;
   }
   if (docs.length === 0) {
     return (
-      <p className="italic text-stone-500">
+      <p className=" text-black">
         No rows yet — student hasn't completed intake.
       </p>
     );
@@ -1110,7 +1121,7 @@ function RequiredDocsStaff({ studentId, role }) {
 
       {lors.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Letters of recommendation</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Letters of recommendation</p>
           {lors.map((d) => (
             <DocStaffCard
               key={d.id}
@@ -1127,7 +1138,7 @@ function RequiredDocsStaff({ studentId, role }) {
 
       {interns.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Internships</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Internships</p>
           {interns.map((d) => (
             <DocStaffCard
               key={d.id}
@@ -1144,7 +1155,7 @@ function RequiredDocsStaff({ studentId, role }) {
 
       {sop && (
         <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-500">Statement of purpose</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Statement of purpose</p>
           <DocStaffCard
             doc={sop}
             draft={drafts[sop.id] ?? ""}
@@ -1163,7 +1174,7 @@ function RequiredDocsStaff({ studentId, role }) {
           least one of those rows hasn't been sent yet. SOP doesn't
           ride this loop. */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 pt-3">
-        <span className="text-[11px] italic text-stone-500">
+        <span className="text-[11px]  text-black">
           {allLIDone
             ? anyLIPending
               ? "All drafts ready. Send when you're set."
@@ -1197,8 +1208,8 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
   return (
     <div className="border border-stone-200 bg-white p-3">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-stone-900">{headline}</span>
-        <span className="ml-auto inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-stone-500">
+        <span className="text-black">{headline}</span>
+        <span className="ml-auto inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-black">
           {doc.requested_at && (
             <span className="border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-blue-800">
               <Clock className="mr-1 inline h-2.5 w-2.5" />
@@ -1221,7 +1232,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
             </span>
           )}
           {!doc.marked_done_at && !doc.approved_by_admin_at && !doc.staff_draft && (
-            <span className="border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-stone-700">
+            <span className="border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-black">
               Awaiting your draft
             </span>
           )}
@@ -1230,12 +1241,12 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
 
       {/* Student brief — read-only context for the counsellor. */}
       {doc.kind === "lor" && (
-        <p className="mt-1 text-[11px] italic text-stone-600">
+        <p className="mt-1 text-[11px]  text-black">
           Reason: {doc.reason_brief || "—"}
         </p>
       )}
       {doc.kind === "internship" && (
-        <p className="mt-1 text-[11px] italic text-stone-600">
+        <p className="mt-1 text-[11px]  text-black">
           {doc.company_website ? `Website: ${doc.company_website} — ` : ""}
           What they did: {doc.activity_brief || "—"}
         </p>
@@ -1246,7 +1257,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
         value={draft || ""}
         onChange={(e) => onDraftChange(e.target.value)}
         placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship document. The student will print this on the recommender's letterhead."}
-        className="mt-2 w-full border border-stone-300 bg-[#faf9f5] p-2 font-serif text-sm text-stone-900 outline-none focus:border-stone-900"
+        className="mt-2 w-full border border-stone-300 bg-[#faf9f5] p-2 font-serif text-sm text-black outline-none focus:border-stone-900"
       />
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1254,7 +1265,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
           type="button"
           onClick={onSave}
           disabled={!dirty || busy}
-          className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+          className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
           Save draft
@@ -1269,7 +1280,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
             className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] disabled:cursor-not-allowed disabled:opacity-30 ${
               doc.marked_done_at
                 ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-300 bg-white text-stone-700 hover:border-stone-700"
+                : "border-stone-300 bg-white text-black hover:border-stone-700"
             }`}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
@@ -1286,7 +1297,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
             className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] disabled:cursor-not-allowed disabled:opacity-30 ${
               doc.approved_by_admin_at
                 ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-300 bg-white text-stone-700 hover:border-stone-700"
+                : "border-stone-300 bg-white text-black hover:border-stone-700"
             }`}
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
@@ -1295,7 +1306,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
         )}
 
         {isSop && !canApprove && (
-          <span className="text-[10px] italic text-stone-500">
+          <span className="text-[10px]  text-black">
             Admin must approve the final SOP.
           </span>
         )}
@@ -1307,7 +1318,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
 function Section({ title, children }) {
   return (
     <div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">{title}</p>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-black">{title}</p>
       {children}
     </div>
   );

@@ -136,11 +136,12 @@ export const api = {
   // surface — they see the StudentIntake component, which talks to
   // /api/students/me/* directly.
   // ----------------------------------------------------------------
-  // Sign a lead (or anyone) up as a student. Returns the new account
-  // including a one-time plaintext password the counsellor copies and
-  // sends to the student.
-  createStudent: ({ username, lead_id, display_name } = {}) =>
-    request("POST", "/api/students", { username, lead_id, display_name }),
+  // Sign a student up. Returns the new account including a one-time
+  // plaintext password the counsellor copies and sends to the student.
+  // counsellor_id is admin-only — counsellor sessions are auto-assigned
+  // to themselves server-side.
+  createStudent: ({ username, counsellor_id, display_name } = {}) =>
+    request("POST", "/api/students", { username, counsellor_id, display_name }),
   // Generate a fresh password for an existing student. Returns the
   // new plaintext one-time.
   resetStudentPassword: (studentId) =>

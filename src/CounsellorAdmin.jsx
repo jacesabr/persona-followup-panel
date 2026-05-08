@@ -94,7 +94,7 @@ export default function CounsellorAdmin({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-stone-600">
+      <div className="flex items-center justify-center py-20 text-black">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -107,7 +107,7 @@ export default function CounsellorAdmin({
       <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Counsellors</h2>
-          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[11px] uppercase tracking-[0.2em] text-black">
             {counsellors.length}{" "}
             {counsellors.length === 1 ? "counsellor" : "counsellors"}
           </span>
@@ -134,7 +134,7 @@ export default function CounsellorAdmin({
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span className="whitespace-nowrap">Name</span>
@@ -146,7 +146,7 @@ export default function CounsellorAdmin({
 
         {showNew && (
           <div
-            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[14px] text-stone-800"
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[14px] text-black"
             style={{ gridTemplateColumns: gridCols }}
           >
             <input
@@ -217,7 +217,7 @@ export default function CounsellorAdmin({
                 }}
                 disabled={busy}
                 title="Cancel"
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -226,7 +226,7 @@ export default function CounsellorAdmin({
         )}
 
         {counsellors.length === 0 && !showNew && (
-          <p className="py-10 text-center text-sm italic text-stone-600">
+          <p className="py-10 text-center text-sm  text-black">
             No counsellors yet. Click "+ New counsellor" to add one.
           </p>
         )}
@@ -239,19 +239,19 @@ export default function CounsellorAdmin({
               className="grid items-center gap-3 border-b border-stone-200 bg-white px-4 py-2.5 last:border-b-0 hover:bg-stone-50"
               style={{ gridTemplateColumns: gridCols }}
             >
-              <span className="font-semibold text-stone-900">{c.name}</span>
-              <span className="text-[13px] tabular-nums text-stone-700">
+              <span className="font-semibold text-black">{c.name}</span>
+              <span className="text-[13px] tabular-nums text-black">
                 {c.whatsapp || "—"}
               </span>
               <span
-                className="truncate text-[13px] text-stone-700"
+                className="truncate text-[13px] text-black"
                 title={c.email || ""}
               >
                 {c.email || "—"}
               </span>
-              <span className="text-[13px] text-stone-700">
+              <span className="text-[13px] text-black">
                 {c.username || (
-                  <span className="italic text-stone-400">—</span>
+                  <span className=" text-black">—</span>
                 )}
               </span>
               <span className="flex items-center gap-1.5">
@@ -282,7 +282,7 @@ export default function CounsellorAdmin({
                       onClick={cancelReset}
                       disabled={busy}
                       title="Cancel"
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -293,11 +293,11 @@ export default function CounsellorAdmin({
                         Legacy rows that pre-date the column show "—"
                         until they log in once or admin resets. */}
                     <span
-                      className="select-all truncate font-mono text-[13px] text-stone-800"
+                      className="select-all truncate font-mono text-[13px] text-black"
                       title={c.password_plain || ""}
                     >
                       {c.password_plain || (
-                        <span className="italic text-stone-400">—</span>
+                        <span className=" text-black">—</span>
                       )}
                     </span>
                     <button
@@ -307,7 +307,7 @@ export default function CounsellorAdmin({
                         setError(null);
                       }}
                       title="Reset password"
-                      className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                      className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
                       <KeyRound className="h-3 w-3" /> Reset
                     </button>

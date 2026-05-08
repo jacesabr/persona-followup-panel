@@ -12,18 +12,18 @@ import useAutoRefresh from "./useAutoRefresh.js";
 // visual mapping the team already has muscle memory for; `tone` is the
 // matching text colour for legibility on the swatch.
 const STATUS_META = {
-  active:    { label: "Active",                swatch: "#00FF00", tone: "text-stone-900" },
-  submitted: { label: "Application submitted", swatch: "#93C47D", tone: "text-stone-900" },
+  active:    { label: "Active",                swatch: "#00FF00", tone: "text-black" },
+  submitted: { label: "Application submitted", swatch: "#93C47D", tone: "text-black" },
   offer:     { label: "Offer received",        swatch: "#6AA84F", tone: "text-white"     },
-  ongoing:   { label: "Ongoing",               swatch: "#FFFFFF", tone: "text-stone-900" },
-  on_hold:   { label: "On hold",               swatch: "#FF9900", tone: "text-stone-900" },
+  ongoing:   { label: "Ongoing",               swatch: "#FFFFFF", tone: "text-black" },
+  on_hold:   { label: "On hold",               swatch: "#FF9900", tone: "text-black" },
   cancelled: { label: "Cancelled",             swatch: "#FF0000", tone: "text-white"     },
 };
 
 const STATUS_KEYS = Object.keys(STATUS_META);
 
 function metaFor(status) {
-  return STATUS_META[status] || { label: status || "—", swatch: "#E7E5E4", tone: "text-stone-700" };
+  return STATUS_META[status] || { label: status || "—", swatch: "#E7E5E4", tone: "text-black" };
 }
 
 function fmtDate(d) {
@@ -190,7 +190,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-stone-600">
+      <div className="flex items-center justify-center py-20 text-black">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -204,7 +204,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Applications</h2>
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">
             {active.length} active{pending.length ? ` · ${pending.length} pending` : ""}
           </span>
         </div>
@@ -216,7 +216,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
             <Plus className="h-3 w-3" /> New application
           </button>
           <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
-            <Search className="h-3 w-3 text-stone-400" />
+            <Search className="h-3 w-3 text-black" />
             <input
               type="search"
               value={filter}
@@ -240,7 +240,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
             <h3 className="text-[12px] font-bold uppercase tracking-[0.18em] text-[#cc785c]">
               Pending review
             </h3>
-            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-500">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-black">
               {pending.length} new selection{pending.length === 1 ? "" : "s"}
             </span>
           </div>
@@ -259,8 +259,8 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
 
       {/* Sort toolbar */}
       <div className="mb-2 flex items-center gap-2">
-        <ArrowUpDown className="h-3.5 w-3.5 text-stone-400" />
-        <span className="text-[11px] uppercase tracking-[0.15em] text-stone-500">Sort:</span>
+        <ArrowUpDown className="h-3.5 w-3.5 text-black" />
+        <span className="text-[11px] uppercase tracking-[0.15em] text-black">Sort:</span>
         {[
           { key: "urgency",    label: "Urgency" },
           { key: "student",    label: "Student" },
@@ -273,7 +273,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
             className={`border px-2.5 py-1 text-[11px] uppercase tracking-[0.12em] transition ${
               sortBy === key
                 ? "border-stone-900 bg-stone-900 text-white"
-                : "border-stone-300 bg-white text-stone-600 hover:border-stone-500"
+                : "border-stone-300 bg-white text-black hover:border-stone-500"
             }`}
           >
             {label}
@@ -283,7 +283,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-2 border-b border-stone-300 bg-stone-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span>Status</span>
@@ -298,7 +298,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
         </div>
 
         {active.length === 0 && (
-          <div className="px-3 py-6 text-center text-xs italic text-stone-500">
+          <div className="px-3 py-6 text-center text-xs  text-black">
             No active applications.
           </div>
         )}
@@ -367,7 +367,7 @@ export default function ApplicationsPanel({ role = "admin", counsellors = [], on
 function PendingHeader() {
   return (
     <div
-      className="grid items-center gap-2 border-b border-[#cc785c]/30 bg-[#cc785c]/10 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+      className="grid items-center gap-2 border-b border-[#cc785c]/30 bg-[#cc785c]/10 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-black"
       style={{ gridTemplateColumns: "1.4fr 0.7fr 1.4fr 1.2fr 1fr 7rem" }}
     >
       <span>Student</span>
@@ -383,19 +383,19 @@ function PendingHeader() {
 function PendingRow({ row, onReview }) {
   return (
     <div
-      className="grid items-center gap-2 border-b border-[#cc785c]/20 px-3 py-2 text-[13px] text-stone-800 last:border-b-0 hover:bg-[#cc785c]/5"
+      className="grid items-center gap-2 border-b border-[#cc785c]/20 px-3 py-2 text-[13px] text-black last:border-b-0 hover:bg-[#cc785c]/5"
       style={{ gridTemplateColumns: "1.4fr 0.7fr 1.4fr 1.2fr 1fr 7rem" }}
     >
       <span className="min-w-0 truncate">
         <span className="font-semibold">{row.student_name || row.student_username}</span>
         {row.student_name && (
-          <span className="ml-1 text-[11px] font-normal text-stone-500">@{row.student_username}</span>
+          <span className="ml-1 text-[11px] font-normal text-black">@{row.student_username}</span>
         )}
       </span>
-      <span className="truncate text-[12px] text-stone-700">{row.country || "—"}</span>
+      <span className="truncate text-[12px] text-black">{row.country || "—"}</span>
       <span className="truncate">{row.university}</span>
-      <span className="truncate text-[12px] text-stone-700">{row.program || "—"}</span>
-      <span className="text-[11px] tabular-nums text-stone-500">{fmtDate(row.created_at)}</span>
+      <span className="truncate text-[12px] text-black">{row.program || "—"}</span>
+      <span className="text-[11px] tabular-nums text-black">{fmtDate(row.created_at)}</span>
       <button
         onClick={onReview}
         className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-white hover:bg-[#b86a4f]"
@@ -409,7 +409,7 @@ function PendingRow({ row, onReview }) {
 function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
   return (
     <div
-      className="grid items-start gap-2 border-b border-stone-200 px-3 py-3 text-sm text-stone-800 last:border-b-0 hover:bg-stone-50 cursor-pointer"
+      className="grid items-start gap-2 border-b border-stone-200 px-3 py-3 text-sm text-black last:border-b-0 hover:bg-stone-50 cursor-pointer"
       style={{ gridTemplateColumns: gridCols }}
       onClick={onClick}
     >
@@ -418,21 +418,21 @@ function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
         <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
       </div>
       <StudentCell row={row} />
-      <span className="truncate text-sm text-stone-700 pt-1">{row.counsellor_name || <span className="italic text-stone-400">—</span>}</span>
-      <span className="truncate text-sm text-stone-700 pt-1">{row.country || "—"}</span>
+      <span className="truncate text-sm text-black pt-1">{row.counsellor_name || <span className=" text-black">—</span>}</span>
+      <span className="truncate text-sm text-black pt-1">{row.country || "—"}</span>
       <span className="truncate font-medium pt-1">{row.university}</span>
-      <span className="truncate text-sm text-stone-700 pt-1">{row.program || "—"}</span>
+      <span className="truncate text-sm text-black pt-1">{row.program || "—"}</span>
       <div onClick={(e) => e.stopPropagation()} className="pt-1">
         <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
       </div>
       {/* Full note — no truncation */}
-      <span className="break-words text-sm text-stone-700 pt-1 leading-snug">
-        {row.notes || <span className="italic text-stone-400">—</span>}
+      <span className="break-words text-sm text-black pt-1 leading-snug">
+        {row.notes || <span className=" text-black">—</span>}
       </span>
       <button
         onClick={(e) => { e.stopPropagation(); onArchive(); }}
         title="Archive this application"
-        className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-2 py-1 text-xs uppercase tracking-[0.12em] text-stone-700 hover:border-stone-700"
+        className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-2 py-1 text-xs uppercase tracking-[0.12em] text-black hover:border-stone-700"
       >
         <Archive className="h-3.5 w-3.5" /> Archive
       </button>
@@ -444,13 +444,13 @@ function StudentCell({ row }) {
   const linked = !!row.student_id;
   return (
     <span className="min-w-0 flex items-center gap-1.5 truncate">
-      <span className="text-sm font-bold truncate text-stone-900">
+      <span className="text-sm font-bold truncate text-black">
         {row.student_name || row.student_username || "—"}
       </span>
       {!linked && (
         <span
           title="Unlinked: this application has no intake account yet"
-          className="shrink-0 border border-stone-400 bg-stone-100 px-1 py-px text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-600"
+          className="shrink-0 border border-stone-400 bg-stone-100 px-1 py-px text-[10px] font-semibold uppercase tracking-[0.1em] text-black"
         >
           Unlinked
         </span>
@@ -514,7 +514,7 @@ function DeadlineCell({ value, onChange }) {
     const overdue = daysLeft < 0;
     return (
       <span className="flex items-center gap-1.5 group">
-        <span className={`text-sm font-bold tabular-nums ${overdue ? "text-red-700" : urgent ? "text-amber-700" : "text-stone-900"}`}>
+        <span className={`text-sm font-bold tabular-nums ${overdue ? "text-red-700" : urgent ? "text-amber-700" : "text-black"}`}>
           {fmtDate(value)}
         </span>
         <button
@@ -539,7 +539,7 @@ function DeadlineCell({ value, onChange }) {
         setEditing(false);
       }}
       onBlur={() => setEditing(false)}
-      className="w-full border border-stone-300 bg-transparent px-1 py-0.5 text-sm tabular-nums text-stone-700 hover:border-stone-500 focus:border-[#cc785c] focus:outline-none"
+      className="w-full border border-stone-300 bg-transparent px-1 py-0.5 text-sm tabular-nums text-black hover:border-stone-500 focus:border-[#cc785c] focus:outline-none"
     />
   );
 }
@@ -556,9 +556,9 @@ function ArchivedRow({ row, onUnarchive }) {
         >
           {meta.label}
         </span>
-        <span className="font-semibold text-stone-800">{row.student_name || row.student_username}</span>
-        <span className="ml-2 text-stone-600">· {row.university}</span>
-        {row.program && <span className="ml-2 text-stone-500">· {row.program}</span>}
+        <span className="font-semibold text-black">{row.student_name || row.student_username}</span>
+        <span className="ml-2 text-black">· {row.university}</span>
+        {row.program && <span className="ml-2 text-black">· {row.program}</span>}
       </span>
       <button
         onClick={onUnarchive}
@@ -646,15 +646,15 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
                   {meta.label}
                 </span>
                 {!row.student_id && (
-                  <span className="shrink-0 border border-stone-400 bg-stone-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.1em] text-stone-600">Unlinked</span>
+                  <span className="shrink-0 border border-stone-400 bg-stone-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.1em] text-black">Unlinked</span>
                 )}
               </div>
-              <h3 className="mt-2 text-2xl font-bold text-stone-900">{studentLabel}</h3>
-              <p className="text-base text-stone-500">
+              <h3 className="mt-2 text-2xl font-bold text-black">{studentLabel}</h3>
+              <p className="text-base text-black">
                 {row.university}{row.program ? ` · ${row.program}` : ""}{row.country ? ` · ${row.country}` : ""}
               </p>
             </div>
-            <button onClick={onClose} className="shrink-0 text-stone-400 hover:text-stone-900" aria-label="Close">
+            <button onClick={onClose} className="shrink-0 text-black hover:text-black" aria-label="Close">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -681,7 +681,7 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
                     className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${linkStudentId === s.student_id ? "bg-[#cc785c]/10" : "hover:bg-stone-50"}`}>
                     <span>
                       <span className="font-semibold">{s.display_name || s.username}</span>
-                      {s.display_name && <span className="ml-1.5 text-xs text-stone-500">@{s.username}</span>}
+                      {s.display_name && <span className="ml-1.5 text-xs text-black">@{s.username}</span>}
                     </span>
                     {linkStudentId === s.student_id && <Check className="h-4 w-4 text-[#cc785c]" />}
                   </button>
@@ -703,13 +703,13 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
             <div className="flex flex-wrap gap-2">
               {onViewStudent && (
                 <button type="button" onClick={() => { onClose(); onViewStudent(row.student_id); }}
-                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ExternalLink className="h-4 w-4" /> View student profile
                 </button>
               )}
               {onViewTasks && (
                 <button type="button" onClick={() => { onClose(); onViewTasks(); }}
-                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ClipboardList className="h-4 w-4" /> View tasks for this student
                 </button>
               )}
@@ -717,10 +717,10 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
           )}
           {/* Counsellor — always shown, assigned at application level */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-base font-medium text-stone-600">Counsellor:</span>
+            <span className="text-base font-medium text-black">Counsellor:</span>
             {currentCounsellorName
-              ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
-              : <span className="text-base font-semibold text-stone-400">Not assigned</span>
+              ? <span className="text-base font-bold text-black">{currentCounsellorName}</span>
+              : <span className="text-base font-semibold text-black">Not assigned</span>
             }
             {counsellors.length > 0 && (
               <>
@@ -746,24 +746,24 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Status</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Status</label>
               <select value={status} onChange={e => setStatus(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none">
                 {STATUS_KEYS.map(k => <option key={k} value={k}>{STATUS_META[k].label}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Deadline</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Deadline</label>
               <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base tabular-nums focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">University *</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">University *</label>
               <input type="text" value={university} onChange={e => setUniversity(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Country</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Country</label>
               <input type="text" value={country} onChange={e => setCountry(e.target.value)}
                 placeholder="e.g. India, UK, USA"
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
@@ -771,18 +771,18 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Program</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Program</label>
             <input type="text" value={program} onChange={e => setProgram(e.target.value)}
               className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Requirements</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Requirements</label>
             <textarea rows={3} value={requirements} onChange={e => setRequirements(e.target.value)}
               placeholder="SOP, portfolio, recommendations…"
               className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Notes</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Notes</label>
             <textarea rows={5} value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Any notes about this application…"
               className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none" />
@@ -792,12 +792,12 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-stone-300 px-5 py-4">
           <button onClick={onArchive} disabled={busy}
-            className="inline-flex items-center gap-2 border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-stone-600 hover:border-red-400 hover:text-red-600 disabled:opacity-50">
+            className="inline-flex items-center gap-2 border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-black hover:border-red-400 hover:text-red-600 disabled:opacity-50">
             <Archive className="h-4 w-4" /> Archive
           </button>
           <div className="flex items-center gap-3">
             <button onClick={onClose} disabled={busy}
-              className="border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-stone-700 hover:border-stone-700 disabled:opacity-50">
+              className="border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-black hover:border-stone-700 disabled:opacity-50">
               Cancel
             </button>
             <button onClick={save} disabled={busy}
@@ -883,7 +883,7 @@ function CreateModal({ students, onClose, onCreate }) {
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto border border-stone-300 bg-[#faf9f5] shadow-xl">
         <div className="flex items-center justify-between border-b border-stone-300 px-4 py-3">
           <h3 className="text-sm font-semibold tracking-tight">New application</h3>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-900" aria-label="Close">
+          <button onClick={onClose} className="text-black hover:text-black" aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -895,14 +895,14 @@ function CreateModal({ students, onClose, onCreate }) {
           )}
 
           <div>
-            <div className="mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.15em] text-stone-600">
+            <div className="mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.15em] text-black">
               <span>Student</span>
               <span className="ml-auto inline-flex border border-stone-300">
                 <button
                   type="button"
                   onClick={() => setMode("freetext")}
                   className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${
-                    mode === "freetext" ? "bg-[#cc785c] text-white" : "bg-white text-stone-600 hover:bg-stone-50"
+                    mode === "freetext" ? "bg-[#cc785c] text-white" : "bg-white text-black hover:bg-stone-50"
                   }`}
                 >
                   Type name
@@ -911,7 +911,7 @@ function CreateModal({ students, onClose, onCreate }) {
                   type="button"
                   onClick={() => setMode("linked")}
                   className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] border-l border-stone-300 ${
-                    mode === "linked" ? "bg-[#cc785c] text-white" : "bg-white text-stone-600 hover:bg-stone-50"
+                    mode === "linked" ? "bg-[#cc785c] text-white" : "bg-white text-black hover:bg-stone-50"
                   }`}
                 >
                   Pick existing
@@ -937,7 +937,7 @@ function CreateModal({ students, onClose, onCreate }) {
                 />
                 <div className="max-h-40 overflow-y-auto border border-stone-300 bg-white">
                   {filteredStudents.length === 0 && (
-                    <div className="px-2 py-2 text-[12px] italic text-stone-500">
+                    <div className="px-2 py-2 text-[12px]  text-black">
                       {studentSearch ? "no match" : "no students yet"}
                     </div>
                   )}
@@ -953,7 +953,7 @@ function CreateModal({ students, onClose, onCreate }) {
                       <span className="truncate">
                         <span className="font-semibold">{s.display_name || s.username}</span>
                         {s.display_name && (
-                          <span className="ml-1 text-[11px] text-stone-500">@{s.username}</span>
+                          <span className="ml-1 text-[11px] text-black">@{s.username}</span>
                         )}
                       </span>
                       {studentId === s.student_id && <Check className="h-3 w-3 text-[#cc785c]" />}
@@ -966,7 +966,7 @@ function CreateModal({ students, onClose, onCreate }) {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">University *</label>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">University *</label>
               <input
                 type="text"
                 value={university}
@@ -975,7 +975,7 @@ function CreateModal({ students, onClose, onCreate }) {
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Country</label>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Country</label>
               <input
                 type="text"
                 value={country}
@@ -985,7 +985,7 @@ function CreateModal({ students, onClose, onCreate }) {
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Program</label>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Program</label>
               <input
                 type="text"
                 value={program}
@@ -994,7 +994,7 @@ function CreateModal({ students, onClose, onCreate }) {
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Deadline</label>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Deadline</label>
               <input
                 type="date"
                 value={deadline}
@@ -1005,7 +1005,7 @@ function CreateModal({ students, onClose, onCreate }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Status</label>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Status</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -1017,7 +1017,7 @@ function CreateModal({ students, onClose, onCreate }) {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Requirements</label>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Requirements</label>
             <textarea
               rows={2}
               value={requirements}
@@ -1027,7 +1027,7 @@ function CreateModal({ students, onClose, onCreate }) {
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-stone-600">Notes</label>
+            <label className="mb-1 block text-[11px] uppercase tracking-[0.15em] text-black">Notes</label>
             <textarea
               rows={2}
               value={notes}
@@ -1040,7 +1040,7 @@ function CreateModal({ students, onClose, onCreate }) {
           <button
             onClick={onClose}
             disabled={busy}
-            className="border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700 disabled:opacity-50"
+            className="border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-black hover:border-stone-700 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -1119,10 +1119,10 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
         {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-300 px-5 py-4">
           <div>
-            <h3 className="text-xl font-bold text-stone-900">Review application</h3>
-            <p className="text-sm text-stone-500">Fill in details, then push to active workflow</p>
+            <h3 className="text-xl font-bold text-black">Review application</h3>
+            <p className="text-sm text-black">Fill in details, then push to active workflow</p>
           </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-900" aria-label="Close">
+          <button onClick={onClose} className="text-black hover:text-black" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -1133,13 +1133,13 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
             <div className="flex flex-wrap gap-2">
               {onViewStudent && (
                 <button type="button" onClick={() => { onClose(); onViewStudent(row.student_id); }}
-                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ExternalLink className="h-4 w-4" /> View student profile
                 </button>
               )}
               {onViewTasks && (
                 <button type="button" onClick={() => { onClose(); onViewTasks(); }}
-                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c] transition">
+                  className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ClipboardList className="h-4 w-4" /> View tasks for this student
                 </button>
               )}
@@ -1147,10 +1147,10 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
           )}
           {/* Counsellor — always shown */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-base font-medium text-stone-600">Counsellor:</span>
+            <span className="text-base font-medium text-black">Counsellor:</span>
             {currentCounsellorName
-              ? <span className="text-base font-bold text-stone-900">{currentCounsellorName}</span>
-              : <span className="text-base font-semibold text-stone-400">Not assigned</span>
+              ? <span className="text-base font-bold text-black">{currentCounsellorName}</span>
+              : <span className="text-base font-semibold text-black">Not assigned</span>
             }
             {counsellors.length > 0 && (
               <>
@@ -1176,9 +1176,9 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
 
           {/* Student name — editable for unlinked rows */}
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Student</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Student</label>
             {row.student_id
-              ? <p className="px-3 py-2 text-base font-semibold text-stone-900">{row.student_name || row.student_username}</p>
+              ? <p className="px-3 py-2 text-base font-semibold text-black">{row.student_name || row.student_username}</p>
               : <input type="text" value={studentName} onChange={e => setStudentName(e.target.value)}
                   className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
             }
@@ -1186,23 +1186,23 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">University *</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">University *</label>
               <input type="text" value={university} onChange={e => setUniversity(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Country</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Country</label>
               <input type="text" value={country} onChange={e => setCountry(e.target.value)}
                 placeholder="e.g. India, UK, USA"
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Program</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Program</label>
               <input type="text" value={program} onChange={e => setProgram(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Status</label>
+              <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Status</label>
               <select value={status} onChange={e => setStatus(e.target.value)}
                 className="w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none">
                 {STATUS_KEYS.map(k => <option key={k} value={k}>{STATUS_META[k].label}</option>)}
@@ -1211,18 +1211,18 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Deadline</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Deadline</label>
             <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
               className="w-full border border-stone-300 bg-white px-3 py-2 text-base tabular-nums focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Requirements</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Requirements</label>
             <textarea rows={3} value={requirements} onChange={e => setRequirements(e.target.value)}
               placeholder="SOP, portfolio, recommendations…"
               className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-stone-500">Notes</label>
+            <label className="mb-1.5 block text-sm font-semibold uppercase tracking-[0.12em] text-black">Notes</label>
             <textarea rows={4} value={notes} onChange={e => setNotes(e.target.value)}
               className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
@@ -1231,7 +1231,7 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-stone-300 px-5 py-4">
           <button onClick={onClose} disabled={busy}
-            className="border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-stone-700 hover:border-stone-700 disabled:opacity-50">
+            className="border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.12em] text-black hover:border-stone-700 disabled:opacity-50">
             Cancel
           </button>
           <button onClick={submit} disabled={busy}

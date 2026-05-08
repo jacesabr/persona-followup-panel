@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SimpleFollowup from "./SimpleFollowup.jsx";
 import CounsellorTasks from "./CounsellorTasks.jsx";
 import CounsellorAdmin from "./CounsellorAdmin.jsx";
@@ -6,8 +6,8 @@ import StudentsAdmin from "./StudentsAdmin.jsx";
 import IeltsPanel from "./IeltsPanel.jsx";
 import ApplicationsPanel from "./ApplicationsPanel.jsx";
 import RequiredDocsPanel from "./RequiredDocsPanel.jsx";
+import OutstandingMarksheetsPanel from "./OutstandingMarksheetsPanel.jsx";
 import { api } from "./api.js";
-import useAutoRefresh from "./useAutoRefresh.js";
 
 const TAB_KEY = "persona_simple_tab";
 
@@ -15,7 +15,7 @@ function loadTab(role) {
   if (typeof window === "undefined") return "followup";
   try {
     const t = sessionStorage.getItem(TAB_KEY);
-    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents") return t;
+    if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents" || t === "marksheets") return t;
     if (t === "counsellors" && role === "admin") return t;
     // team-{counsellorId} tabs for supervisor views
     if (typeof t === "string" && t.startsWith("team-")) return t;
@@ -75,10 +75,6 @@ export default function SimplePanel({
     [counsellorsForCounsellor, scopedCounsellorId]
   );
 
-  // Leads list piggybacks here so the Students tab's signup form can show
-  // a "link to lead" dropdown — counsellor sees only their own leads,
-  // admin sees all (handled server-side in /api/leads).
-  const [leadsForLink, setLeadsForLink] = useState([]);
   // Cross-tab navigation: IELTS panel's "View" button sets this so the
   // Students tab knows which row to auto-expand on mount. Cleared once
   // the Students tab has consumed it.
@@ -91,22 +87,6 @@ export default function SimplePanel({
       /* ignore quota/private mode */
     }
   }, [tab]);
-
-  const refreshLeadsForLink = useCallback(() => {
-    if (tab !== "students") return Promise.resolve();
-    return api
-      .listLeads({ counsellorId: role === "counsellor" ? scopedCounsellorId : null })
-      .then(setLeadsForLink)
-      .catch(() => setLeadsForLink([]));
-  }, [tab, role, scopedCounsellorId]);
-
-  useEffect(() => {
-    refreshLeadsForLink();
-  }, [refreshLeadsForLink]);
-
-  // Keep the signup form's lead dropdown fresh while the Students tab is
-  // open — another admin adding a lead elsewhere should appear here too.
-  useAutoRefresh(refreshLeadsForLink);
 
   return (
     <>
@@ -141,6 +121,11 @@ export default function SimplePanel({
             label="Student Document To Process"
             active={tab === "documents"}
             onClick={() => setTab("documents")}
+          />
+          <FolderTab
+            label="Outstanding Marksheets"
+            active={tab === "marksheets"}
+            onClick={() => setTab("marksheets")}
           />
           {role === "admin" && (
             <FolderTab
@@ -178,7 +163,7 @@ export default function SimplePanel({
       {tab === "students" && (
         <StudentsAdmin
           role={role}
-          leads={leadsForLink}
+          counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
           autoExpandStudentId={pendingStudentId}
           onAutoExpandConsumed={() => setPendingStudentId(null)}
         />
@@ -208,6 +193,12 @@ export default function SimplePanel({
           onViewTasks={() => setTab("tasks")}
         />
       )}
+      {tab === "marksheets" && (
+        <OutstandingMarksheetsPanel
+          role={role}
+          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+        />
+      )}
       {tab === "counsellors" && role === "admin" && (
         <CounsellorAdmin
           counsellors={counsellors || []}
@@ -235,7 +226,7 @@ function FolderTab({ label, active, onClick }) {
     return (
       <button
         onClick={onClick}
-        className="relative z-10 -mb-px border border-stone-400 border-b-transparent px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-900"
+        className="relative z-10 -mb-px border border-stone-400 border-b-transparent px-5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-black"
         style={{ backgroundColor: "#faf9f5" }}
       >
         {label}
@@ -245,7 +236,7 @@ function FolderTab({ label, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="border border-stone-300 bg-stone-100 px-5 py-1.5 text-[11px] uppercase tracking-[0.2em] text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+      className="border border-stone-300 bg-stone-100 px-5 py-1.5 text-[11px] uppercase tracking-[0.2em] text-black hover:bg-stone-50 hover:text-black"
     >
       {label}
     </button>

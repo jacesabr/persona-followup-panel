@@ -544,7 +544,7 @@ export default function CounsellorTasks({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-stone-600">
+      <div className="flex items-center justify-center py-20 text-black">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -573,12 +573,12 @@ export default function CounsellorTasks({
       <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">My Tasks</h2>
-          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[11px] uppercase tracking-[0.2em] text-black">
             {myActiveTasks.length} {myActiveTasks.length === 1 ? "task" : "tasks"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Sort by:</span>
+          <span className="text-[11px] uppercase tracking-[0.2em] text-black">Sort by:</span>
           <SortChip label="Date" position={mySortPosition("date")} onClick={() => toggleMySort("date")} />
           <SortChip label="Student" position={mySortPosition("student")} onClick={() => toggleMySort("student")} />
         </div>
@@ -602,7 +602,7 @@ export default function CounsellorTasks({
 
       <div className="mb-8 border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span className="whitespace-nowrap">Priority</span>
@@ -615,7 +615,7 @@ export default function CounsellorTasks({
 
         {showNewMy && (
           <div
-            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-stone-800"
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-black"
             style={{ gridTemplateColumns: gridCols }}
           >
             <span></span>
@@ -645,7 +645,7 @@ export default function CounsellorTasks({
               className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
             />
             {/* Auto-assigned to self — no picker needed */}
-            <span className="text-[13px] italic text-stone-400">Assigned to you</span>
+            <span className="text-[13px]  text-black">Assigned to you</span>
             <span className="flex items-center justify-end gap-1.5">
               <button
                 onClick={submitNewMy}
@@ -659,7 +659,7 @@ export default function CounsellorTasks({
                 onClick={cancelNewMy}
                 disabled={creatingMy}
                 title="Cancel"
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -689,7 +689,7 @@ export default function CounsellorTasks({
                     className={`inline-flex items-center gap-1 border px-1.5 py-1 text-[11px] uppercase tracking-[0.12em] disabled:opacity-50 ${
                       task.priority
                         ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
-                        : "border-stone-300 bg-white text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                        : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                     }`}
                   >
                     <Star className={`h-3 w-3 ${task.priority ? "fill-white" : ""}`} />
@@ -704,7 +704,7 @@ export default function CounsellorTasks({
                     className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
                   />
                 ) : (
-                  <span className={`tabular-nums text-[15px] ${overdue ? "font-bold text-red-700" : isToday ? "font-bold text-[#cc785c]" : "text-stone-700"}`}>
+                  <span className={`tabular-nums text-[15px] ${overdue ? "font-bold text-red-700" : isToday ? "font-bold text-[#cc785c]" : "text-black"}`}>
                     {formatDateInIst(task.due_date)}
                   </span>
                 )}
@@ -717,7 +717,7 @@ export default function CounsellorTasks({
                     className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
                   />
                 ) : (
-                  <span className="text-[15px] font-semibold text-stone-900">
+                  <span className="text-[15px] font-semibold text-black">
                     {task.lead_name || task.student_name || "—"}
                   </span>
                 )}
@@ -730,7 +730,7 @@ export default function CounsellorTasks({
                     autoFocus
                   />
                 ) : (
-                  <span className={`flex flex-col text-[15px] leading-snug ${task.completed ? "line-through text-stone-500" : "text-stone-800"}`}>
+                  <span className={`flex flex-col text-[15px] leading-snug ${task.completed ? "line-through text-black" : "text-black"}`}>
                     <span>{task.text}</span>
                     {task.appointment_scheduled_for && (
                       <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
@@ -741,24 +741,24 @@ export default function CounsellorTasks({
                       <button
                         type="button"
                         onClick={() => toggleComments(task)}
-                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px] italic text-stone-500 hover:text-[#cc785c]"
+                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px]  text-black hover:text-[#cc785c]"
                         title="Click to expand the full thread"
                       >
                         <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
-                        <span className="font-semibold not-italic text-stone-600">
+                        <span className="font-semibold not-italic text-black">
                           {task.latest_comment_author_name || (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}:
                         </span>
                         <span className="truncate">{task.latest_comment_body}</span>
                         {commentCount > 1 && (
-                          <span className="shrink-0 text-[11px] not-italic text-stone-400">+{commentCount - 1} more</span>
+                          <span className="shrink-0 text-[11px] not-italic text-black">+{commentCount - 1} more</span>
                         )}
                       </button>
                     )}
                   </span>
                 )}
                 {!isScoped && (
-                  <span className="text-[14px] text-stone-700">
-                    {task.assignee_admin_username || <span className="italic text-stone-400">Unassigned</span>}
+                  <span className="text-[14px] text-black">
+                    {task.assignee_admin_username || <span className=" text-black">Unassigned</span>}
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
@@ -769,7 +769,7 @@ export default function CounsellorTasks({
                         {savingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                       </button>
                       <button onClick={cancelEdit} disabled={savingEdit} title="Cancel edit"
-                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50">
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </>
@@ -777,24 +777,24 @@ export default function CounsellorTasks({
                     <>
                       {!isScoped && (
                         <button onClick={() => beginEdit(task)} disabled={isBusy} title="Edit task"
-                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                       )}
                       <button onClick={() => toggleCompleted(task)} disabled={isBusy}
                         title={task.completed ? "Mark incomplete" : "Mark done"}
-                        className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${task.completed ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600" : "border-stone-300 bg-white text-stone-600 hover:border-emerald-500 hover:text-emerald-600"}`}>
+                        className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${task.completed ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600" : "border-stone-300 bg-white text-black hover:border-emerald-500 hover:text-emerald-600"}`}>
                         {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                       </button>
                       {!(isScoped && task.assignee_kind === "admin") && (
                         <button onClick={() => archiveTask(task)} disabled={isBusy} title="Archive task"
-                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
                           <Archive className="h-3.5 w-3.5" />
                         </button>
                       )}
                       <button onClick={() => toggleComments(task)} disabled={isBusy}
                         title={commentsOpen ? "Hide comments" : "Show comments"}
-                        className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${commentsOpen ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"}`}>
+                        className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${commentsOpen ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"}`}>
                         <MessageSquare className="h-3.5 w-3.5" />
                         {commentCount > 0 && (
                           <span className={`absolute -right-1.5 -top-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-tight ${commentsOpen ? "bg-white text-[#cc785c]" : "bg-[#cc785c] text-white"}`}>
@@ -822,7 +822,7 @@ export default function CounsellorTasks({
         })}
 
         {sortedMyTasks.length === 0 && !showNewMy && (
-          <p className="py-8 text-center text-base italic text-stone-600">
+          <p className="py-8 text-center text-base  text-black">
             No tasks assigned to you yet.
           </p>
         )}
@@ -836,12 +836,12 @@ export default function CounsellorTasks({
           <div className="mb-2 flex items-center justify-between border-b border-stone-300 pb-2">
             <div className="flex items-baseline gap-3">
               <h2 className="text-lg font-semibold tracking-tight">Other People's Tasks</h2>
-              <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+              <span className="text-[11px] uppercase tracking-[0.2em] text-black">
                 {filteredOtherTasks.length} {filteredOtherTasks.length === 1 ? "task" : "tasks"}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Sort by:</span>
+              <span className="text-[11px] uppercase tracking-[0.2em] text-black">Sort by:</span>
               <SortChip label="Date" position={otherSortPosition("date")} onClick={() => toggleOtherSort("date")} />
               <SortChip label="Student" position={otherSortPosition("student")} onClick={() => toggleOtherSort("student")} />
               <SortChip label="Assignee" position={otherSortPosition("counsellor")} onClick={() => toggleOtherSort("counsellor")} />
@@ -860,7 +860,7 @@ export default function CounsellorTasks({
 
           {/* "View Tasks Of" filter chips */}
           <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-stone-200 pb-3">
-            <span className="text-[11px] uppercase tracking-[0.15em] text-stone-500">View Tasks Of:</span>
+            <span className="text-[11px] uppercase tracking-[0.15em] text-black">View Tasks Of:</span>
             {counsellors.map((c) => (
               <FilterChip
                 key={c.id}
@@ -894,7 +894,7 @@ export default function CounsellorTasks({
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span className="whitespace-nowrap">Priority</span>
@@ -907,7 +907,7 @@ export default function CounsellorTasks({
 
         {showNew && (
           <div
-            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-stone-800"
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-black"
             style={{ gridTemplateColumns: gridCols }}
           >
             <span></span>
@@ -977,7 +977,7 @@ export default function CounsellorTasks({
                 onClick={cancelNew}
                 disabled={creating}
                 title="Cancel"
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1014,7 +1014,7 @@ export default function CounsellorTasks({
                     className={`inline-flex items-center gap-1 border px-1.5 py-1 text-[11px] uppercase tracking-[0.12em] disabled:opacity-50 ${
                       task.priority
                         ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
-                        : "border-stone-300 bg-white text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                        : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                     }`}
                   >
                     <Star
@@ -1037,7 +1037,7 @@ export default function CounsellorTasks({
                         ? "font-bold text-red-700"
                         : isToday
                           ? "font-bold text-[#cc785c]"
-                          : "text-stone-700"
+                          : "text-black"
                     }`}
                   >
                     {formatDateInIst(task.due_date)}
@@ -1052,7 +1052,7 @@ export default function CounsellorTasks({
                     className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
                   />
                 ) : (
-                  <span className="text-[15px] font-semibold text-stone-900">
+                  <span className="text-[15px] font-semibold text-black">
                     {task.lead_name || task.student_name || "—"}
                   </span>
                 )}
@@ -1067,7 +1067,7 @@ export default function CounsellorTasks({
                 ) : (
                   <span
                     className={`flex flex-col text-[15px] leading-snug ${
-                      task.completed ? "line-through text-stone-500" : "text-stone-800"
+                      task.completed ? "line-through text-black" : "text-black"
                     }`}
                   >
                     <span>{task.text}</span>
@@ -1081,7 +1081,7 @@ export default function CounsellorTasks({
                     {/* Admin-target pill — counsellor-created tasks sent to
                         an admin account. Read-only (no archive/delete). */}
                     {task.assignee_kind === "admin" && (
-                      <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                      <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black">
                         <Lock className="h-2.5 w-2.5 shrink-0" />
                         for {task.assignee_admin_username}
                       </span>
@@ -1096,18 +1096,18 @@ export default function CounsellorTasks({
                       <button
                         type="button"
                         onClick={() => toggleComments(task)}
-                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px] italic text-stone-500 hover:text-[#cc785c]"
+                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px]  text-black hover:text-[#cc785c]"
                         title="Click to expand the full thread"
                       >
                         <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
-                        <span className="font-semibold not-italic text-stone-600">
+                        <span className="font-semibold not-italic text-black">
                           {task.latest_comment_author_name ||
                             (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}
                           :
                         </span>
                         <span className="truncate">{task.latest_comment_body}</span>
                         {commentCount > 1 && (
-                          <span className="shrink-0 text-[11px] not-italic text-stone-400">
+                          <span className="shrink-0 text-[11px] not-italic text-black">
                             +{commentCount - 1} more
                           </span>
                         )}
@@ -1116,9 +1116,9 @@ export default function CounsellorTasks({
                   </span>
                 )}
                 {!isScoped && (
-                  <span className="text-[14px] text-stone-700">
+                  <span className="text-[14px] text-black">
                     {task.assignee_kind === "admin" ? (
-                      <span className="inline-flex items-center gap-1 text-stone-500">
+                      <span className="inline-flex items-center gap-1 text-black">
                         <Lock className="h-3 w-3 shrink-0" />
                         {task.assignee_admin_username}
                       </span>
@@ -1133,7 +1133,7 @@ export default function CounsellorTasks({
                     ) : task.assignee_name ? (
                       task.assignee_name
                     ) : (
-                      <span className="italic text-stone-400">Unassigned</span>
+                      <span className=" text-black">Unassigned</span>
                     )}
                   </span>
                 )}
@@ -1156,7 +1156,7 @@ export default function CounsellorTasks({
                         onClick={cancelEdit}
                         disabled={savingEdit}
                         title="Cancel edit"
-                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500 hover:text-black disabled:opacity-50"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1170,7 +1170,7 @@ export default function CounsellorTasks({
                           onClick={() => beginEdit(task)}
                           disabled={isBusy}
                           title="Edit task"
-                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -1182,7 +1182,7 @@ export default function CounsellorTasks({
                         className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${
                           task.completed
                             ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
-                            : "border-stone-300 bg-white text-stone-600 hover:border-emerald-500 hover:text-emerald-600"
+                            : "border-stone-300 bg-white text-black hover:border-emerald-500 hover:text-emerald-600"
                         }`}
                       >
                         {isBusy ? (
@@ -1198,7 +1198,7 @@ export default function CounsellorTasks({
                           onClick={() => archiveTask(task)}
                           disabled={isBusy}
                           title="Archive task"
-                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
                         >
                           <Archive className="h-3.5 w-3.5" />
                         </button>
@@ -1210,7 +1210,7 @@ export default function CounsellorTasks({
                         className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${
                           commentsOpen
                             ? "border-[#cc785c] bg-[#cc785c] text-white"
-                            : "border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
+                            : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                         }`}
                       >
                         <MessageSquare className="h-3.5 w-3.5" />
@@ -1246,7 +1246,7 @@ export default function CounsellorTasks({
         })}
 
         {filteredOtherTasks.length === 0 && !showNew && (
-          <p className="py-10 text-center text-base italic text-stone-600">
+          <p className="py-10 text-center text-base  text-black">
             {selectedPeople.size === 0
               ? "Select a person above to view their tasks."
               : "No tasks for the selected people."}
@@ -1273,18 +1273,18 @@ function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
         return (
           <li
             key={task.id}
-            className="flex items-center justify-between gap-3 px-3 py-2 text-[14px] text-stone-700"
+            className="flex items-center justify-between gap-3 px-3 py-2 text-[14px] text-black"
           >
             <div className="min-w-0 flex-1">
-              <span className="tabular-nums text-[13px] text-stone-500">
+              <span className="tabular-nums text-[13px] text-black">
                 {formatDateInIst(task.due_date)}
               </span>
-              <span className="ml-2 font-semibold text-stone-900">
+              <span className="ml-2 font-semibold text-black">
                 {task.lead_name || task.student_name || "—"}
               </span>
-              <span className="ml-2 text-stone-700">— {task.text}</span>
+              <span className="ml-2 text-black">— {task.text}</span>
               {task.archived_at && (
-                <span className="ml-2 text-[11px] text-stone-400">
+                <span className="ml-2 text-[11px] text-black">
                   · archived {formatDateInIst(task.archived_at)}
                 </span>
               )}
@@ -1292,7 +1292,7 @@ function ArchivedTasksSection({ tasks, onUnarchive, busyId }) {
             <button
               onClick={() => onUnarchive(task)}
               disabled={isBusy}
-              className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-600 hover:text-stone-900 disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-600 hover:text-black disabled:opacity-50"
             >
               {isBusy ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -1318,24 +1318,24 @@ function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit
   return (
     <div className="border-t border-stone-200 bg-stone-50 px-4 py-3">
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-stone-500">
+        <div className="flex items-center gap-2 text-sm text-black">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading comments…
         </div>
       ) : list.length === 0 ? (
-        <p className="text-[13px] italic text-stone-500">No comments yet.</p>
+        <p className="text-[13px]  text-black">No comments yet.</p>
       ) : (
         <ul className="mb-3 space-y-2">
           {list.map((c) => (
             <li key={c.id} className="border border-stone-200 bg-white px-3 py-2">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-700">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-black">
                   {c.author_kind === "admin" ? "Admin" : (c.author_name || "Counsellor")}
                 </span>
-                <span className="text-[11px] tabular-nums text-stone-400">
+                <span className="text-[11px] tabular-nums text-black">
                   {formatDateInIst(c.created_at)}
                 </span>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-[14px] leading-snug text-stone-800">
+              <p className="mt-1 whitespace-pre-wrap text-[14px] leading-snug text-black">
                 {c.body}
               </p>
             </li>
@@ -1409,7 +1409,7 @@ function FilterChip({ label, active, onClick }) {
       className={`px-3 py-1 text-[11px] uppercase tracking-[0.15em] border transition-colors ${
         active
           ? "border-[#cc785c] bg-[#cc785c] text-white"
-          : "border-stone-300 bg-white text-stone-600 hover:border-[#cc785c] hover:text-[#cc785c]"
+          : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"
       }`}
     >
       {label}
@@ -1428,7 +1428,7 @@ function SortChip({ label, position, onClick }) {
       className={
         active
           ? "inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-white"
-          : "border border-stone-300 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-700 hover:border-stone-500 hover:text-stone-900"
+          : "border border-stone-300 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-black hover:border-stone-500 hover:text-black"
       }
     >
       {label}

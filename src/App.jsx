@@ -160,7 +160,7 @@ export default function App() {
       <>
         <VersionBanner />
         <div
-          className="flex min-h-screen w-full items-center justify-center font-serif text-stone-600"
+          className="flex min-h-screen w-full items-center justify-center font-serif text-black"
           style={{ backgroundColor: "#faf9f5" }}
         >
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -246,7 +246,7 @@ function Frame({ children, onSignOut, displayName, roleLabel }) {
   const article = roleLabel === "Admin" ? "an" : "a";
   return (
     <div
-      className="min-h-screen w-full font-serif text-stone-900"
+      className="min-h-screen w-full font-serif text-black"
       style={{ backgroundColor: "#faf9f5" }}
     >
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -257,8 +257,8 @@ function Frame({ children, onSignOut, displayName, roleLabel }) {
           {/* Centre: welcome */}
           {displayName && (
             <div className="flex-1 text-center">
-              <span className="text-base font-bold text-stone-900">Welcome, {displayName}</span>
-              <span className="text-base text-stone-500"> · </span>
+              <span className="text-base font-bold text-black">Welcome, {displayName}</span>
+              <span className="text-base text-black"> · </span>
               <span className="text-base text-[#cc785c]">
                 you are {article} <span className="font-bold">{roleLabel}</span> at Persona
               </span>
@@ -271,7 +271,7 @@ function Frame({ children, onSignOut, displayName, roleLabel }) {
             <LiveClock />
             <button
               onClick={onSignOut}
-              className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-stone-600 hover:text-stone-900"
+              className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
             >
               <LogOut className="h-3 w-3" /> sign out
             </button>
@@ -294,10 +294,10 @@ function LiveClock() {
   }, []);
   return (
     <div className="text-right leading-tight">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-black">
         Ludhiana time
       </p>
-      <p className="text-xs font-semibold tabular-nums text-stone-700">
+      <p className="text-xs font-semibold tabular-nums text-black">
         {formatInIst(now.toISOString(), {
           weekday: "short",
           second: "2-digit",
@@ -359,7 +359,7 @@ function Login({ onAuth }) {
 
   return (
     <div
-      className="flex min-h-screen w-full items-center justify-center font-serif text-stone-900"
+      className="flex min-h-screen w-full items-center justify-center font-serif text-black"
       style={{ backgroundColor: "#faf9f5" }}
     >
       <form
@@ -367,21 +367,21 @@ function Login({ onAuth }) {
         className="w-full max-w-xl border border-stone-300 bg-white p-12"
       >
         <div className="mb-10 text-center">
-          <p className="text-[13px] uppercase tracking-[0.35em] text-stone-600">
+          <p className="text-[13px] uppercase tracking-[0.35em] text-black">
             Sign in
           </p>
           <h1 className="mt-3 font-serif text-5xl leading-[1.05]">Persona</h1>
-          <p className="mt-3 text-xs uppercase tracking-[0.3em] text-stone-600">
+          <p className="mt-3 text-xs uppercase tracking-[0.3em] text-black">
             Followup Panel
           </p>
         </div>
 
         <label className="block">
-          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-black">
             Username
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-400 focus-within:border-stone-600">
-            <User className="h-4 w-4 text-stone-600" />
+            <User className="h-4 w-4 text-black" />
             <input
               type="text"
               value={user}
@@ -401,11 +401,11 @@ function Login({ onAuth }) {
         </label>
 
         <label className="mt-6 block">
-          <span className="text-[12px] uppercase tracking-[0.2em] text-stone-600">
+          <span className="text-[12px] uppercase tracking-[0.2em] text-black">
             Password
           </span>
           <div className="mt-2 flex items-center gap-2 border-b border-stone-400 focus-within:border-stone-600">
-            <Lock className="h-4 w-4 text-stone-600" />
+            <Lock className="h-4 w-4 text-black" />
             <input
               type="password"
               value={pw}

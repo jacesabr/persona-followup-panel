@@ -68,7 +68,11 @@ const MOCK = {
   phone: "+91 98765 43210",
   dob: "2007-06-15",
   bloodGroup: "B+",
-  houseAddress: "12, Model Town, Ludhiana, Punjab 141002",
+  address_street: "12, Civil Lines",
+  address_area: "Model Town",
+  address_city: "Ludhiana",
+  address_state: "Punjab",
+  address_pin: "141002",
   aadhar: "1234 5678 9012",
   aadharFile: mockFile("riya_aadhar.jpg", 198440),
   pan: "ABCDE1234F",
@@ -77,7 +81,11 @@ const MOCK = {
   photoFile: mockFile("riya_photo.jpg", 184321),
   schoolName: "Sacred Heart Convent School, Ludhiana",
   schoolEmail: "office@sacredheart.edu.in",
-  schoolAddress: "Sarabha Nagar, Ludhiana, Punjab 141001",
+  schoolAddress_street: "Sacred Heart Convent School",
+  schoolAddress_area: "Sarabha Nagar",
+  schoolAddress_city: "Ludhiana",
+  schoolAddress_state: "Punjab",
+  schoolAddress_pin: "141001",
   marks10pct: "94",
   marks10sheet: mockFile("marks_10.pdf", 312001),
   marks11pct: "92",
@@ -103,8 +111,7 @@ const MOCK = {
   ap_score: "AP CS A: 5, AP Calc BC: 5",
   ap_booked: false,
   ap_result: mockFile("ap_results.pdf", 199002),
-  other_score: "",
-  other_booked: false,
+  others_list: [],
   lor1: mockFile("lor_principal.pdf", 256711),
   lor2: mockFile("lor_cs_teacher.pdf", 244982),
   lor3: mockFile("lor_debate_coach.pdf", 230011),
@@ -213,7 +220,13 @@ export function buildStudentRecord(answers, opts = {}) {
       phone: answers.phone || "",
       dob: answers.dob || "",
       bloodGroup: answers.bloodGroup || "",
-      address: { house: answers.houseAddress || "" },
+      address: {
+        street: answers.address_street || "",
+        area: answers.address_area || "",
+        city: answers.address_city || "",
+        state: answers.address_state || "",
+        pin: answers.address_pin || "",
+      },
       ids: {
         aadhar: answers.aadhar || "",
         aadharFile: fileOut(answers.aadharFile),
@@ -227,7 +240,13 @@ export function buildStudentRecord(answers, opts = {}) {
       school: {
         name: answers.schoolName || "",
         email: answers.schoolEmail || "",
-        address: answers.schoolAddress || "",
+        address: {
+          street: answers.schoolAddress_street || "",
+          area: answers.schoolAddress_area || "",
+          city: answers.schoolAddress_city || "",
+          state: answers.schoolAddress_state || "",
+          pin: answers.schoolAddress_pin || "",
+        },
       },
       university: {
         name: answers.uniName || "",
@@ -279,12 +298,17 @@ export function buildStudentRecord(answers, opts = {}) {
           bookingNum: answers.ap_bookingNum || "",
           result: fileOut(answers.ap_result),
         },
-        other: {
-          score: answers.other_score || "",
-          booked: !!answers.other_booked,
-          bookingNum: answers.other_bookingNum || "",
-          result: fileOut(answers.other_result),
-        },
+        others: Array.isArray(answers.others_list)
+          ? answers.others_list
+              .filter((row) => row && typeof row === "object")
+              .map((row) => ({
+                name: row.name || "",
+                score: row.score || "",
+                booked: !!row.booked,
+                bookingNum: row.bookingNum || "",
+                result: fileOut(row.result),
+              }))
+          : [],
       },
     },
     passport: {
@@ -787,7 +811,7 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
 
   return (
     <div
-      className="min-h-screen w-full font-serif text-stone-900"
+      className="min-h-screen w-full font-serif text-black"
       style={{ backgroundColor: "#f4f0e6" }}
     >
       <TopBar onExit={onExit} onAutofill={fillMock} saveState={saveState} />
@@ -841,20 +865,20 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
 function PostIntakeFrame({ children, onExit, title }) {
   return (
     <div
-      className="min-h-screen w-full font-serif text-stone-900"
+      className="min-h-screen w-full font-serif text-black"
       style={{ backgroundColor: "#f4f0e6" }}
     >
       <header className="fixed left-0 right-0 top-0 z-10 flex items-center justify-between border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
         <button
           onClick={onExit}
-          className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+          className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
         >
           <ArrowLeft className="h-3 w-3" /> sign out
         </button>
         <div className="flex items-baseline gap-2">
-          <span className="text-sm italic text-stone-500">the</span>
+          <span className="text-sm  text-black">the</span>
           <span className="text-lg font-semibold tracking-tight">Persona</span>
-          <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-black">
             · {title}
           </span>
         </div>
@@ -870,13 +894,13 @@ function PostIntakeFrame({ children, onExit, title }) {
 function HydrationGate({ state }) {
   return (
     <div
-      className="flex min-h-screen flex-col items-center justify-center font-serif text-stone-900"
+      className="flex min-h-screen flex-col items-center justify-center font-serif text-black"
       style={{ backgroundColor: "#f4f0e6" }}
     >
       {state === "loading" && (
         <>
-          <Loader2 className="h-5 w-5 animate-spin text-stone-500" />
-          <p className="mt-4 text-[10px] uppercase tracking-[0.3em] text-stone-500">
+          <Loader2 className="h-5 w-5 animate-spin text-black" />
+          <p className="mt-4 text-[10px] uppercase tracking-[0.3em] text-black">
             Loading your profile…
           </p>
         </>
@@ -884,7 +908,7 @@ function HydrationGate({ state }) {
       {state === "error" && (
         <>
           <AlertCircle className="h-5 w-5 text-red-700" />
-          <p className="mt-4 max-w-md text-center text-sm text-stone-600">
+          <p className="mt-4 max-w-md text-center text-sm text-black">
             Couldn't reach the server. Check your connection and reload.
           </p>
         </>
@@ -901,14 +925,14 @@ function TopBar({ onExit, onAutofill, saveState }) {
     <header className="fixed left-0 right-0 top-0 z-10 flex items-center justify-between border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
       <button
         onClick={onExit}
-        className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+        className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
       >
         <ArrowLeft className="h-3 w-3" /> exit
       </button>
       <div className="flex items-baseline gap-2">
-        <span className="text-sm italic text-stone-500">the</span>
+        <span className="text-sm  text-black">the</span>
         <span className="text-lg font-semibold tracking-tight">Persona</span>
-        <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500">· intake</span>
+        <span className="text-[10px] uppercase tracking-[0.25em] text-black">· intake</span>
       </div>
       <div className="flex items-center gap-4">
         <SaveIndicator state={saveState} />
@@ -916,7 +940,7 @@ function TopBar({ onExit, onAutofill, saveState }) {
           onClick={onAutofill}
           title="Fill with mock data"
           aria-label="Fill with mock data"
-          className="inline-flex items-center gap-1.5 border border-stone-900/30 bg-white/60 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-700 transition hover:border-stone-900 hover:bg-white"
+          className="inline-flex items-center gap-1.5 border border-stone-900/30 bg-white/60 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:bg-white"
         >
           <Zap className="h-3 w-3" /> Autofill
         </button>
@@ -928,12 +952,12 @@ function TopBar({ onExit, onAutofill, saveState }) {
 function SaveIndicator({ state }) {
   if (state === "idle") {
     return (
-      <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Ready</span>
+      <span className="text-[10px] uppercase tracking-[0.2em] text-black">Ready</span>
     );
   }
   if (state === "saving") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-500">
+      <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-black">
         <Loader2 className="h-3 w-3 animate-spin" /> Saving…
       </span>
     );
@@ -961,24 +985,24 @@ function SaveIndicator({ state }) {
 function Welcome({ name, onStart }) {
   return (
     <div className="animate-fadeUp py-20">
-      <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">Step 01</p>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-black">Step 01</p>
       <h1 className="mt-2 font-serif text-5xl leading-[1.05] md:text-6xl">
         Welcome to Persona,
         <br />
         {name}.
       </h1>
-      <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
+      <p className="mt-6 max-w-xl text-base leading-relaxed text-black">
         We'll walk through your profile a page at a time. We save as you go, so come
         back any time. Skip what doesn't apply.
       </p>
       <div className="mt-10 flex items-center gap-4">
         <button
           onClick={onStart}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800"
         >
           Let's start <ArrowRight className="h-4 w-4" />
         </button>
-        <span className="text-xs italic text-stone-500">press Enter ↵</span>
+        <span className="text-xs  text-black">press Enter ↵</span>
       </div>
     </div>
   );
@@ -1076,10 +1100,10 @@ function PageSummary({ page, answers, files, onEditPage }) {
   return (
     <div className="border-t border-stone-900/10 pt-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h4 className="font-serif text-xl text-stone-900">{page.title}</h4>
+        <h4 className="font-serif text-xl text-black">{page.title}</h4>
         <button
           onClick={() => onEditPage?.(page.id)}
-          className="text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+          className="text-[10px] uppercase tracking-[0.2em] text-black hover:text-black"
         >
           edit
         </button>
@@ -1091,10 +1115,10 @@ function PageSummary({ page, answers, files, onEditPage }) {
               key={i}
               className="flex flex-col gap-0.5 sm:grid sm:grid-cols-[180px_1fr] sm:gap-4"
             >
-              <span className="text-[11px] uppercase tracking-wider text-stone-500">
+              <span className="text-[11px] uppercase tracking-wider text-black">
                 {row.label}
               </span>
-              <span className="whitespace-pre-wrap break-words text-sm text-stone-800">
+              <span className="whitespace-pre-wrap break-words text-sm text-black">
                 {row.value}
               </span>
             </div>
@@ -1106,14 +1130,14 @@ function PageSummary({ page, answers, files, onEditPage }) {
           {files.map((entry) => (
             <div key={entry.key} className="border border-stone-900/10 bg-white/60 p-3">
               <div className="flex items-baseline justify-between gap-3">
-                <p className="text-[11px] uppercase tracking-wider text-stone-500">
+                <p className="text-[11px] uppercase tracking-wider text-black">
                   {entry.label}
                 </p>
-                <p className="text-[10px] text-stone-500">
+                <p className="text-[10px] text-black">
                   {humanSize(entry.file.size)}
                 </p>
               </div>
-              <p className="mt-1 truncate text-sm text-stone-800">{entry.file.name}</p>
+              <p className="mt-1 truncate text-sm text-black">{entry.file.name}</p>
               <FilePreview slot={entry.file} />
             </div>
           ))}
@@ -1136,11 +1160,11 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
 
   return (
     <div className="animate-fadeUp py-12">
-      <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">Almost there</p>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-black">Almost there</p>
       <h2 className="mt-2 font-serif text-5xl leading-[1.05]">Review your profile.</h2>
-      <p className="mt-6 max-w-xl text-base leading-relaxed text-stone-600">
+      <p className="mt-6 max-w-xl text-base leading-relaxed text-black">
         A final check before we generate your resume. Tap{" "}
-        <span className="italic">edit</span> on any section to fix something —
+        <span className="">edit</span> on any section to fix something —
         we'll bring you right back here.
       </p>
 
@@ -1156,7 +1180,7 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
           if (visiblePages.length === 0) return null;
           return (
             <div key={chapter.id}>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-black">
                 ▸ {chapter.title}
               </p>
               <div className="mt-3 space-y-6">
@@ -1176,18 +1200,18 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
       </div>
 
       <div className="mt-16 border-t border-stone-900/15 pt-10">
-        <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-black">
           Documents · {allFiles.length}
         </p>
-        <h3 className="mt-2 font-serif text-3xl text-stone-900">
+        <h3 className="mt-2 font-serif text-3xl text-black">
           Every file you uploaded
         </h3>
-        <p className="mt-3 max-w-xl text-sm italic text-stone-500">
+        <p className="mt-3 max-w-xl text-sm  text-black">
           One place to scan everything you sent us. Open any preview to verify
           the contents are right.
         </p>
         {allFiles.length === 0 ? (
-          <p className="mt-6 text-sm italic text-stone-500">
+          <p className="mt-6 text-sm  text-black">
             No documents uploaded.
           </p>
         ) : (
@@ -1198,14 +1222,14 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
                 className="border border-stone-900/15 bg-white/40 p-4"
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-black">
                     {entry.chapterTitle} · {entry.label}
                   </p>
-                  <p className="text-[10px] text-stone-500">
+                  <p className="text-[10px] text-black">
                     {humanSize(entry.file.size)}
                   </p>
                 </div>
-                <p className="mt-1 truncate text-sm text-stone-800">
+                <p className="mt-1 truncate text-sm text-black">
                   {entry.file.name}
                 </p>
                 <FilePreview slot={entry.file} />
@@ -1216,7 +1240,7 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
       </div>
 
       <div className="mt-12 border-t border-stone-900/15 pt-10">
-        <p className="max-w-xl text-base leading-relaxed text-stone-600">
+        <p className="max-w-xl text-base leading-relaxed text-black">
           We'll generate a 300-word summary of your profile from everything
           above. Takes about a minute. You'll land on your dashboard once it's
           ready — your counsellor sees everything from there too.
@@ -1224,13 +1248,13 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-stone-600 transition hover:border-stone-900 hover:text-stone-900"
+            className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back
           </button>
           <button
             onClick={onDone}
-            className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800"
+            className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800"
           >
             Submit & generate resume <ArrowRight className="h-4 w-4" />
           </button>
@@ -1311,21 +1335,26 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
 
   return (
     <div key={page.id} className="animate-fadeUp py-10">
+      {page.notice && (
+        <p className="mb-4 font-serif text-2xl font-semibold leading-tight text-black md:text-3xl">
+          {page.notice}
+        </p>
+      )}
       {isChapterStart && (
-        <p className="mb-4 text-[10px] uppercase tracking-[0.3em] text-stone-500">
+        <p className="mb-4 text-[10px] uppercase tracking-[0.3em] text-black">
           ▸ {page.chapterTitle}
         </p>
       )}
       <div className="flex items-baseline gap-3">
-        <span className="text-xs uppercase tracking-[0.25em] text-stone-400">{stepLabel}</span>
+        <span className="text-xs uppercase tracking-[0.25em] text-black">{stepLabel}</span>
         {page.optional && (
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">
             optional · skippable
           </span>
         )}
       </div>
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
-      {page.helper && <p className="mt-3 text-sm italic text-stone-500">{page.helper}</p>}
+      {page.helper && <p className="mt-3 text-lg font-semibold text-black">{page.helper}</p>}
 
       {/* page.preamble: an array of {heading, body} blocks that render
           above the fields. Used by p_required_docs to explain the LOR /
@@ -1333,15 +1362,15 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
           the student fills anything in. */}
       {Array.isArray(page.preamble) && page.preamble.length > 0 && (
         <div className="mt-6 space-y-4 border-l-2 border-stone-900/20 bg-[#f4f0e6]/60 px-5 py-5">
-          <p className="text-[10px] uppercase tracking-[0.25em] text-stone-500">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-black">
             How this works
           </p>
           {page.preamble.map((block, i) => (
             <div key={i}>
-              <p className="font-serif text-base font-semibold leading-snug text-stone-900 md:text-lg">
+              <p className="font-serif text-base font-semibold leading-snug text-black md:text-lg">
                 {block.heading}
               </p>
-              <p className="mt-1 text-sm leading-relaxed text-stone-700">
+              <p className="mt-1 text-sm leading-relaxed text-black">
                 {block.body}
               </p>
             </div>
@@ -1350,9 +1379,9 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
       )}
 
       {page.id === "p_passport_scans" && (
-        <div className="mt-5 inline-flex items-baseline gap-3 border-l-2 border-stone-300 pl-3 text-xs text-stone-600">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-400">Age</span>
-          <span className="font-medium text-stone-800">
+        <div className="mt-5 inline-flex items-baseline gap-3 border-l-2 border-stone-300 pl-3 text-xs text-black">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">Age</span>
+          <span className="font-medium text-black">
             {answers.dob ? `${ageFromDob(answers.dob)} years` : "fill date of birth →"}
           </span>
         </div>
@@ -1391,12 +1420,12 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
               className="border-l-4 border-stone-900/30 bg-[#f4f0e6] px-5 py-4"
             >
               {field.title && (
-                <h3 className="font-serif text-lg font-semibold text-stone-900">
+                <h3 className="font-serif text-lg font-semibold text-black">
                   {field.title}
                 </h3>
               )}
               {field.body && (
-                <p className="mt-1 text-sm leading-relaxed text-stone-700">
+                <p className="mt-1 text-sm leading-relaxed text-black">
                   {field.body}
                 </p>
               )}
@@ -1408,14 +1437,14 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
       <div className="mt-10 flex items-center gap-4">
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-stone-600 transition hover:border-stone-900 hover:text-stone-900"
+          className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
         <button
           onClick={onAdvance}
           disabled={!canAdvance}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-stone-50 transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
         >
           {advanceLabel}
           <ArrowRight className="h-3.5 w-3.5" />
@@ -1430,15 +1459,15 @@ function FieldRow({ field, value, onChange, onBlur, inputRef, wide }) {
   const Wrapper = field.type === "repeater" ? "div" : "label";
   return (
     <Wrapper className={`block ${wide ? "md:col-span-2" : ""}`}>
-      <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+      <span className="text-[10px] uppercase tracking-[0.2em] text-black">
         {field.label}
         {field.optional && (
-          <span className="ml-2 italic text-stone-400 normal-case tracking-normal">(optional)</span>
+          <span className="ml-2  text-black normal-case tracking-normal">(optional)</span>
         )}
       </span>
       <FieldInput field={field} value={value} onChange={onChange} onBlur={onBlur} ref={inputRef} />
       {field.helper && (
-        <span className="mt-1 block text-[10px] italic text-stone-500">{field.helper}</span>
+        <span className="mt-1 block text-[10px]  text-black">{field.helper}</span>
       )}
     </Wrapper>
   );
@@ -1446,7 +1475,7 @@ function FieldRow({ field, value, onChange, onBlur, inputRef, wide }) {
 
 const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBlur }, ref) {
   const lineCls =
-    "mt-1.5 w-full border-b border-stone-900/30 bg-transparent py-1.5 font-serif text-base text-stone-900 outline-none transition focus:border-stone-900 placeholder:text-stone-300";
+    "mt-1.5 w-full border-b border-stone-900/30 bg-transparent py-1.5 font-serif text-base text-black outline-none transition focus:border-stone-900 placeholder:text-black";
 
   if (field.type === "textarea") {
     return (
@@ -1457,7 +1486,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
         onBlur={onBlur}
         placeholder={field.placeholder}
         rows={4}
-        className="mt-1.5 w-full resize-none border border-stone-900/30 bg-white/40 p-3 font-serif text-sm text-stone-900 outline-none transition focus:border-stone-900 placeholder:text-stone-400"
+        className="mt-1.5 w-full resize-none border border-stone-900/30 bg-white/40 p-3 font-serif text-sm text-black outline-none transition focus:border-stone-900 placeholder:text-black"
       />
     );
   }
@@ -1510,7 +1539,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
           }}
           className="h-4 w-4 border border-stone-900/40"
         />
-        <span className="text-sm text-stone-700">Yes</span>
+        <span className="text-sm text-black">Yes</span>
       </div>
     );
   }
@@ -1565,7 +1594,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
             above. */}
         <div className="overflow-x-auto overflow-y-hidden border border-stone-900/20">
           <div
-            className="grid items-center gap-px bg-stone-900/15 text-[9px] uppercase tracking-[0.15em] text-stone-600"
+            className="grid items-center gap-px bg-stone-900/15 text-[9px] uppercase tracking-[0.15em] text-black"
             style={gridStyle}
           >
             <div className="bg-[#f4f0e6] px-2 py-1.5">#</div>
@@ -1585,7 +1614,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
               className="grid items-stretch gap-px border-t border-stone-900/15 bg-stone-900/15"
               style={gridStyle}
             >
-              <div className="flex items-center bg-[#f4f0e6] px-2 py-2 font-serif text-xs italic text-stone-500">
+              <div className="flex items-center bg-[#f4f0e6] px-2 py-2 font-serif text-xs  text-black">
                 {String(i + 1).padStart(2, "0")}
               </div>
               {field.itemFields.map((sf, j) => (
@@ -1605,7 +1634,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
                 type="button"
                 onClick={() => removeRow(i)}
                 disabled={displayRows.length <= minRows}
-                className="flex items-center justify-center bg-[#f4f0e6] px-2 text-stone-400 transition hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-25"
+                className="flex items-center justify-center bg-[#f4f0e6] px-2 text-black transition hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-25"
                 aria-label="Remove row"
                 title="Remove this row"
               >
@@ -1618,11 +1647,11 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
           type="button"
           onClick={addRow}
           disabled={max != null && displayRows.length >= max}
-          className="mt-3 inline-flex items-center gap-1.5 border border-stone-900/30 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-700 transition hover:border-stone-900 disabled:cursor-not-allowed disabled:opacity-30"
+          className="mt-3 inline-flex items-center gap-1.5 border border-stone-900/30 bg-white px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-black transition hover:border-stone-900 disabled:cursor-not-allowed disabled:opacity-30"
         >
           <Plus className="h-3 w-3" /> Add another
           {max != null && (
-            <span className="ml-1 italic text-stone-400 normal-case tracking-normal">
+            <span className="ml-1  text-black normal-case tracking-normal">
               ({displayRows.length}/{max})
             </span>
           )}
@@ -1810,7 +1839,7 @@ const FileSlot = forwardRef(function FileSlot(
 
       <div className="min-w-0 flex-1">
         {status === "empty" && (
-          <span className={`block truncate italic text-stone-400 ${textCls}`}>
+          <span className={`block truncate  text-black ${textCls}`}>
             {isDragging
               ? "drop file here…"
               : compact
@@ -1819,21 +1848,21 @@ const FileSlot = forwardRef(function FileSlot(
           </span>
         )}
         {status === "validating" && (
-          <span className={`inline-flex items-center gap-1.5 text-stone-600 ${textCls}`}>
+          <span className={`inline-flex items-center gap-1.5 text-black ${textCls}`}>
             <Loader2 className="h-3 w-3 animate-spin" /> checking…
           </span>
         )}
         {status === "uploading" && (
-          <span className={`inline-flex items-center gap-1.5 truncate text-stone-600 ${textCls}`}>
+          <span className={`inline-flex items-center gap-1.5 truncate text-black ${textCls}`}>
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
             <span className="truncate">uploading {slot?.name}</span>
           </span>
         )}
         {status === "uploaded" && (
-          <span className={`inline-flex w-full items-center gap-1.5 truncate text-stone-900 ${textCls}`}>
+          <span className={`inline-flex w-full items-center gap-1.5 truncate text-black ${textCls}`}>
             <Check className="h-3 w-3 shrink-0 text-emerald-700" />
             <span className="min-w-0 flex-1 truncate">{slot?.name}</span>
-            <span className="shrink-0 text-[9px] uppercase tracking-[0.15em] text-stone-400">
+            <span className="shrink-0 text-[9px] uppercase tracking-[0.15em] text-black">
               {humanSize(slot?.size)}
             </span>
           </span>
@@ -1845,7 +1874,7 @@ const FileSlot = forwardRef(function FileSlot(
               <span className="truncate">{slot?.error}</span>
             </span>
             {slot?.name && (
-              <span className="block truncate text-[10px] italic text-stone-500">{slot.name}</span>
+              <span className="block truncate text-[10px]  text-black">{slot.name}</span>
             )}
           </span>
         )}
@@ -1858,7 +1887,7 @@ const FileSlot = forwardRef(function FileSlot(
             onClick={handleRemove}
             aria-label="Remove file"
             title="Remove file"
-            className="border border-stone-900/20 bg-white p-1 text-stone-500 transition hover:border-stone-900 hover:text-stone-900"
+            className="border border-stone-900/20 bg-white p-1 text-black transition hover:border-stone-900 hover:text-black"
           >
             <X className="h-3 w-3" />
           </button>
@@ -1868,7 +1897,7 @@ const FileSlot = forwardRef(function FileSlot(
             type="button"
             ref={ref}
             onClick={handlePick}
-            className="inline-flex items-center gap-1 border border-stone-900/30 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-900"
+            className="inline-flex items-center gap-1 border border-stone-900/30 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-900"
           >
             <Upload className="h-3 w-3" />
             {status === "uploaded" ? "replace" : status === "error" ? "retry" : "upload"}
@@ -1945,12 +1974,12 @@ function FilePreview({ slot }) {
       title="Open in a new tab"
     >
       <div className="flex min-w-0 items-center gap-3">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-900/30 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-900/30 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-black">
           PDF
         </span>
-        <span className="min-w-0 truncate text-sm text-stone-700">{name}</span>
+        <span className="min-w-0 truncate text-sm text-black">{name}</span>
       </div>
-      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-500">
+      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-black">
         Open ↗
       </span>
     </a>
@@ -2028,11 +2057,11 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
           onChange={(e) => handleChange(e.target.value)}
           onBlur={onBlur}
           placeholder={subfield.placeholder}
-          className="bg-transparent text-sm outline-none placeholder:italic placeholder:text-stone-400"
+          className="bg-transparent text-sm outline-none placeholder: placeholder:text-black"
         />
         <span
           className={`mt-0.5 self-end text-[10px] tabular-nums ${
-            over ? "text-stone-700" : "text-stone-400"
+            over ? "text-black" : "text-black"
           }`}
         >
           {words} / {cap} words
@@ -2048,7 +2077,7 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       placeholder={subfield.placeholder}
-      className="bg-[#f4f0e6] px-2 py-2 text-sm outline-none placeholder:italic placeholder:text-stone-400"
+      className="bg-[#f4f0e6] px-2 py-2 text-sm outline-none placeholder: placeholder:text-black"
     />
   );
 }
@@ -2087,7 +2116,7 @@ function RepeaterThumb({ slot }) {
           style={{ imageOrientation: "from-image" }}
         />
       ) : (
-        <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-600">
+        <span className="inline-flex items-center gap-0.5 text-[9px] uppercase tracking-[0.1em] text-black">
           PDF ↗
         </span>
       )}
@@ -2106,18 +2135,18 @@ function FlowMap({ orderedPages, currentIdx, answers, onMove, onJump, onReset, o
     <section className="border-t border-stone-900/15 bg-stone-50/40 px-6 pt-10 pb-20">
       <div className="mx-auto max-w-md">
         <div className="flex items-baseline justify-between border-b border-stone-900/15 pb-3">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500">
+          <p className="text-[10px] uppercase tracking-[0.3em] text-black">
             Flow map · {orderedPages.length} pages
           </p>
           <button
             onClick={onReset}
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-black hover:text-black"
             title="Restore the original order"
           >
             <RotateCcw className="h-3 w-3" /> reset
           </button>
         </div>
-        <p className="mt-3 text-xs italic text-stone-500">
+        <p className="mt-3 text-xs  text-black">
           Drag a card to reorder, or use the arrows. Click any card to jump there in
           the preview above.
         </p>
@@ -2193,13 +2222,13 @@ function FlowThumb({
   onDragEnd,
 }) {
   const fillColor =
-    fill === "complete" ? "text-emerald-700" : fill === "partial" ? "text-amber-700" : "text-stone-300";
+    fill === "complete" ? "text-emerald-700" : fill === "partial" ? "text-amber-700" : "text-black";
   const fillGlyph = fill === "complete" ? "✓" : fill === "partial" ? "◐" : "○";
 
   return (
     <div className="flex w-full flex-col">
       {isChapterStart && (
-        <p className="mb-2 mt-3 text-[10px] uppercase tracking-[0.3em] text-stone-500">
+        <p className="mb-2 mt-3 text-[10px] uppercase tracking-[0.3em] text-black">
           ▸ {page.chapterTitle}
         </p>
       )}
@@ -2221,13 +2250,13 @@ function FlowThumb({
         >
           {/* Mini "wireframe" of the page */}
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[9px] uppercase tracking-[0.2em] text-stone-400">
+            <span className="text-[9px] uppercase tracking-[0.2em] text-black">
               Page {idx + 1}
               {page.optional && " · optional"}
             </span>
             <span className={`text-[10px] ${fillColor}`}>{fillGlyph}</span>
           </div>
-          <p className="mt-1 truncate font-serif text-sm font-medium text-stone-900">
+          <p className="mt-1 truncate font-serif text-sm font-medium text-black">
             {page.title}
           </p>
           <div className="mt-2 border-t border-stone-900/10 pt-2">
@@ -2238,7 +2267,7 @@ function FlowThumb({
           <button
             onClick={onMoveUp}
             disabled={isFirst}
-            className="border border-stone-900/20 bg-white p-1 text-stone-600 transition hover:border-stone-900 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-25"
+            className="border border-stone-900/20 bg-white p-1 text-black transition hover:border-stone-900 hover:text-black disabled:cursor-not-allowed disabled:opacity-25"
             aria-label="Move up"
             title="Move up"
           >
@@ -2247,7 +2276,7 @@ function FlowThumb({
           <button
             onClick={onMoveDown}
             disabled={isLast}
-            className="border border-stone-900/20 bg-white p-1 text-stone-600 transition hover:border-stone-900 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-25"
+            className="border border-stone-900/20 bg-white p-1 text-black transition hover:border-stone-900 hover:text-black disabled:cursor-not-allowed disabled:opacity-25"
             aria-label="Move down"
             title="Move down"
           >
@@ -2256,7 +2285,7 @@ function FlowThumb({
         </div>
       </div>
       {!isLast && (
-        <div className="my-1 flex flex-col items-center text-stone-300">
+        <div className="my-1 flex flex-col items-center text-black">
           <div className="h-2 w-px bg-stone-300" />
           <ChevronDown className="h-3 w-3" />
         </div>
@@ -2272,14 +2301,14 @@ function MiniFieldList({ fields }) {
     <div className="flex flex-col gap-1.5">
       {visible.map((f) => (
         <div key={f.id} className="flex items-center gap-2">
-          <span className="w-20 shrink-0 truncate text-[8px] uppercase tracking-[0.15em] text-stone-400">
+          <span className="w-20 shrink-0 truncate text-[8px] uppercase tracking-[0.15em] text-black">
             {f.label}
           </span>
           <FieldGlyph field={f} />
         </div>
       ))}
       {more > 0 && (
-        <span className="text-[9px] italic text-stone-400">+ {more} more field{more > 1 ? "s" : ""}</span>
+        <span className="text-[9px]  text-black">+ {more} more field{more > 1 ? "s" : ""}</span>
       )}
     </div>
   );
@@ -2298,14 +2327,14 @@ function FieldGlyph({ field }) {
   if (field.type === "file") {
     return (
       <div className="flex h-3 flex-1 items-center justify-center border border-dashed border-stone-300">
-        <span className="text-[7px] uppercase tracking-[0.15em] text-stone-400">↑ upload</span>
+        <span className="text-[7px] uppercase tracking-[0.15em] text-black">↑ upload</span>
       </div>
     );
   }
   if (field.type === "select") {
     return (
       <div className="flex flex-1 items-center justify-between border-b border-stone-300 pb-px">
-        <span className="text-[8px] text-stone-300">▾</span>
+        <span className="text-[8px] text-black">▾</span>
       </div>
     );
   }
@@ -2335,7 +2364,7 @@ function FieldGlyph({ field }) {
             <div key={i} className="h-px flex-1 bg-stone-300" />
           ))}
         </div>
-        <span className="text-[7px] italic text-stone-400">
+        <span className="text-[7px]  text-black">
           ↻ up to {field.max ?? "many"} rows
         </span>
       </div>

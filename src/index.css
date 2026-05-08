@@ -12,9 +12,16 @@ body,
   height: 100%;
 }
 
-/* Browser defaults render placeholders too faint against the cream bg. */
+/* Pure black text everywhere — no faded gray. */
 input::placeholder,
 textarea::placeholder {
-  color: rgb(87 83 78); /* stone-600 */
+  color: #000;
   opacity: 1;
+}
+
+/* Tailwind's typography plugin colors prose content gray by default —
+   override so resume markdown stays pure black. */
+.prose,
+.prose :where(p, li, ul, ol, h1, h2, h3, h4, h5, h6, strong, em, a, blockquote, code, td, th):not(:where([class~="not-prose"] *)) {
+  color: #000;
 }

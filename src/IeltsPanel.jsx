@@ -18,7 +18,7 @@ import useAutoRefresh from "./useAutoRefresh.js";
 const STATUS_META = {
   "Already taken":    { label: "Taken",    tone: "text-emerald-700" },
   "Planning to take": { label: "Planning", tone: "text-amber-700"   },
-  "Won't take":       { label: "Not taking", tone: "text-stone-500" },
+  "Won't take":       { label: "Not taking", tone: "text-black" },
 };
 
 function readAnswers(s) {
@@ -128,7 +128,7 @@ export default function IeltsPanel({ role = "admin", onViewStudent }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-stone-600">
+      <div className="flex items-center justify-center py-20 text-black">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -142,12 +142,12 @@ export default function IeltsPanel({ role = "admin", onViewStudent }) {
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">IELTS tracking</h2>
-          <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">
             {active.length} {active.length === 1 ? "row" : "rows"}
           </span>
         </div>
         <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
-          <Search className="h-3 w-3 text-stone-400" />
+          <Search className="h-3 w-3 text-black" />
           <input
             type="search"
             value={filter}
@@ -166,14 +166,14 @@ export default function IeltsPanel({ role = "admin", onViewStudent }) {
 
       {selectedIds.size > 0 && (
         <div className="mb-2 flex items-center justify-between border border-[#cc785c] bg-[#cc785c]/10 px-3 py-1.5 text-[12px]">
-          <span className="text-stone-800">
+          <span className="text-black">
             <strong>{selectedIds.size}</strong> selected
           </span>
           <span className="flex items-center gap-2">
             <button
               onClick={clearSelection}
               disabled={bulkBusy}
-              className="text-[11px] uppercase tracking-[0.18em] text-stone-600 hover:text-stone-900 disabled:opacity-50"
+              className="text-[11px] uppercase tracking-[0.18em] text-black hover:text-black disabled:opacity-50"
             >
               Clear
             </button>
@@ -191,7 +191,7 @@ export default function IeltsPanel({ role = "admin", onViewStudent }) {
 
       <div className="border border-stone-300 bg-white">
         <div
-          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-black"
           style={{ gridTemplateColumns: gridCols }}
         >
           <span aria-hidden="true"></span>
@@ -203,7 +203,7 @@ export default function IeltsPanel({ role = "admin", onViewStudent }) {
         </div>
 
         {active.length === 0 && (
-          <div className="px-3 py-6 text-center text-xs italic text-stone-500">
+          <div className="px-3 py-6 text-center text-xs  text-black">
             No active students.
           </div>
         )}
@@ -246,7 +246,7 @@ function Row({ student, checked, onToggle, onView, gridCols }) {
 
   return (
     <div
-      className="grid items-center gap-3 border-b border-stone-200 px-3 py-2 text-[13px] text-stone-800 last:border-b-0 hover:bg-stone-50"
+      className="grid items-center gap-3 border-b border-stone-200 px-3 py-2 text-[13px] text-black last:border-b-0 hover:bg-stone-50"
       style={{ gridTemplateColumns: gridCols }}
     >
       <input
@@ -259,17 +259,17 @@ function Row({ student, checked, onToggle, onView, gridCols }) {
       <span className="min-w-0 truncate">
         <span className="font-semibold">{student.display_name || student.username}</span>
         {student.display_name && (
-          <span className="ml-1 text-[11px] font-normal text-stone-500">@{student.username}</span>
+          <span className="ml-1 text-[11px] font-normal text-black">@{student.username}</span>
         )}
       </span>
-      <span className={`text-[11px] uppercase tracking-[0.15em] ${meta?.tone || "text-stone-400"}`}>
+      <span className={`text-[11px] uppercase tracking-[0.15em] ${meta?.tone || "text-black"}`}>
         {meta?.label || "—"}
       </span>
-      <span className="truncate text-[12px] tabular-nums text-stone-700">{detail}</span>
-      <span className="truncate text-[12px] text-stone-700">{student.counsellor_name || "—"}</span>
+      <span className="truncate text-[12px] tabular-nums text-black">{detail}</span>
+      <span className="truncate text-[12px] text-black">{student.counsellor_name || "—"}</span>
       <button
         onClick={onView}
-        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700"
+        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
       >
         <ExternalLink className="h-3 w-3" /> View
       </button>
@@ -283,18 +283,18 @@ function ArchivedRow({ student, onUnarchive, onView }) {
   return (
     <div className="flex items-center justify-between gap-3 text-[12px]">
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-semibold text-stone-800">{student.display_name || student.username}</span>
-        <span className={`ml-3 text-[10px] uppercase tracking-[0.15em] ${meta?.tone || "text-stone-400"}`}>
+        <span className="font-semibold text-black">{student.display_name || student.username}</span>
+        <span className={`ml-3 text-[10px] uppercase tracking-[0.15em] ${meta?.tone || "text-black"}`}>
           {meta?.label || "—"}
         </span>
         {student.counsellor_name && (
-          <span className="ml-3 text-[11px] text-stone-500">· {student.counsellor_name}</span>
+          <span className="ml-3 text-[11px] text-black">· {student.counsellor_name}</span>
         )}
       </span>
       <span className="flex items-center gap-2">
         <button
           onClick={onView}
-          className="text-[10px] uppercase tracking-[0.15em] text-stone-600 hover:text-stone-900"
+          className="text-[10px] uppercase tracking-[0.15em] text-black hover:text-black"
         >
           View
         </button>

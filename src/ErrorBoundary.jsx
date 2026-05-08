@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     return (
       <div
-        className="flex min-h-screen w-full items-center justify-center px-6 font-serif text-stone-900"
+        className="flex min-h-screen w-full items-center justify-center px-6 font-serif text-black"
         style={{ backgroundColor: "#faf9f5" }}
       >
         <div className="w-full max-w-md border border-stone-300 bg-white p-10 text-center">
@@ -40,7 +40,7 @@ export default class ErrorBoundary extends Component {
           <h1 className="mt-3 text-2xl font-semibold tracking-tight">
             The panel hit an unexpected error.
           </h1>
-          <p className="mt-3 text-sm text-stone-600">
+          <p className="mt-3 text-sm text-black">
             Your session is still active — a reload should put you back
             where you were. If it keeps happening, let admin know.
           </p>
