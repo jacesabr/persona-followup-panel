@@ -33,10 +33,8 @@ export default function CounsellorTasks({
   role = "admin",
   scopedCounsellorId = null,
   onImpersonate = () => {},
-  // Optional shared roster from AdminPanel. When provided we skip the
-  // local listCounsellors() call so admin's "+ New counsellor" stays in
-  // sync with the assignee dropdown automatically.
   counsellors: counsellorsProp = null,
+  adminUsername = "",
 }) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
   // to this counsellor. Admin sees everything and picks the assignee.
@@ -57,14 +55,15 @@ export default function CounsellorTasks({
   // Multi-select sort: array of keys in click order, primary first.
   // Default is ["date"] so the list always opens with the most-urgent
   // dates at the top.
-  const [sortBy, setSortBy] = useState(["date"]);
-  const [adminSortBy, setAdminSortBy] = useState(["date"]);
+  const [mySortBy, setMySortBy] = useState(["date"]);
+  const [otherSortBy, setOtherSortBy] = useState(["date"]);
+  const [selectedPeople, setSelectedPeople] = useState(new Set());
+  const [showNewMy, setShowNewMy] = useState(false);
+  const [newMyTask, setNewMyTask] = useState(EMPTY_NEW(""));
+  const [creatingMy, setCreatingMy] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [newTask, setNewTask] = useState(EMPTY_NEW(isScoped ? `counsellor:${scopedCounsellorId}` : ""));
   const [creating, setCreating] = useState(false);
-  const [showNewAdmin, setShowNewAdmin] = useState(false);
-  const [newAdminTask, setNewAdminTask] = useState(EMPTY_NEW(""));
-  const [creatingAdmin, setCreatingAdmin] = useState(false);
   const [busyId, setBusyId] = useState(null);
   // Admin-only inline edit. editingId holds the task id whose row is
   // currently in edit mode; editDraft mirrors the editable fields so the
@@ -155,7 +154,7 @@ export default function CounsellorTasks({
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
   // selected sort key. Both sets come from listTasks({ includeArchived }).
-  const { adminActiveTasks, counsellorActiveTasks, adminArchivedTasks, archivedTasks } = useMemo(() => {
+  const { myActiveTasks, otherPeopleActiveTasks, myArchivedTasks, otherPeopleArchivedTasks } = useMemo(() => {
     const active = visibleTasks.filter((t) => !t.archived);
     const archived = visibleTasks
       .filter((t) => t.archived)
@@ -164,13 +163,17 @@ export default function CounsellorTasks({
         const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
         return bt - at;
       });
+    const isMine = (t) =>
+      isScoped
+        ? t.assignee_id === scopedCounsellorId
+        : t.assignee_kind === "admin" && t.assignee_admin_username === adminUsername;
     return {
-      adminActiveTasks: active.filter((t) => t.assignee_kind === "admin"),
-      counsellorActiveTasks: active.filter((t) => t.assignee_kind !== "admin"),
-      adminArchivedTasks: archived.filter((t) => t.assignee_kind === "admin"),
-      archivedTasks: archived.filter((t) => t.assignee_kind !== "admin"),
+      myActiveTasks: active.filter(isMine),
+      otherPeopleActiveTasks: isScoped ? [] : active.filter((t) => !isMine(t)),
+      myArchivedTasks: archived.filter(isMine),
+      otherPeopleArchivedTasks: isScoped ? [] : archived.filter((t) => !isMine(t)),
     };
-  }, [visibleTasks]);
+  }, [visibleTasks, isScoped, scopedCounsellorId, adminUsername]);
 
   // Sorted view of active tasks. sortBy is an array of keys in click
   // order; the primary key is sortBy[0]. Priority position depends on
@@ -215,36 +218,64 @@ export default function CounsellorTasks({
     });
   };
 
-  const sortedTasks = useMemo(
-    () => buildSorted(counsellorActiveTasks, sortBy),
+  const sortedMyTasks = useMemo(
+    () => buildSorted(myActiveTasks, mySortBy),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [counsellorActiveTasks, sortBy]
+    [myActiveTasks, mySortBy]
   );
-  const sortedAdminTasks = useMemo(
-    () => buildSorted(adminActiveTasks, adminSortBy),
+  const sortedOtherTasks = useMemo(
+    () => buildSorted(otherPeopleActiveTasks, otherSortBy),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [adminActiveTasks, adminSortBy]
+    [otherPeopleActiveTasks, otherSortBy]
   );
 
-  const toggleSort = (key) => {
-    setSortBy((prev) => {
+  // People keys available in the filter (all counsellors + other admins)
+  const allPeopleKeys = useMemo(() => {
+    const keys = new Set();
+    counsellors.forEach((c) => keys.add(`counsellor:${c.id}`));
+    adminAccounts.filter((a) => a.username !== adminUsername).forEach((a) => keys.add(`admin:${a.username}`));
+    return keys;
+  }, [counsellors, adminAccounts, adminUsername]);
+
+  const isEveryone = allPeopleKeys.size > 0 && [...allPeopleKeys].every((k) => selectedPeople.has(k));
+
+  const filteredOtherTasks = useMemo(() => {
+    if (selectedPeople.size === 0) return [];
+    return sortedOtherTasks.filter((t) => {
+      const key = t.assignee_kind === "admin"
+        ? `admin:${t.assignee_admin_username}`
+        : `counsellor:${t.assignee_id}`;
+      return selectedPeople.has(key);
+    });
+  }, [sortedOtherTasks, selectedPeople]);
+
+  const toggleMySort = (key) => {
+    setMySortBy((prev) => {
       if (prev.includes(key)) return prev.filter((k) => k !== key);
       return [key, ...prev];
     });
   };
-  const sortPosition = (key) => {
-    const idx = sortBy.indexOf(key);
+  const mySortPosition = (key) => {
+    const idx = mySortBy.indexOf(key);
     return idx >= 0 ? idx + 1 : null;
   };
-  const toggleAdminSort = (key) => {
-    setAdminSortBy((prev) => {
+  const toggleOtherSort = (key) => {
+    setOtherSortBy((prev) => {
       if (prev.includes(key)) return prev.filter((k) => k !== key);
       return [key, ...prev];
     });
   };
-  const adminSortPosition = (key) => {
-    const idx = adminSortBy.indexOf(key);
+  const otherSortPosition = (key) => {
+    const idx = otherSortBy.indexOf(key);
     return idx >= 0 ? idx + 1 : null;
+  };
+  const togglePerson = (key) => {
+    setSelectedPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const todayYmd = todayIstYmd();
@@ -451,45 +482,41 @@ export default function CounsellorTasks({
     }
   };
 
-  const cancelNewAdmin = () => {
-    setShowNewAdmin(false);
-    setNewAdminTask(EMPTY_NEW(""));
+  const cancelNewMy = () => {
+    setShowNewMy(false);
+    setNewMyTask(EMPTY_NEW(""));
     setError(null);
   };
 
-  const submitNewAdmin = async () => {
-    const text = newAdminTask.text.trim();
-    const studentName = newAdminTask.studentName.trim();
+  const submitNewMy = async () => {
+    const text = newMyTask.text.trim();
+    const studentName = newMyTask.studentName.trim();
     if (!studentName) { setError("Type a student name."); return; }
     if (!text) { setError("Type a task."); return; }
-    if (!newAdminTask.dueDate) { setError("Pick a due date."); return; }
-    if (!newAdminTask.assigneeValue) { setError("Pick an admin to assign this to."); return; }
-    const colonIdx = newAdminTask.assigneeValue.indexOf(":");
-    const assigneeKind = colonIdx >= 0 ? newAdminTask.assigneeValue.slice(0, colonIdx) : "admin";
-    const assigneeTarget = colonIdx >= 0 ? newAdminTask.assigneeValue.slice(colonIdx + 1) : newAdminTask.assigneeValue;
+    if (!newMyTask.dueDate) { setError("Pick a due date."); return; }
     const matchedLead = leads.find((l) => !l.archived && l.name.trim().toLowerCase() === studentName.toLowerCase());
-    setCreatingAdmin(true);
+    setCreatingMy(true);
     setError(null);
     try {
       const payload = {
         lead_id: matchedLead ? matchedLead.id : null,
         student_name: matchedLead ? null : studentName,
         text,
-        due_date: newAdminTask.dueDate,
+        due_date: newMyTask.dueDate,
       };
-      if (assigneeKind === "admin") {
-        payload.assignee_admin_username = assigneeTarget;
+      if (isScoped) {
+        payload.assignee_id = scopedCounsellorId;
       } else {
-        payload.assignee_id = assigneeTarget;
+        payload.assignee_admin_username = adminUsername;
       }
       const created = await api.createTask(payload);
       setTasks((prev) => [...prev, created]);
-      setNewAdminTask(EMPTY_NEW(""));
-      setShowNewAdmin(false);
+      setNewMyTask(EMPTY_NEW(""));
+      setShowNewMy(false);
     } catch (e) {
       setError(e.message);
     } finally {
-      setCreatingAdmin(false);
+      setCreatingMy(false);
     }
   };
 
@@ -520,26 +547,23 @@ export default function CounsellorTasks({
 
   return (
     <>
-      {/* ── Admin Tasks section ─────────────────────────────────── */}
+      {/* ── My Tasks section ─────────────────────────────────── */}
       <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Admin tasks</h2>
+          <h2 className="text-lg font-semibold tracking-tight">My Tasks</h2>
           <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
-            {adminActiveTasks.length} {adminActiveTasks.length === 1 ? "task" : "tasks"}
+            {myActiveTasks.length} {myActiveTasks.length === 1 ? "task" : "tasks"}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Sort by:</span>
-          <SortChip label="Date" position={adminSortPosition("date")} onClick={() => toggleAdminSort("date")} />
-          <SortChip label="Student" position={adminSortPosition("student")} onClick={() => toggleAdminSort("student")} />
-          {!isScoped && (
-            <SortChip label="Assigned to" position={adminSortPosition("counsellor")} onClick={() => toggleAdminSort("counsellor")} />
-          )}
+          <SortChip label="Date" position={mySortPosition("date")} onClick={() => toggleMySort("date")} />
+          <SortChip label="Student" position={mySortPosition("student")} onClick={() => toggleMySort("student")} />
         </div>
         <div>
-          {!showNewAdmin && (
+          {!showNewMy && (
             <button
-              onClick={() => { setNewAdminTask(EMPTY_NEW("")); setShowNewAdmin(true); }}
+              onClick={() => { setNewMyTask(EMPTY_NEW("")); setShowNewMy(true); }}
               className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
             >
               <Plus className="h-3 w-3" /> New task
@@ -567,7 +591,7 @@ export default function CounsellorTasks({
           <span className="whitespace-nowrap text-right">Actions</span>
         </div>
 
-        {showNewAdmin && (
+        {showNewMy && (
           <div
             className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-stone-800"
             style={{ gridTemplateColumns: gridCols }}
@@ -575,49 +599,43 @@ export default function CounsellorTasks({
             <span></span>
             <input
               type="date"
-              value={newAdminTask.dueDate}
-              onChange={(e) => setNewAdminTask((p) => ({ ...p, dueDate: e.target.value }))}
+              value={newMyTask.dueDate}
+              onChange={(e) => setNewMyTask((p) => ({ ...p, dueDate: e.target.value }))}
               className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
             />
             <input
               type="text"
-              list="admin-task-students"
+              list="my-task-students"
               placeholder="Student name"
-              value={newAdminTask.studentName}
-              onChange={(e) => setNewAdminTask((p) => ({ ...p, studentName: e.target.value }))}
+              value={newMyTask.studentName}
+              onChange={(e) => setNewMyTask((p) => ({ ...p, studentName: e.target.value }))}
               className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
               autoFocus
             />
-            <datalist id="admin-task-students">
+            <datalist id="my-task-students">
               {leads.filter((l) => !l.archived).map((l) => <option key={l.id} value={l.name} />)}
             </datalist>
             <input
               type="text"
               placeholder="What needs to happen?"
-              value={newAdminTask.text}
-              onChange={(e) => setNewAdminTask((p) => ({ ...p, text: e.target.value }))}
+              value={newMyTask.text}
+              onChange={(e) => setNewMyTask((p) => ({ ...p, text: e.target.value }))}
               className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
             />
-            <AssigneePicker
-              value={newAdminTask.assigneeValue}
-              onChange={(v) => setNewAdminTask((p) => ({ ...p, assigneeValue: v }))}
-              counsellors={[]}
-              adminAccounts={adminAccounts}
-              isScoped={isScoped}
-              scopedCounsellorId={scopedCounsellorId}
-            />
+            {/* Auto-assigned to self — no picker needed */}
+            <span className="text-[13px] italic text-stone-400">Assigned to you</span>
             <span className="flex items-center justify-end gap-1.5">
               <button
-                onClick={submitNewAdmin}
-                disabled={creatingAdmin}
+                onClick={submitNewMy}
+                disabled={creatingMy}
                 title="Save"
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50"
               >
-                {creatingAdmin ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                {creatingMy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               </button>
               <button
-                onClick={cancelNewAdmin}
-                disabled={creatingAdmin}
+                onClick={cancelNewMy}
+                disabled={creatingMy}
                 title="Cancel"
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
               >
@@ -627,7 +645,7 @@ export default function CounsellorTasks({
           </div>
         )}
 
-        {sortedAdminTasks.map((task) => {
+        {sortedMyTasks.map((task) => {
           const dueYmd = dateOnlyYmd(task.due_date);
           const overdue = !task.completed && dueYmd < todayYmd;
           const isToday = dueYmd === todayYmd;
@@ -781,66 +799,76 @@ export default function CounsellorTasks({
           );
         })}
 
-        {sortedAdminTasks.length === 0 && !showNewAdmin && (
+        {sortedMyTasks.length === 0 && !showNewMy && (
           <p className="py-8 text-center text-base italic text-stone-600">
-            No admin tasks yet.
+            No tasks assigned to you yet.
           </p>
         )}
       </div>
 
-      <ArchivedTasksSection tasks={adminArchivedTasks} onUnarchive={unarchiveTask} busyId={busyId} />
+      <ArchivedTasksSection tasks={myArchivedTasks} onUnarchive={unarchiveTask} busyId={busyId} />
 
-      {/* ── Counsellor Tasks section ─────────────────────────────── */}
-      <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
-        {/* Left: title + count. Middle: sort chips. Right: + New task. */}
-        <div className="flex items-baseline gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Counsellor tasks</h2>
-          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
-            {counsellorActiveTasks.length} {counsellorActiveTasks.length === 1 ? "task" : "tasks"}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
-            Sort by:
-          </span>
-          <SortChip
-            label="Date"
-            position={sortPosition("date")}
-            onClick={() => toggleSort("date")}
-          />
-          <SortChip
-            label="Student"
-            position={sortPosition("student")}
-            onClick={() => toggleSort("student")}
-          />
-          {!isScoped && (
-            <SortChip
-              label="Counsellor"
-              position={sortPosition("counsellor")}
-              onClick={() => toggleSort("counsellor")}
-            />
-          )}
-        </div>
-        <div>
-          {!showNew && (
-            <button
-              onClick={() => {
-                setNewTask(EMPTY_NEW(defaultAssigneeValue));
-                setShowNew(true);
-              }}
-              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
-            >
-              <Plus className="h-3 w-3" /> New task
-            </button>
-          )}
-        </div>
-      </div>
+      {/* ── Other People's Tasks section (admin only) ──────────── */}
+      {!isScoped && (
+        <>
+          <div className="mb-2 flex items-center justify-between border-b border-stone-300 pb-2">
+            <div className="flex items-baseline gap-3">
+              <h2 className="text-lg font-semibold tracking-tight">Other People's Tasks</h2>
+              <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+                {filteredOtherTasks.length} {filteredOtherTasks.length === 1 ? "task" : "tasks"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Sort by:</span>
+              <SortChip label="Date" position={otherSortPosition("date")} onClick={() => toggleOtherSort("date")} />
+              <SortChip label="Student" position={otherSortPosition("student")} onClick={() => toggleOtherSort("student")} />
+              <SortChip label="Assignee" position={otherSortPosition("counsellor")} onClick={() => toggleOtherSort("counsellor")} />
+            </div>
+            <div>
+              {!showNew && (
+                <button
+                  onClick={() => { setNewTask(EMPTY_NEW(defaultAssigneeValue)); setShowNew(true); }}
+                  className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
+                >
+                  <Plus className="h-3 w-3" /> New task
+                </button>
+              )}
+            </div>
+          </div>
 
-      {error && (
-        <div className="mb-3 border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-800">
-          {error}
-        </div>
-      )}
+          {/* "View Tasks Of" filter chips */}
+          <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-stone-200 pb-3">
+            <span className="text-[11px] uppercase tracking-[0.15em] text-stone-500">View Tasks Of:</span>
+            {counsellors.map((c) => (
+              <FilterChip
+                key={c.id}
+                label={c.name}
+                active={selectedPeople.has(`counsellor:${c.id}`)}
+                onClick={() => togglePerson(`counsellor:${c.id}`)}
+              />
+            ))}
+            {adminAccounts.filter((a) => a.username !== adminUsername).map((a) => (
+              <FilterChip
+                key={a.username}
+                label={a.username}
+                active={selectedPeople.has(`admin:${a.username}`)}
+                onClick={() => togglePerson(`admin:${a.username}`)}
+              />
+            ))}
+            {allPeopleKeys.size > 0 && (
+              <FilterChip
+                label="Everyone"
+                active={isEveryone}
+                onClick={() => isEveryone ? setSelectedPeople(new Set()) : setSelectedPeople(new Set(allPeopleKeys))}
+              />
+            )}
+          </div>
+
+          {error && (
+            <div className="mb-3 border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-800">
+              {error}
+            </div>
+          )}
 
       <div className="border border-stone-300 bg-white">
         <div
@@ -935,7 +963,7 @@ export default function CounsellorTasks({
           </div>
         )}
 
-        {sortedTasks.map((task) => {
+        {filteredOtherTasks.map((task) => {
           // Postgres DATE columns deserialize as a full ISO timestamp
           // (e.g. "2026-04-29T00:00:00.000Z"), not "YYYY-MM-DD" — slice
           // the first 10 chars for string comparisons against todayYmd.
@@ -1195,18 +1223,18 @@ export default function CounsellorTasks({
           );
         })}
 
-        {sortedTasks.length === 0 && !showNew && (
+        {filteredOtherTasks.length === 0 && !showNew && (
           <p className="py-10 text-center text-base italic text-stone-600">
-            No tasks yet. Click "+ New task" to add one.
+            {selectedPeople.size === 0
+              ? "Select a person above to view their tasks."
+              : "No tasks for the selected people."}
           </p>
         )}
       </div>
 
-      <ArchivedTasksSection
-        tasks={archivedTasks}
-        onUnarchive={unarchiveTask}
-        busyId={busyId}
-      />
+      <ArchivedTasksSection tasks={otherPeopleArchivedTasks} onUnarchive={unarchiveTask} busyId={busyId} />
+        </>
+      )}
     </>
   );
 }
@@ -1349,6 +1377,21 @@ function AssigneePicker({ value, onChange, counsellors, adminAccounts, isScoped,
         </optgroup>
       )}
     </select>
+  );
+}
+
+function FilterChip({ label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 text-[11px] uppercase tracking-[0.15em] border transition-colors ${
+        active
+          ? "border-[#cc785c] bg-[#cc785c] text-white"
+          : "border-stone-300 bg-white text-stone-600 hover:border-[#cc785c] hover:text-[#cc785c]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

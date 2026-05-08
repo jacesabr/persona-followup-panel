@@ -53,6 +53,7 @@ export default function SimplePanel({
   counsellorsLoading = false,
   counsellorsError = null,
   onCounsellorsChanged,
+  adminUsername = "",
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
   // Counsellor-session roster: self + any counsellors this user supervises.
@@ -116,7 +117,7 @@ export default function SimplePanel({
             onClick={() => setTab("followup")}
           />
           <FolderTab
-            label="Counsellor tasks"
+            label="Tasks"
             active={tab === "tasks"}
             onClick={() => setTab("tasks")}
           />
@@ -169,6 +170,7 @@ export default function SimplePanel({
           scopedCounsellorId={scopedCounsellorId}
           onImpersonate={onImpersonate}
           counsellors={counsellors}
+          adminUsername={adminUsername}
         />
       )}
       {tab === "students" && (

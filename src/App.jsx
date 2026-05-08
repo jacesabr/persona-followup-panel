@@ -220,6 +220,7 @@ export default function App() {
         <Frame onSignOut={onSignOut} displayName={session.displayName || "Admin"} roleLabel="Admin">
           <AdminPanel
             onImpersonate={(counsellorId) => setImpersonating({ counsellorId })}
+            adminUsername={session.displayName || ""}
           />
         </Frame>
       </>
