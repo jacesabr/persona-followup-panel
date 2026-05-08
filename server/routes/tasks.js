@@ -182,14 +182,18 @@ router.post("/", async (req, res, next) => {
         cleanAssigneeAdminUsername = normalized;
         assignee_id = null;
       } else {
-        // Assigning to counsellor — default to self, else validate supervision
+        // Assigning to counsellor — default to self, else validate:
+        // allowed targets are supervised counsellors OR your own supervisor.
         if (!assignee_id) assignee_id = req.user.counsellorId;
         if (assignee_id !== req.user.counsellorId) {
-          const sub = await pool.query(
-            "SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2",
+          const allowed = await pool.query(
+            `SELECT 1 FROM counsellors
+              WHERE id = $1
+                AND (supervisor_id = $2
+                     OR id = (SELECT supervisor_id FROM counsellors WHERE id = $2))`,
             [assignee_id, req.user.counsellorId]
           );
-          if (sub.rows.length === 0) {
+          if (allowed.rows.length === 0) {
             return res.status(403).json({ error: "cannot assign tasks to this counsellor" });
           }
         }

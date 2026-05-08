@@ -130,7 +130,11 @@ router.get("/", async (req, res, next) => {
   try {
     const kind = req.user?.kind;
     const sql = kind === "counsellor"
-      ? `SELECT ${PUBLIC_COLUMNS} FROM counsellors WHERE id = $1 OR supervisor_id = $1 ORDER BY name ASC`
+      ? `SELECT ${PUBLIC_COLUMNS} FROM counsellors
+          WHERE id = $1
+             OR supervisor_id = $1
+             OR id = (SELECT supervisor_id FROM counsellors WHERE id = $1)
+          ORDER BY name ASC`
       : `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
     const params = kind === "counsellor" ? [req.user.counsellorId] : [];
     const { rows } = await pool.query(sql, params);
