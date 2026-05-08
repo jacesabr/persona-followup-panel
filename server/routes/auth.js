@@ -115,14 +115,14 @@ router.post("/login", async (req, res, next) => {
     if (adminMatch) {
       const sid = randomUUID();
       await pool.query(
-        "INSERT INTO sessions (id, user_kind) VALUES ($1, 'admin')",
-        [sid]
+        "INSERT INTO sessions (id, user_kind, admin_username) VALUES ($1, 'admin', $2)",
+        [sid, adminMatch.username]
       );
       setSessionCookie(res, sid);
       audit({ ip: req.ip, headers: req.headers, user: { kind: "admin" } }, {
         table: "sessions", id: sid, action: "login", notes: `admin:${adminMatch.username}`
       });
-      return res.json({ user_kind: "admin" });
+      return res.json({ user_kind: "admin", username: adminMatch.username });
     }
 
     // Counsellor path — case-insensitive username lookup against the
@@ -213,7 +213,7 @@ router.get("/me", async (req, res, next) => {
     const sid = req.cookies?.[SESSION_COOKIE_NAME];
     if (!sid) return res.status(401).json({ error: "not authenticated" });
     const { rows } = await pool.query(
-      `SELECT s.user_kind, s.counsellor_id, s.student_id,
+      `SELECT s.user_kind, s.counsellor_id, s.student_id, s.admin_username,
               c.id AS c_id, c.name AS c_name, c.username AS c_username,
               st.username AS s_username, st.display_name AS s_display_name,
               st.intake_complete AS s_intake_complete
@@ -242,7 +242,7 @@ router.get("/me", async (req, res, next) => {
     setSessionCookie(res, sid);
 
     const r = rows[0];
-    if (r.user_kind === "admin") return res.json({ user_kind: "admin" });
+    if (r.user_kind === "admin") return res.json({ user_kind: "admin", username: r.admin_username });
     if (r.user_kind === "student") {
       return res.json({
         user_kind: "student",

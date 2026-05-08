@@ -503,6 +503,7 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_
 -- requireAuth checks created_at + this cap before honouring a cookie, so a
 -- leaked cookie can't survive forever just because the attacker keeps it warm.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_age_days INT NOT NULL DEFAULT 90;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS admin_username TEXT;
 DO $reauth_sessions$
 BEGIN
   IF EXISTS (
