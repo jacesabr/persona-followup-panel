@@ -58,9 +58,13 @@ export default function CounsellorTasks({
   // Default is ["date"] so the list always opens with the most-urgent
   // dates at the top.
   const [sortBy, setSortBy] = useState(["date"]);
+  const [adminSortBy, setAdminSortBy] = useState(["date"]);
   const [showNew, setShowNew] = useState(false);
   const [newTask, setNewTask] = useState(EMPTY_NEW(isScoped ? `counsellor:${scopedCounsellorId}` : ""));
   const [creating, setCreating] = useState(false);
+  const [showNewAdmin, setShowNewAdmin] = useState(false);
+  const [newAdminTask, setNewAdminTask] = useState(EMPTY_NEW(""));
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
   const [busyId, setBusyId] = useState(null);
   // Admin-only inline edit. editingId holds the task id whose row is
   // currently in edit mode; editDraft mirrors the editable fields so the
@@ -151,16 +155,21 @@ export default function CounsellorTasks({
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
   // selected sort key. Both sets come from listTasks({ includeArchived }).
-  const { activeTasks, archivedTasks } = useMemo(() => {
+  const { adminActiveTasks, counsellorActiveTasks, archivedTasks } = useMemo(() => {
     const active = visibleTasks.filter((t) => !t.archived);
     const archived = visibleTasks
       .filter((t) => t.archived)
       .sort((a, b) => {
         const at = a.archived_at ? new Date(a.archived_at).getTime() : 0;
         const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
-        return bt - at; // most-recently-archived first
+        return bt - at;
       });
-    return { activeTasks: active, archivedTasks: archived };
+    return {
+      adminActiveTasks: active.filter((t) => t.assignee_kind === "admin"),
+      counsellorActiveTasks: active.filter((t) => t.assignee_kind !== "admin"),
+      adminArchivedTasks: archived.filter((t) => t.assignee_kind === "admin"),
+      archivedTasks: archived.filter((t) => t.assignee_kind !== "admin"),
+    };
   }, [visibleTasks]);
 
   // Sorted view of active tasks. sortBy is an array of keys in click
@@ -171,7 +180,7 @@ export default function CounsellorTasks({
   //  - Any non-date key in chain → that key (or chain) groups first,
   //    then priority within the group, then date as tiebreaker.
   // Final stable tiebreaker: id, so equal-key rows keep insertion order.
-  const sortedTasks = useMemo(() => {
+  const buildSorted = (list, sb) => {
     const cmpKey = (a, b, key) => {
       if (key === "date") {
         const ad = dateOnlyYmd(a.due_date);
@@ -190,11 +199,10 @@ export default function CounsellorTasks({
       }
       return 0;
     };
-    const chain = sortBy.length > 0 ? sortBy : ["date"];
+    const chain = sb.length > 0 ? sb : ["date"];
     const explicitNonDate = chain.filter((k) => k !== "date");
-    return [...activeTasks].sort((a, b) => {
+    return [...list].sort((a, b) => {
       if (explicitNonDate.length === 0) {
-        // pure date sort — priority pinned globally
         if (a.priority !== b.priority) return a.priority ? -1 : 1;
         return cmpKey(a, b, "date") || a.id - b.id;
       }
@@ -205,17 +213,38 @@ export default function CounsellorTasks({
       if (a.priority !== b.priority) return a.priority ? -1 : 1;
       return cmpKey(a, b, "date") || a.id - b.id;
     });
-  }, [activeTasks, sortBy]);
+  };
+
+  const sortedTasks = useMemo(
+    () => buildSorted(counsellorActiveTasks, sortBy),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [counsellorActiveTasks, sortBy]
+  );
+  const sortedAdminTasks = useMemo(
+    () => buildSorted(adminActiveTasks, adminSortBy),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [adminActiveTasks, adminSortBy]
+  );
 
   const toggleSort = (key) => {
     setSortBy((prev) => {
       if (prev.includes(key)) return prev.filter((k) => k !== key);
-      return [key, ...prev]; // newest click becomes primary
+      return [key, ...prev];
     });
   };
   const sortPosition = (key) => {
     const idx = sortBy.indexOf(key);
-    return idx >= 0 ? idx + 1 : null; // 1-indexed badge for active chips
+    return idx >= 0 ? idx + 1 : null;
+  };
+  const toggleAdminSort = (key) => {
+    setAdminSortBy((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [key, ...prev];
+    });
+  };
+  const adminSortPosition = (key) => {
+    const idx = adminSortBy.indexOf(key);
+    return idx >= 0 ? idx + 1 : null;
   };
 
   const todayYmd = todayIstYmd();
@@ -422,6 +451,48 @@ export default function CounsellorTasks({
     }
   };
 
+  const cancelNewAdmin = () => {
+    setShowNewAdmin(false);
+    setNewAdminTask(EMPTY_NEW(""));
+    setError(null);
+  };
+
+  const submitNewAdmin = async () => {
+    const text = newAdminTask.text.trim();
+    const studentName = newAdminTask.studentName.trim();
+    if (!studentName) { setError("Type a student name."); return; }
+    if (!text) { setError("Type a task."); return; }
+    if (!newAdminTask.dueDate) { setError("Pick a due date."); return; }
+    if (!newAdminTask.assigneeValue) { setError("Pick an admin to assign this to."); return; }
+    const colonIdx = newAdminTask.assigneeValue.indexOf(":");
+    const assigneeKind = colonIdx >= 0 ? newAdminTask.assigneeValue.slice(0, colonIdx) : "admin";
+    const assigneeTarget = colonIdx >= 0 ? newAdminTask.assigneeValue.slice(colonIdx + 1) : newAdminTask.assigneeValue;
+    const matchedLead = leads.find((l) => !l.archived && l.name.trim().toLowerCase() === studentName.toLowerCase());
+    setCreatingAdmin(true);
+    setError(null);
+    try {
+      const payload = {
+        lead_id: matchedLead ? matchedLead.id : null,
+        student_name: matchedLead ? null : studentName,
+        text,
+        due_date: newAdminTask.dueDate,
+      };
+      if (assigneeKind === "admin") {
+        payload.assignee_admin_username = assigneeTarget;
+      } else {
+        payload.assignee_id = assigneeTarget;
+      }
+      const created = await api.createTask(payload);
+      setTasks((prev) => [...prev, created]);
+      setNewAdminTask(EMPTY_NEW(""));
+      setShowNewAdmin(false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCreatingAdmin(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-stone-600">
@@ -449,12 +520,283 @@ export default function CounsellorTasks({
 
   return (
     <>
+      {/* ── Admin Tasks section ─────────────────────────────────── */}
+      <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">Admin tasks</h2>
+          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
+            {adminActiveTasks.length} {adminActiveTasks.length === 1 ? "task" : "tasks"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Sort by:</span>
+          <SortChip label="Date" position={adminSortPosition("date")} onClick={() => toggleAdminSort("date")} />
+          <SortChip label="Student" position={adminSortPosition("student")} onClick={() => toggleAdminSort("student")} />
+          {!isScoped && (
+            <SortChip label="Assigned to" position={adminSortPosition("counsellor")} onClick={() => toggleAdminSort("counsellor")} />
+          )}
+        </div>
+        <div>
+          {!showNewAdmin && (
+            <button
+              onClick={() => { setNewAdminTask(EMPTY_NEW("")); setShowNewAdmin(true); }}
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
+            >
+              <Plus className="h-3 w-3" /> New task
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-3 border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      <div className="mb-8 border border-stone-300 bg-white">
+        <div
+          className="grid items-center gap-3 border-b border-stone-300 bg-stone-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-700"
+          style={{ gridTemplateColumns: gridCols }}
+        >
+          <span className="whitespace-nowrap">Priority</span>
+          <span className="whitespace-nowrap">Date</span>
+          <span className="whitespace-nowrap">Student</span>
+          <span className="whitespace-nowrap">Task</span>
+          {!isScoped && <span className="whitespace-nowrap">Assigned to</span>}
+          <span className="whitespace-nowrap text-right">Actions</span>
+        </div>
+
+        {showNewAdmin && (
+          <div
+            className="grid items-start gap-3 border-b-2 border-[#cc785c] bg-[#cc785c]/5 px-4 py-3 text-[15px] text-stone-800"
+            style={{ gridTemplateColumns: gridCols }}
+          >
+            <span></span>
+            <input
+              type="date"
+              value={newAdminTask.dueDate}
+              onChange={(e) => setNewAdminTask((p) => ({ ...p, dueDate: e.target.value }))}
+              className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+            />
+            <input
+              type="text"
+              list="admin-task-students"
+              placeholder="Student name"
+              value={newAdminTask.studentName}
+              onChange={(e) => setNewAdminTask((p) => ({ ...p, studentName: e.target.value }))}
+              className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+              autoFocus
+            />
+            <datalist id="admin-task-students">
+              {leads.filter((l) => !l.archived).map((l) => <option key={l.id} value={l.name} />)}
+            </datalist>
+            <input
+              type="text"
+              placeholder="What needs to happen?"
+              value={newAdminTask.text}
+              onChange={(e) => setNewAdminTask((p) => ({ ...p, text: e.target.value }))}
+              className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
+            />
+            <AssigneePicker
+              value={newAdminTask.assigneeValue}
+              onChange={(v) => setNewAdminTask((p) => ({ ...p, assigneeValue: v }))}
+              counsellors={[]}
+              adminAccounts={adminAccounts}
+              isScoped={isScoped}
+              scopedCounsellorId={scopedCounsellorId}
+            />
+            <span className="flex items-center justify-end gap-1.5">
+              <button
+                onClick={submitNewAdmin}
+                disabled={creatingAdmin}
+                title="Save"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+              >
+                {creatingAdmin ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                onClick={cancelNewAdmin}
+                disabled={creatingAdmin}
+                title="Cancel"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          </div>
+        )}
+
+        {sortedAdminTasks.map((task) => {
+          const dueYmd = dateOnlyYmd(task.due_date);
+          const overdue = !task.completed && dueYmd < todayYmd;
+          const isToday = dueYmd === todayYmd;
+          const isBusy = busyId === task.id;
+          const isEditing = !isScoped && editingId === task.id;
+          const commentsOpen = expandedCommentsId === task.id;
+          const commentCount = task.comment_count || 0;
+          return (
+            <div key={task.id} className="border-b border-stone-200 last:border-b-0">
+              <div
+                className={`grid items-center gap-3 px-4 py-3 hover:bg-stone-50 ${task.completed ? "opacity-60" : ""} ${isEditing ? "bg-[#cc785c]/5" : ""}`}
+                style={{ gridTemplateColumns: gridCols }}
+              >
+                <span>
+                  <button
+                    onClick={() => togglePriority(task)}
+                    disabled={isBusy || isEditing}
+                    title={task.priority ? "Unpin from top" : "Pin to top"}
+                    className={`inline-flex items-center gap-1 border px-1.5 py-1 text-[11px] uppercase tracking-[0.12em] disabled:opacity-50 ${
+                      task.priority
+                        ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
+                        : "border-stone-300 bg-white text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+                    }`}
+                  >
+                    <Star className={`h-3 w-3 ${task.priority ? "fill-white" : ""}`} />
+                    Priority
+                  </button>
+                </span>
+                {isEditing ? (
+                  <input
+                    type="date"
+                    value={editDraft.due_date}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, due_date: e.target.value }))}
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+                  />
+                ) : (
+                  <span className={`tabular-nums text-[15px] ${overdue ? "font-bold text-red-700" : isToday ? "font-bold text-[#cc785c]" : "text-stone-700"}`}>
+                    {formatDateInIst(task.due_date)}
+                  </span>
+                )}
+                {isEditing && !task.lead_id ? (
+                  <input
+                    type="text"
+                    value={editDraft.student_name}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, student_name: e.target.value }))}
+                    placeholder="Student name"
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
+                  />
+                ) : (
+                  <span className="text-[15px] font-semibold text-stone-900">
+                    {task.lead_name || task.student_name || "—"}
+                  </span>
+                )}
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editDraft.text}
+                    onChange={(e) => setEditDraft((p) => ({ ...p, text: e.target.value }))}
+                    className="border border-stone-300 bg-white px-2 py-1.5 text-[15px] outline-none focus:border-[#cc785c]"
+                    autoFocus
+                  />
+                ) : (
+                  <span className={`flex flex-col text-[15px] leading-snug ${task.completed ? "line-through text-stone-500" : "text-stone-800"}`}>
+                    <span>{task.text}</span>
+                    {task.appointment_scheduled_for && (
+                      <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-[#cc785c]/40 bg-[#cc785c]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.15em] text-[#cc785c]">
+                        from session · {formatDateInIst(task.appointment_scheduled_for)}
+                      </span>
+                    )}
+                    {commentCount > 0 && !commentsOpen && task.latest_comment_body && (
+                      <button
+                        type="button"
+                        onClick={() => toggleComments(task)}
+                        className="mt-1 flex max-w-full items-baseline gap-1.5 self-start text-left text-[12px] italic text-stone-500 hover:text-[#cc785c]"
+                        title="Click to expand the full thread"
+                      >
+                        <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
+                        <span className="font-semibold not-italic text-stone-600">
+                          {task.latest_comment_author_name || (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}:
+                        </span>
+                        <span className="truncate">{task.latest_comment_body}</span>
+                        {commentCount > 1 && (
+                          <span className="shrink-0 text-[11px] not-italic text-stone-400">+{commentCount - 1} more</span>
+                        )}
+                      </button>
+                    )}
+                  </span>
+                )}
+                {!isScoped && (
+                  <span className="text-[14px] text-stone-700">
+                    {task.assignee_admin_username || <span className="italic text-stone-400">Unassigned</span>}
+                  </span>
+                )}
+                <span className="flex items-center justify-end gap-1.5">
+                  {isEditing ? (
+                    <>
+                      <button onClick={() => saveEdit(task)} disabled={savingEdit} title="Save changes"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f] disabled:opacity-50">
+                        {savingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      </button>
+                      <button onClick={cancelEdit} disabled={savingEdit} title="Cancel edit"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-600 hover:border-stone-500 hover:text-stone-900 disabled:opacity-50">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {!isScoped && (
+                        <button onClick={() => beginEdit(task)} disabled={isBusy} title="Edit task"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button onClick={() => toggleCompleted(task)} disabled={isBusy}
+                        title={task.completed ? "Mark incomplete" : "Mark done"}
+                        className={`inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${task.completed ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600" : "border-stone-300 bg-white text-stone-600 hover:border-emerald-500 hover:text-emerald-600"}`}>
+                        {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      </button>
+                      {!(isScoped && task.assignee_kind === "admin") && (
+                        <button onClick={() => archiveTask(task)} disabled={isBusy} title="Archive task"
+                          className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
+                          <Archive className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button onClick={() => toggleComments(task)} disabled={isBusy}
+                        title={commentsOpen ? "Hide comments" : "Show comments"}
+                        className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${commentsOpen ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"}`}>
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        {commentCount > 0 && (
+                          <span className={`absolute -right-1.5 -top-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-tight ${commentsOpen ? "bg-white text-[#cc785c]" : "bg-[#cc785c] text-white"}`}>
+                            {commentCount}
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </span>
+              </div>
+              {commentsOpen && (
+                <CommentsPanel
+                  task={task}
+                  comments={commentsByTask[task.id]}
+                  loading={commentsLoading && commentsByTask[task.id] === undefined}
+                  draft={commentDraft}
+                  onDraftChange={setCommentDraft}
+                  onSubmit={() => submitComment(task)}
+                  posting={postingComment}
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {sortedAdminTasks.length === 0 && !showNewAdmin && (
+          <p className="py-8 text-center text-base italic text-stone-600">
+            No admin tasks yet.
+          </p>
+        )}
+      </div>
+
+      <ArchivedTasksSection tasks={adminArchivedTasks} onUnarchive={unarchiveTask} busyId={busyId} />
+
+      {/* ── Counsellor Tasks section ─────────────────────────────── */}
       <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
         {/* Left: title + count. Middle: sort chips. Right: + New task. */}
         <div className="flex items-baseline gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Counsellor tasks</h2>
           <span className="text-[11px] uppercase tracking-[0.2em] text-stone-500">
-            {activeTasks.length} {activeTasks.length === 1 ? "task" : "tasks"}
+            {counsellorActiveTasks.length} {counsellorActiveTasks.length === 1 ? "task" : "tasks"}
           </span>
         </div>
         <div className="flex items-center gap-2">
