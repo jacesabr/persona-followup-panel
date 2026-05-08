@@ -496,6 +496,14 @@ ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_kind TEXT NOT NUL
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_admin_username TEXT;
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_kind TEXT NOT NULL DEFAULT 'counsellor';
+-- Mirror authorship: when a named admin (e.g. adminSuhas) creates a
+-- task, this stores their raw lowercased username so the UI can show
+-- "Suhas created this" instead of a generic "Admin" — important now
+-- that mirror groups (admin123 + adminsuhas share an inbox) have
+-- multiple admins acting on the same row.
+ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_admin_username TEXT;
+-- Same idea on the comments side: which named admin posted this comment.
+ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS author_admin_username TEXT;
 
 -- Sessions: extend to allow user_kind='student' + carry student_id.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_students(student_id) ON DELETE CASCADE;

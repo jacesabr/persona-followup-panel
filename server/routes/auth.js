@@ -154,11 +154,20 @@ router.post("/login", async (req, res, next) => {
     // migration still hold plaintext; accept those once and upgrade in
     // place so the DB drains down to all-hashes over time. Both paths
     // use constant-time compare to avoid leaking match info via timing.
+    //
+    // Plaintext branch additionally burns one DUMMY_HASH verify on
+    // failure so wall-clock time matches the hashed-row wrong-password
+    // path. Without it a plaintext counsellor with the wrong password
+    // returns ~scrypt-fast while a hashed counsellor takes ~50ms,
+    // leaking which counsellors haven't migrated yet.
     let ok = false;
     if (isHashed(row.password)) {
       ok = verifyHashed(password, row.password);
     } else if (typeof row.password === "string") {
       ok = safeStrEqual(password, row.password);
+      if (!ok) {
+        verifyHashed(password, DUMMY_HASH);
+      }
       if (ok) {
         try {
           // Backfill password_plain at the same time so legacy rows show

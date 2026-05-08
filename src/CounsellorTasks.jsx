@@ -768,7 +768,9 @@ export default function CounsellorTasks({
                       >
                         <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
                         <span className="font-semibold not-italic text-black">
-                          {task.latest_comment_author_name || (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}:
+                          {task.latest_comment_author_kind === "admin"
+                            ? (adminDisplay(task.latest_comment_author_admin_username) || "Admin")
+                            : (task.latest_comment_author_name || "—")}:
                         </span>
                         <span className="truncate">{task.latest_comment_body}</span>
                         {commentCount > 1 && (
@@ -1123,8 +1125,9 @@ export default function CounsellorTasks({
                       >
                         <MessageSquare className="h-3 w-3 shrink-0 not-italic" />
                         <span className="font-semibold not-italic text-black">
-                          {task.latest_comment_author_name ||
-                            (task.latest_comment_author_kind === "admin" ? "Admin" : "—")}
+                          {task.latest_comment_author_kind === "admin"
+                            ? (adminDisplay(task.latest_comment_author_admin_username) || "Admin")
+                            : (task.latest_comment_author_name || "—")}
                           :
                         </span>
                         <span className="truncate">{task.latest_comment_body}</span>
@@ -1351,7 +1354,9 @@ function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit
             <li key={c.id} className="border border-stone-200 bg-white px-3 py-2">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-black">
-                  {c.author_kind === "admin" ? "Admin" : (c.author_name || "Counsellor")}
+                  {c.author_kind === "admin"
+                    ? (adminDisplay(c.author_admin_username) || "Admin")
+                    : (c.author_name || "Counsellor")}
                 </span>
                 <span className="text-[11px] tabular-nums text-black">
                   {formatDateInIst(c.created_at)}

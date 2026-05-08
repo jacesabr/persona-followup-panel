@@ -64,9 +64,11 @@ async function checkTaskAccess(req, res, taskId) {
   return null;
 }
 
-// Joined SELECT reused after every mutation. Includes assignee_kind and
-// assignee_admin_username so the client can display admin-assigned tasks
-// correctly and hide archive/delete controls on them.
+// Joined SELECT reused after every mutation. Includes assignee_kind,
+// assignee_admin_username, creator_admin_username and the latest
+// comment's author_admin_username so the client can attribute a task /
+// comment to a specific named admin (mirror groups put multiple admins
+// in the same inbox — without this the UI flattens them all to "Admin").
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
@@ -77,13 +79,15 @@ const SELECT_JOINED = `
          lc.body       AS latest_comment_body,
          lc.created_at AS latest_comment_at,
          lc.author_kind AS latest_comment_author_kind,
-         lc.author_name AS latest_comment_author_name
+         lc.author_name AS latest_comment_author_name,
+         lc.author_admin_username AS latest_comment_author_admin_username
   FROM counsellor_tasks t
   LEFT JOIN leads l ON l.id = t.lead_id
   LEFT JOIN counsellors c ON c.id = t.assignee_id
   LEFT JOIN lead_appointments la ON la.id = t.appointment_id
   LEFT JOIN LATERAL (
-    SELECT tc.body, tc.created_at, tc.author_kind, ac.name AS author_name
+    SELECT tc.body, tc.created_at, tc.author_kind, tc.author_admin_username,
+           ac.name AS author_name
     FROM task_comments tc
     LEFT JOIN counsellors ac ON ac.id = tc.author_counsellor_id
     WHERE tc.task_id = t.id
@@ -167,6 +171,7 @@ router.post("/", async (req, res, next) => {
     let cleanAssigneeAdminUsername = null;
     let creatorId = null;
     let creatorKind = "counsellor";
+    let creatorAdminUsername = null;
 
     if (req.user?.kind === "counsellor") {
       creatorId = req.user.counsellorId;
@@ -210,9 +215,12 @@ router.post("/", async (req, res, next) => {
         }
       }
     } else {
-      // Admin creating a task
+      // Admin creating a task. creator_admin_username records WHICH
+      // named admin acted (mirror groups have multiple admins on the
+      // same inbox — without this the UI can't distinguish them).
       creatorKind = "admin";
       creatorId = null;
+      creatorAdminUsername = req.user?.adminUsername || null;
 
       if (assignee_admin_username) {
         const normalized = String(assignee_admin_username).toLowerCase().trim();
@@ -274,12 +282,14 @@ router.post("/", async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO counsellor_tasks
          (lead_id, student_name, assignee_id, assignee_kind, assignee_admin_username,
-          text, due_date, priority, appointment_id, creator_id, creator_kind)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          text, due_date, priority, appointment_id, creator_id, creator_kind,
+          creator_admin_username)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         cleanLeadId, cleanStudentName, cleanAssigneeId, assigneeKind, cleanAssigneeAdminUsername,
         text.trim(), due_date, !!priority, cleanAppointmentId, creatorId, creatorKind,
+        creatorAdminUsername,
       ]
     );
     const { rows: enriched } = await pool.query(
@@ -420,6 +430,7 @@ router.get("/:id/comments", async (req, res, next) => {
     if (!(await checkTaskAccess(req, res, id))) return;
     const { rows } = await pool.query(
       `SELECT tc.id, tc.task_id, tc.author_counsellor_id, tc.author_kind,
+              tc.author_admin_username,
               tc.body, tc.created_at,
               c.name AS author_name
          FROM task_comments tc
@@ -445,14 +456,18 @@ router.post("/:id/comments", async (req, res, next) => {
     }
     const kind = req.user?.kind;
     const authorCounsellorId = kind === "counsellor" ? req.user.counsellorId : null;
+    const authorAdminUsername = kind === "admin" ? (req.user?.adminUsername || null) : null;
     const { rows } = await pool.query(
-      `INSERT INTO task_comments (task_id, author_counsellor_id, author_kind, body)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, task_id, author_counsellor_id, author_kind, body, created_at`,
-      [id, authorCounsellorId, kind, body.trim()]
+      `INSERT INTO task_comments
+         (task_id, author_counsellor_id, author_kind, author_admin_username, body)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, task_id, author_counsellor_id, author_kind,
+                 author_admin_username, body, created_at`,
+      [id, authorCounsellorId, kind, authorAdminUsername, body.trim()]
     );
     const enriched = await pool.query(
       `SELECT tc.id, tc.task_id, tc.author_counsellor_id, tc.author_kind,
+              tc.author_admin_username,
               tc.body, tc.created_at,
               c.name AS author_name
          FROM task_comments tc
