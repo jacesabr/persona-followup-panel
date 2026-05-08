@@ -36,10 +36,8 @@ export function adminUsernameSet() {
   return new Set(getAdmins().map((a) => a.username));
 }
 
-// Named (non-primary) admins — shown in counsellor assignee pickers so
-// counsellors can assign tasks to specific admins without seeing "admin".
+// All admin accounts — shown in counsellor assignee pickers so counsellors
+// can assign tasks to any admin account.
 export function namedAdmins() {
-  return getAdmins()
-    .filter((a) => !a.isPrimary)
-    .map((a) => ({ username: a.username }));
+  return getAdmins().map((a) => ({ username: a.username }));
 }
