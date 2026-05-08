@@ -36,8 +36,18 @@ export function adminUsernameSet() {
   return new Set(getAdmins().map((a) => a.username));
 }
 
+// Strips a leading "admin" prefix if the remainder starts with a letter,
+// then capitalises. adminJyoti → Jyoti, adminSuhas → Suhas, admin123 unchanged.
+export function adminDisplayName(username) {
+  const rest = username.replace(/^admin/i, "");
+  if (rest && /^[a-zA-Z]/.test(rest)) {
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
+  }
+  return username;
+}
+
 // All admin accounts — shown in counsellor assignee pickers so counsellors
 // can assign tasks to any admin account.
 export function namedAdmins() {
-  return getAdmins().map((a) => ({ username: a.username }));
+  return getAdmins().map((a) => ({ username: a.username, name: adminDisplayName(a.username) }));
 }
