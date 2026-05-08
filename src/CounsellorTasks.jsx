@@ -230,12 +230,17 @@ export default function CounsellorTasks({
   );
 
   // People keys available in the filter (all counsellors + other admins)
+  const otherAdmins = useMemo(
+    () => adminAccounts.filter((a) => (a.name || a.username) !== adminUsername),
+    [adminAccounts, adminUsername]
+  );
+
   const allPeopleKeys = useMemo(() => {
     const keys = new Set();
     counsellors.forEach((c) => keys.add(`counsellor:${c.id}`));
-    adminAccounts.filter((a) => a.username !== adminUsername).forEach((a) => keys.add(`admin:${a.username}`));
+    otherAdmins.forEach((a) => keys.add(`admin:${a.username}`));
     return keys;
-  }, [counsellors, adminAccounts, adminUsername]);
+  }, [counsellors, otherAdmins]);
 
   const isEveryone = allPeopleKeys.size > 0 && [...allPeopleKeys].every((k) => selectedPeople.has(k));
 
@@ -847,10 +852,10 @@ export default function CounsellorTasks({
                 onClick={() => togglePerson(`counsellor:${c.id}`)}
               />
             ))}
-            {adminAccounts.filter((a) => a.username !== adminUsername).map((a) => (
+            {otherAdmins.map((a) => (
               <FilterChip
                 key={a.username}
-                label={a.username}
+                label={a.name || a.username}
                 active={selectedPeople.has(`admin:${a.username}`)}
                 onClick={() => togglePerson(`admin:${a.username}`)}
               />
