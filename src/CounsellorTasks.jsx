@@ -155,7 +155,7 @@ export default function CounsellorTasks({
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
   // selected sort key. Both sets come from listTasks({ includeArchived }).
-  const { adminActiveTasks, counsellorActiveTasks, archivedTasks } = useMemo(() => {
+  const { adminActiveTasks, counsellorActiveTasks, adminArchivedTasks, archivedTasks } = useMemo(() => {
     const active = visibleTasks.filter((t) => !t.archived);
     const archived = visibleTasks
       .filter((t) => t.archived)
