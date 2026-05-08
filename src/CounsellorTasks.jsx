@@ -35,6 +35,7 @@ export default function CounsellorTasks({
   onImpersonate = () => {},
   counsellors: counsellorsProp = null,
   adminUsername = "",
+  adminMirrors = [],
 }) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
   // to this counsellor. Admin sees everything and picks the assignee.
@@ -175,14 +176,16 @@ export default function CounsellorTasks({
     const isMine = (t) =>
       isScoped
         ? t.assignee_id === scopedCounsellorId
-        : t.assignee_kind === "admin" && toDisplay(t.assignee_admin_username) === adminUsername;
+        : t.assignee_kind === "admin" &&
+          (toDisplay(t.assignee_admin_username) === adminUsername ||
+            adminMirrors.includes(toDisplay(t.assignee_admin_username)));
     return {
       myActiveTasks: active.filter(isMine),
       otherPeopleActiveTasks: isScoped ? [] : active.filter((t) => !isMine(t)),
       myArchivedTasks: archived.filter(isMine),
       otherPeopleArchivedTasks: isScoped ? [] : archived.filter((t) => !isMine(t)),
     };
-  }, [visibleTasks, isScoped, scopedCounsellorId, adminUsername]);
+  }, [visibleTasks, isScoped, scopedCounsellorId, adminUsername, adminMirrors]);
 
   // Sorted view of active tasks. sortBy is an array of keys in click
   // order; the primary key is sortBy[0]. Priority position depends on
@@ -238,10 +241,15 @@ export default function CounsellorTasks({
     [otherPeopleActiveTasks, otherSortBy]
   );
 
-  // People keys available in the filter (all counsellors + other admins)
+  // People keys available in the filter (all counsellors + other admins).
+  // Exclude self and mirror partners — mirrors share our inbox so showing
+  // them as separate filter options would just duplicate "My Tasks".
   const otherAdmins = useMemo(
-    () => adminAccounts.filter((a) => (a.name || a.username) !== adminUsername),
-    [adminAccounts, adminUsername]
+    () => adminAccounts.filter((a) => {
+      const display = a.name || a.username;
+      return display !== adminUsername && !adminMirrors.includes(display);
+    }),
+    [adminAccounts, adminUsername, adminMirrors]
   );
 
   const allPeopleKeys = useMemo(() => {

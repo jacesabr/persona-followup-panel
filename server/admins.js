@@ -36,6 +36,29 @@ export function adminUsernameSet() {
   return new Set(getAdmins().map((a) => a.username));
 }
 
+// Mirror groups: array of arrays of lowercase usernames that share a task inbox.
+// Parsed from ADMIN_MIRRORS env var, e.g. [["admin123","adminsuhas"]].
+function getMirrorGroups() {
+  try {
+    const raw = process.env.ADMIN_MIRRORS;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((g) => (Array.isArray(g) ? g.map((u) => u.toLowerCase()) : []));
+  } catch { return []; }
+}
+
+// Returns display names of all mirror partners for the given username.
+export function getMirrorDisplayNames(username) {
+  const lower = username.toLowerCase();
+  for (const group of getMirrorGroups()) {
+    if (group.includes(lower)) {
+      return group.filter((u) => u !== lower).map(adminDisplayName);
+    }
+  }
+  return [];
+}
+
 // Strips a leading "admin" prefix if the remainder starts with a letter,
 // then capitalises. adminJyoti → Jyoti, adminSuhas → Suhas, admin123 unchanged.
 export function adminDisplayName(username) {

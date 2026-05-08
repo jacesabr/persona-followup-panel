@@ -54,6 +54,7 @@ export default function SimplePanel({
   counsellorsError = null,
   onCounsellorsChanged,
   adminUsername = "",
+  adminMirrors = [],
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
   // Counsellor-session roster: self + any counsellors this user supervises.
@@ -171,6 +172,7 @@ export default function SimplePanel({
           onImpersonate={onImpersonate}
           counsellors={counsellors}
           adminUsername={adminUsername}
+          adminMirrors={adminMirrors}
         />
       )}
       {tab === "students" && (

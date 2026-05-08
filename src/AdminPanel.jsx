@@ -11,7 +11,7 @@ import useAutoRefresh from "./useAutoRefresh.js";
 //      admin creates a new counsellor in the Counsellors tab.
 //   2. We avoid three concurrent listCounsellors() calls every time
 //      admin switches tabs.
-export default function AdminPanel({ onImpersonate, adminUsername = "" }) {
+export default function AdminPanel({ onImpersonate, adminUsername = "", adminMirrors = [] }) {
   const [counsellors, setCounsellors] = useState([]);
   const [counsellorsLoading, setCounsellorsLoading] = useState(true);
   const [counsellorsError, setCounsellorsError] = useState(null);
@@ -48,6 +48,7 @@ export default function AdminPanel({ onImpersonate, adminUsername = "" }) {
       counsellorsError={counsellorsError}
       onCounsellorsChanged={refreshCounsellors}
       adminUsername={adminUsername}
+      adminMirrors={adminMirrors}
     />
   );
 }

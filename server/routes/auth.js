@@ -4,7 +4,7 @@ import pool from "../db.js";
 import { COUNSELLOR_PUBLIC_COLUMNS } from "./counsellors.js";
 import { hashPassword, isHashed, verifyHashed } from "../../lib/password.js";
 import { audit } from "../audit.js";
-import { getAdmins, adminDisplayName } from "../admins.js";
+import { getAdmins, adminDisplayName, getMirrorDisplayNames } from "../admins.js";
 
 // Static dummy scrypt hash used to equalize timing on the no-such-user
 // path. We always run a verifyHashed (~50ms) before responding 401, so
@@ -122,7 +122,7 @@ router.post("/login", async (req, res, next) => {
       audit({ ip: req.ip, headers: req.headers, user: { kind: "admin" } }, {
         table: "sessions", id: sid, action: "login", notes: `admin:${adminMatch.username}`
       });
-      return res.json({ user_kind: "admin", username: adminDisplayName(adminMatch.username) });
+      return res.json({ user_kind: "admin", username: adminDisplayName(adminMatch.username), mirrors: getMirrorDisplayNames(adminMatch.username) });
     }
 
     // Counsellor path — case-insensitive username lookup against the
@@ -242,7 +242,7 @@ router.get("/me", async (req, res, next) => {
     setSessionCookie(res, sid);
 
     const r = rows[0];
-    if (r.user_kind === "admin") return res.json({ user_kind: "admin", username: r.admin_username ? adminDisplayName(r.admin_username) : null });
+    if (r.user_kind === "admin") return res.json({ user_kind: "admin", username: r.admin_username ? adminDisplayName(r.admin_username) : null, mirrors: r.admin_username ? getMirrorDisplayNames(r.admin_username) : [] });
     if (r.user_kind === "student") {
       return res.json({
         user_kind: "student",
