@@ -119,10 +119,15 @@ router.post("/login", async (req, res, next) => {
         [sid, adminMatch.username]
       );
       setSessionCookie(res, sid);
-      audit({ ip: req.ip, headers: req.headers, user: { kind: "admin" } }, {
+      audit({ ip: req.ip, headers: req.headers, user: { kind: "admin", adminUsername: adminMatch.username } }, {
         table: "sessions", id: sid, action: "login", notes: `admin:${adminMatch.username}`
       });
-      return res.json({ user_kind: "admin", username: adminDisplayName(adminMatch.username), mirrors: getMirrorDisplayNames(adminMatch.username) });
+      return res.json({
+        user_kind: "admin",
+        username: adminDisplayName(adminMatch.username),
+        usernameRaw: adminMatch.username,
+        mirrors: getMirrorDisplayNames(adminMatch.username),
+      });
     }
 
     // Counsellor path — case-insensitive username lookup against the
@@ -242,7 +247,12 @@ router.get("/me", async (req, res, next) => {
     setSessionCookie(res, sid);
 
     const r = rows[0];
-    if (r.user_kind === "admin") return res.json({ user_kind: "admin", username: r.admin_username ? adminDisplayName(r.admin_username) : null, mirrors: r.admin_username ? getMirrorDisplayNames(r.admin_username) : [] });
+    if (r.user_kind === "admin") return res.json({
+      user_kind: "admin",
+      username: r.admin_username ? adminDisplayName(r.admin_username) : null,
+      usernameRaw: r.admin_username || null,
+      mirrors: r.admin_username ? getMirrorDisplayNames(r.admin_username) : [],
+    });
     if (r.user_kind === "student") {
       return res.json({
         user_kind: "student",

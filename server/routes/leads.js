@@ -273,9 +273,47 @@ router.patch("/:id", async (req, res, next) => {
       extraSet = ", status = 'scheduled'";
     }
 
-    const sql = `UPDATE leads SET ${set}${extraSet}, updated_at = NOW() WHERE id = $1 RETURNING *`;
-    const { rows: updatedRows } = await pool.query(sql, values);
-    res.json(updatedRows[0]);
+    // Cascade counsellor reassignment to dependent rows so ownership
+    // stays consistent. Without this, admin reassigning a lead from
+    // counsellor A to counsellor B leaves the lead's tasks pointing
+    // at A and the linked student under A — the new owner couldn't
+    // see them in their scoped views.
+    //   - counsellor_tasks: only counsellor-kind, non-archived tasks
+    //     pinned to this lead get reassigned. Admin-targeted tasks
+    //     keep their assignee_admin_username (different inbox).
+    //   - intake_students: any student linked to this lead inherits
+    //     the new owner. The student's lead_id stays put.
+    const client = await pool.connect();
+    let updated;
+    try {
+      await client.query("BEGIN");
+      const sql = `UPDATE leads SET ${set}${extraSet}, updated_at = NOW() WHERE id = $1 RETURNING *`;
+      const { rows: updatedRows } = await client.query(sql, values);
+      updated = updatedRows[0];
+      if (counsellorChanged) {
+        await client.query(
+          `UPDATE counsellor_tasks
+              SET assignee_id = $1
+            WHERE lead_id = $2
+              AND assignee_kind = 'counsellor'
+              AND archived = FALSE`,
+          [req.body.counsellor_id, id]
+        );
+        await client.query(
+          `UPDATE intake_students
+              SET counsellor_id = $1, updated_at = NOW()
+            WHERE lead_id = $2`,
+          [req.body.counsellor_id, id]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    res.json(updated);
   } catch (e) {
     next(e);
   }
@@ -398,9 +436,11 @@ router.post("/:id/appointments", async (req, res, next) => {
         .status(400)
         .json({ error: "scheduled_for must be ISO 8601 with explicit timezone (Z or ±HH:MM)" });
     }
-    if (new Date(scheduled_for).getTime() < Date.now()) {
-      return res.status(400).json({ error: "scheduled_for must be in the future" });
-    }
+    // Past times are allowed: counsellors backfill missed/historical
+    // sessions for note-taking purposes (e.g. logging a session that
+    // happened off-platform). The lead.service_date recompute below
+    // still picks "next upcoming, else most recent past" so the row's
+    // visible "next session" header doesn't shift backwards.
     if (notes) {
       if (!isString(notes) || notes.length > 2000) {
         return res.status(400).json({ error: "notes must be a string up to 2000 chars" });

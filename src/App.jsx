@@ -82,7 +82,12 @@ export default function App() {
       .then((me) => {
         if (cancelled) return;
         if (me.user_kind === "admin") {
-          setSession({ role: "admin", displayName: me.username || "Admin", adminMirrors: me.mirrors || [] });
+          setSession({
+            role: "admin",
+            displayName: me.username || "Admin",
+            adminUsernameRaw: me.usernameRaw || "",
+            adminMirrors: me.mirrors || [],
+          });
         } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
           setSession({ role: "counsellor", counsellorId: me.counsellor.id, displayName: me.counsellor.name || "Counsellor" });
         } else if (me.user_kind === "student" && me.student?.student_id) {
@@ -123,7 +128,12 @@ export default function App() {
     try {
       const out = await api.login(username, password);
       if (out.user_kind === "admin") {
-        setSession({ role: "admin", displayName: out.username || "Admin", adminMirrors: out.mirrors || [] });
+        setSession({
+          role: "admin",
+          displayName: out.username || "Admin",
+          adminUsernameRaw: out.usernameRaw || "",
+          adminMirrors: out.mirrors || [],
+        });
       } else if (out.user_kind === "counsellor") {
         setSession({ role: "counsellor", counsellorId: out.counsellor.id, displayName: out.counsellor.name || "Counsellor" });
       } else if (out.user_kind === "student") {
@@ -221,6 +231,7 @@ export default function App() {
           <AdminPanel
             onImpersonate={(counsellorId) => setImpersonating({ counsellorId })}
             adminUsername={session.displayName || ""}
+            adminUsernameRaw={session.adminUsernameRaw || ""}
             adminMirrors={session.adminMirrors || []}
           />
         </Frame>

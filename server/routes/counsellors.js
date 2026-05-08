@@ -138,6 +138,17 @@ router.get("/", async (req, res, next) => {
       : `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
     const params = kind === "counsellor" ? [req.user.counsellorId] : [];
     const { rows } = await pool.query(sql, params);
+    // password_plain is shown in admin/self panels for support recovery,
+    // but a counsellor session must not see their supervisor's or
+    // subordinates' plaintext — that would be a one-click takeover of
+    // the people above and below them. Redact for non-self rows on
+    // counsellor sessions; admin still sees the full grid.
+    if (kind === "counsellor") {
+      const me = req.user.counsellorId;
+      for (const row of rows) {
+        if (row.id !== me) row.password_plain = null;
+      }
+    }
     res.json(rows);
   } catch (e) {
     next(e);
@@ -194,15 +205,39 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return res.status(400).json({ error: "no valid fields to update" });
 
-    // Validate supervisor_id when present: must be a real counsellor or null.
+    // Validate supervisor_id when present: must be a real counsellor or
+    // null. Reject self-supervision (`Himani.supervisor_id = Himani.id`)
+    // and cycles (A→B→A) — both produce confusing UI where the same
+    // counsellor appears as both supervisor and subordinate, and the
+    // task-assign permission rule "self, supervised, OR own supervisor"
+    // collapses into "self" for cycle members.
     if ("supervisor_id" in req.body && req.body.supervisor_id !== null) {
       const sid = req.body.supervisor_id;
       if (typeof sid !== "string" || sid.length > 50) {
         return res.status(400).json({ error: "supervisor_id must be a counsellor id string or null" });
       }
+      if (sid === id) {
+        return res.status(400).json({ error: "a counsellor cannot supervise themselves" });
+      }
       const check = await pool.query("SELECT 1 FROM counsellors WHERE id = $1", [sid]);
       if (check.rows.length === 0) {
         return res.status(404).json({ error: "supervisor counsellor not found" });
+      }
+      // Walk up the proposed chain to check for a cycle. Bounded loop
+      // to avoid runaway if the schema ever ends up with one. Rare
+      // path; small N.
+      let cursor = sid;
+      const seen = new Set([id]);
+      for (let i = 0; i < 50 && cursor; i += 1) {
+        if (seen.has(cursor)) {
+          return res.status(400).json({ error: "supervisor_id would create a cycle" });
+        }
+        seen.add(cursor);
+        const up = await pool.query(
+          "SELECT supervisor_id FROM counsellors WHERE id = $1",
+          [cursor]
+        );
+        cursor = up.rows[0]?.supervisor_id || null;
       }
     }
 

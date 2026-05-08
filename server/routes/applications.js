@@ -30,15 +30,18 @@ router.get("/", requireStaff, async (req, res, next) => {
     if (req.user.kind === "counsellor") {
       params.push(req.user.counsellorId);
     }
-    // Scoping for counsellors: see apps assigned directly to them
-    // (a.counsellor_id = me), apps linked to their students
-    // (s.counsellor_id = me), or legacy unlinked+unassigned rows from
-    // the xlsx-transition era.
+    // Scoping for counsellors. The application has TWO possible
+    // counsellor sources:
+    //   - a.counsellor_id (explicit per-app assignment, new feature)
+    //   - s.counsellor_id (inherited from the linked student)
+    // a.counsellor_id wins when set. Legacy unlinked+unassigned rows
+    // (xlsx-transition era) stay visible to all counsellors as shared
+    // inventory until someone claims them.
     let leftJoin = `LEFT JOIN intake_students s ON s.student_id = a.student_id
          LEFT JOIN counsellors c ON c.id = a.counsellor_id`;
     let where = "";
     if (req.user.kind === "counsellor") {
-      where = ` WHERE (a.counsellor_id = $1 OR s.counsellor_id = $1
+      where = ` WHERE (COALESCE(a.counsellor_id, s.counsellor_id) = $1
                        OR (a.counsellor_id IS NULL AND a.student_id IS NULL))`;
     }
     const { rows } = await pool.query(
@@ -169,14 +172,16 @@ router.get("/me", requireStudent, async (req, res, next) => {
   }
 });
 
-// Unified ownership check: returns the row's owner counsellor_id (or
-// null for unlinked rows). 404 covers both "missing" and "exists but
-// not yours" so a counsellor can't probe ID space. Unlinked rows
-// (student_id IS NULL) are visible to all staff — they're shared
-// transition-period inventory.
+// Unified ownership check: returns the row's app-level + student-level
+// counsellor_id. 404 covers both "missing" and "exists but not yours"
+// so a counsellor can't probe ID space. Unlinked rows (student_id IS
+// NULL) AND no app-level assignment are visible to all staff — shared
+// transition-period inventory until someone claims them.
 async function loadOwnership(client, id) {
   const { rows } = await client.query(
-    `SELECT a.id, a.student_id, s.counsellor_id
+    `SELECT a.id, a.student_id,
+            a.counsellor_id AS app_counsellor_id,
+            s.counsellor_id AS student_counsellor_id
        FROM intake_applications a
        LEFT JOIN intake_students s ON s.student_id = a.student_id
       WHERE a.id = $1`,
@@ -185,10 +190,17 @@ async function loadOwnership(client, id) {
   return rows[0] || null;
 }
 function reject404(res) { return res.status(404).json({ error: "not found" }); }
+// Visibility rule (mirrors the list scope query):
+//   - non-counsellor (admin) sees everything
+//   - explicit a.counsellor_id wins when set
+//   - else fall back to student-inherited owner
+//   - unclaimed rows (no app counsellor AND no linked student) are
+//     shared transition inventory
 function isVisibleTo(row, user) {
   if (user.kind !== "counsellor") return true;
+  if (row.app_counsellor_id) return row.app_counsellor_id === user.counsellorId;
   if (!row.student_id) return true;
-  return row.counsellor_id === user.counsellorId;
+  return row.student_counsellor_id === user.counsellorId;
 }
 
 // PATCH /api/applications/:id — partial update. Any subset of
@@ -215,13 +227,31 @@ router.patch("/:id", requireStaff, express.json(), async (req, res, next) => {
     ];
     const sets = [];
     const params = [];
-    // student_id — link/unlink intake account. positive int or null.
+    // student_id — link/unlink intake account. intake_students.student_id
+    // is TEXT (e.g. "s_abc_xyz"), so this accepts a non-empty string or
+    // null. The earlier int-validator silently rejected every real ID.
+    // When linking, a counsellor can only attach to their own students.
     if (Object.prototype.hasOwnProperty.call(req.body || {}, "student_id")) {
       const sid = req.body.student_id;
-      if (sid !== null && !isPositiveInt(sid)) {
+      if (sid !== null && (typeof sid !== "string" || sid.trim().length === 0 || sid.length > 100)) {
         return res.status(400).json({ error: "invalid student_id" });
       }
-      params.push(sid === null ? null : Number(sid));
+      if (sid !== null) {
+        const own = await pool.query(
+          `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+          [sid]
+        );
+        if (own.rows.length === 0) {
+          return res.status(404).json({ error: "student not found" });
+        }
+        if (
+          req.user.kind === "counsellor" &&
+          own.rows[0].counsellor_id !== req.user.counsellorId
+        ) {
+          return res.status(403).json({ error: "not your student" });
+        }
+      }
+      params.push(sid);
       sets.push(`student_id = $${params.length}`);
     }
     // counsellor_id — assign application owner. TEXT (counsellors.id) or null.
@@ -379,3 +409,42 @@ router.post("/:id/unarchive", requireStaff, async (req, res, next) => {
 export default router;
 
 export { KNOWN_STATUSES };
+
+// Idempotent seeder for the destination tab in the student dashboard.
+// Reads `paths_list` out of `data.answers` and inserts one
+// intake_applications row per (university, program) pair that doesn't
+// already exist for the student. Re-runs cheaply on every post-done
+// PUT /me/record so the staff Applications tab stays in sync as the
+// student fills the dashboard tab.
+//
+// Idempotency uses an existence check rather than a unique index
+// because (a) no such constraint exists today and adding one mid-flight
+// risks rejecting legitimate counsellor-created duplicates already in
+// production, (b) the path list is short (≤10 rows). Exact match on
+// trim + IS NOT DISTINCT FROM lets nullable program coexist with the
+// trimmed-empty-string-→-null normalisation done on the way in.
+export async function seedApplicationsForStudent(client, studentId, answers) {
+  const paths = Array.isArray(answers?.paths_list) ? answers.paths_list : [];
+  for (const p of paths) {
+    if (!p || typeof p !== "object") continue;
+    const uni = (p.university || "").trim();
+    if (!uni) continue;
+    const country = (p.country || "").trim() || null;
+    const program = (p.program || "").trim() || null;
+    const exists = await client.query(
+      `SELECT 1 FROM intake_applications
+        WHERE student_id = $1
+          AND university = $2
+          AND program IS NOT DISTINCT FROM $3
+        LIMIT 1`,
+      [studentId, uni, program]
+    );
+    if (exists.rows.length > 0) continue;
+    await client.query(
+      `INSERT INTO intake_applications
+         (student_id, country, university, program, status, pending)
+       VALUES ($1, $2, $3, $4, 'active', TRUE)`,
+      [studentId, country, uni, program]
+    );
+  }
+}

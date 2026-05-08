@@ -15,6 +15,7 @@ import { corpusHasExample } from "../generators/examples.js";
 import { runImportFromCorpusDir } from "../scripts/import-examples.js";
 import { validateIntakeRequired } from "../../lib/intakeSchema.js";
 import { seedRequiredDocsForStudent } from "./required-docs.js";
+import { seedApplicationsForStudent } from "./applications.js";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../middleware/auth.js";
 
@@ -156,6 +157,27 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
         if (ck.rows.length === 0) {
           return res.status(400).json({ error: "counsellor_id does not exist" });
         }
+      }
+    }
+
+    // Lead ownership gate: a counsellor must only link a new student to
+    // a lead THEY own. Without this check, counsellor A could attach
+    // their student to counsellor B's lead by knowing/guessing the lead
+    // id — silent cross-counsellor data leakage we do not want. Admin
+    // can link to any lead. Skip when no lead specified.
+    if (lead_id) {
+      const leadOwn = await pool.query(
+        `SELECT counsellor_id FROM leads WHERE id = $1`,
+        [lead_id]
+      );
+      if (leadOwn.rows.length === 0) {
+        return res.status(400).json({ error: "lead_id does not exist" });
+      }
+      if (
+        req.user.kind === "counsellor" &&
+        leadOwn.rows[0].counsellor_id !== req.user.counsellorId
+      ) {
+        return res.status(403).json({ error: "lead does not belong to you" });
       }
     }
 
@@ -342,21 +364,59 @@ router.patch("/:student_id/assign-counsellor", requireStaff, express.json(), asy
     if (counsellor_id !== null && typeof counsellor_id !== "string") {
       return res.status(400).json({ error: "counsellor_id must be a string or null" });
     }
-    // Verify student exists
-    const check = await pool.query(`SELECT student_id FROM intake_students WHERE student_id = $1`, [sid]);
-    if (!check.rows.length) return res.status(404).json({ error: "student not found" });
+    // Pull the previous owner + lead linkage so the audit row captures
+    // both sides AND we can detect a stale lead_id pointing at a lead
+    // owned by the previous counsellor.
+    const before = await pool.query(
+      `SELECT counsellor_id, lead_id FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    if (!before.rows.length) return res.status(404).json({ error: "student not found" });
+    const prevCounsellorId = before.rows[0].counsellor_id;
+    const linkedLeadId = before.rows[0].lead_id;
     // Verify counsellor exists (if provided)
     if (counsellor_id) {
       const ccheck = await pool.query(`SELECT id FROM counsellors WHERE id = $1`, [counsellor_id]);
       if (!ccheck.rows.length) return res.status(404).json({ error: "counsellor not found" });
     }
+    // If the student is linked to a lead owned by a DIFFERENT counsellor
+    // than the new owner, drop the lead link so scoped queries don't
+    // drift (otherwise the student moves but the lead stays under the
+    // old counsellor — they'd see the lead, lose the student, or vice
+    // versa). Admin can re-link explicitly via the leads tab if needed.
+    let unlinkedLead = false;
+    if (linkedLeadId) {
+      const leadOwn = await pool.query(
+        `SELECT counsellor_id FROM leads WHERE id = $1`,
+        [linkedLeadId]
+      );
+      const leadCounsellorId = leadOwn.rows[0]?.counsellor_id;
+      if (leadCounsellorId && leadCounsellorId !== (counsellor_id || null)) {
+        unlinkedLead = true;
+      }
+    }
     const { rows } = await pool.query(
-      `UPDATE intake_students SET counsellor_id = $1, updated_at = NOW()
-         WHERE student_id = $2
-         RETURNING student_id, counsellor_id`,
+      unlinkedLead
+        ? `UPDATE intake_students
+              SET counsellor_id = $1, lead_id = NULL, updated_at = NOW()
+            WHERE student_id = $2
+            RETURNING student_id, counsellor_id, lead_id`
+        : `UPDATE intake_students
+              SET counsellor_id = $1, updated_at = NOW()
+            WHERE student_id = $2
+            RETURNING student_id, counsellor_id, lead_id`,
       [counsellor_id || null, sid]
     );
-    audit(req, { table: "intake_students", id: sid, action: "assign_counsellor", notes: `counsellor_id=${counsellor_id}` });
+    audit(req, {
+      table: "intake_students",
+      id: sid,
+      action: "assign_counsellor",
+      diff: {
+        before: { counsellor_id: prevCounsellorId, lead_id: linkedLeadId },
+        after: { counsellor_id: counsellor_id || null, lead_id: rows[0].lead_id },
+        unlinked_lead: unlinkedLead,
+      },
+    });
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
@@ -526,7 +586,12 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
 // so the client can refetch + replay the user's local diff on top.
 router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (req, res, next) => {
   try {
-    const { data, intakeComplete, expectedUpdatedAt } = req.body || {};
+    const { data, expectedUpdatedAt } = req.body || {};
+    // intake_complete is intentionally NOT writable from this endpoint.
+    // The only valid path to flip it is PUT /me/intake/phase, which
+    // also runs the required-field gate + auto-fires resume gen. A
+    // hand-crafted PUT that set intakeComplete=true here used to drift
+    // the flag out of sync with intake_phase and the resume pipeline.
 
     // Reject anything that isn't a plain object — the field is jsonb
     // and the SET clause stringifies whatever lands here. Without this
@@ -537,21 +602,17 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
       return res.status(400).json({ error: "data must be a JSON object" });
     }
 
-    // Refuse edits once the student has finished intake. The UI doesn't
-    // expose a path back to the form after phase=done, but a stale tab
-    // or a hand-crafted PUT could land here and silently drift the data
-    // behind the already-generated resume. Surface a 409 instead so the
-    // client can refresh and discover the dashboard.
+    // Probe the current phase so we can run the post-done lazy seeding
+    // path below. The `phase=done` write block from the legacy intake
+    // flow has been lifted: the linear intake now ends at p_activities
+    // and the remaining chapters (LORs/internships, story, target
+    // programs) are filled in from the dashboard as tabs, which means
+    // the student keeps writing into data even after the phase flip.
     const phaseProbe = await pool.query(
       `SELECT intake_phase FROM intake_students WHERE student_id = $1`,
       [req.user.studentId]
     );
-    if ((phaseProbe.rows[0]?.intake_phase || "intake") === "done") {
-      return res.status(409).json({
-        error: "intake is closed — no further edits accepted after phase=done",
-        currentPhase: "done",
-      });
-    }
+    const currentPhase = phaseProbe.rows[0]?.intake_phase || "intake";
 
     // The conflict-detecting UPDATE: filter on student_id AND on the
     // optional expectedUpdatedAt. If expectedUpdatedAt is null/undefined
@@ -567,20 +628,18 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
     const sql = expectedUpdatedAt
       ? `UPDATE intake_students
             SET data = $1::jsonb,
-                intake_complete = $2,
                 updated_at = NOW()
-          WHERE student_id = $3
-            AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $4::timestamptz)
+          WHERE student_id = $2
+            AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $3::timestamptz)
           RETURNING student_id, intake_complete, updated_at`
       : `UPDATE intake_students
             SET data = $1::jsonb,
-                intake_complete = $2,
                 updated_at = NOW()
-          WHERE student_id = $3
+          WHERE student_id = $2
           RETURNING student_id, intake_complete, updated_at`;
     const params = expectedUpdatedAt
-      ? [JSON.stringify(data || {}), !!intakeComplete, req.user.studentId, expectedUpdatedAt]
-      : [JSON.stringify(data || {}), !!intakeComplete, req.user.studentId];
+      ? [JSON.stringify(data || {}), req.user.studentId, expectedUpdatedAt]
+      : [JSON.stringify(data || {}), req.user.studentId];
 
     const { rows } = await pool.query(sql, params);
     const row = rows[0];
@@ -604,6 +663,23 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
       });
     }
     if (!row) return res.status(404).json({ error: "student row missing" });
+
+    // Lazy seeding for the post-intake panel tabs. After phase=done the
+    // student keeps editing LORs / internships / paths from the
+    // dashboard tabs — those rows must flow through to the staff side
+    // (Required documents queue, Pending Applications) without an
+    // explicit "submit" step. Both seeders are idempotent so re-running
+    // them on every save costs ~1 SELECT per row at worst. Best-effort:
+    // a seeder failure should not roll back the user's autosave.
+    if (currentPhase === "done") {
+      try {
+        const answers = (data && data.answers) || {};
+        await seedRequiredDocsForStudent(pool, req.user.studentId, answers);
+        await seedApplicationsForStudent(pool, req.user.studentId, answers);
+      } catch (seedErr) {
+        console.error("[record save] post-done lazy seed failed:", seedErr);
+      }
+    }
 
     res.json({
       studentId: row.student_id,
@@ -710,25 +786,9 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
       // intake_applications row with pending=true so it lands in the
       // Pending Review section of the staff Applications tab. The
       // counsellor reviews each one and promotes it into the active
-      // workflow. Done inside the same transaction so an intake-done
-      // flip with no rows in pending is impossible.
-      const paths = Array.isArray(answers.paths_list) ? answers.paths_list : [];
-      for (const p of paths) {
-        if (!p || typeof p !== "object") continue;
-        const uni = (p.university || "").trim();
-        if (!uni) continue;
-        await client.query(
-          `INSERT INTO intake_applications
-             (student_id, country, university, program, status, pending)
-           VALUES ($1, $2, $3, $4, 'active', TRUE)`,
-          [
-            studentId,
-            (p.country || "").trim() || null,
-            uni,
-            (p.program || "").trim() || null,
-          ]
-        );
-      }
+      // workflow. Idempotent — re-runs on every post-done save as the
+      // student fills the destination tab in their dashboard.
+      await seedApplicationsForStudent(client, studentId, answers);
       // Auto-fire one 300-word resume in the same transaction. Hard-
       // coded shape for v1 — multi-resume picker comes back later. Take
       // the per-student inflight lock so a refresh-spam can't stack

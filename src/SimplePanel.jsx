@@ -54,6 +54,7 @@ export default function SimplePanel({
   counsellorsError = null,
   onCounsellorsChanged,
   adminUsername = "",
+  adminUsernameRaw = "",
   adminMirrors = [],
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
@@ -157,6 +158,7 @@ export default function SimplePanel({
           onImpersonate={onImpersonate}
           counsellors={counsellors}
           adminUsername={adminUsername}
+          adminUsernameRaw={adminUsernameRaw}
           adminMirrors={adminMirrors}
         />
       )}

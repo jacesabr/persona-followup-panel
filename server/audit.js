@@ -44,7 +44,7 @@ function pickActor(req) {
     .split(",")[0]
     .trim() || null;
   const ua = (req.headers?.["user-agent"] || "").toString().slice(0, 500) || null;
-  if (u.kind === "admin") return { kind: "admin", id: null, ip, ua };
+  if (u.kind === "admin") return { kind: "admin", id: u.adminUsername || null, ip, ua };
   if (u.kind === "counsellor") return { kind: "counsellor", id: u.counsellorId || null, ip, ua };
   if (u.kind === "student") return { kind: "student", id: u.studentId || null, ip, ua };
   return { kind: "anonymous", id: null, ip, ua };

@@ -20,6 +20,20 @@ function todayIstYmd() {
   return utcIsoToIstInput(new Date().toISOString()).slice(0, 10);
 }
 
+// Strip the "admin" prefix when followed by a letter — converts the
+// stored raw form ("adminSuhas") into the display form ("Suhas") used
+// throughout the UI. "admin123" stays as-is (rest doesn't start with a
+// letter), and a NULL/empty input rounds back to itself. Mirror of
+// `adminDisplayName` in server/admins.js — kept terse and duplicated to
+// avoid pulling a server module into the client bundle.
+function adminDisplay(u) {
+  if (!u) return u;
+  const rest = u.replace(/^admin/i, "");
+  return rest && /^[a-zA-Z]/.test(rest)
+    ? rest.charAt(0).toUpperCase() + rest.slice(1)
+    : u;
+}
+
 // assigneeValue encodes both kind and target: "counsellor:{id}" or "admin:{username}".
 // Default is the scoped counsellor (self) when in counsellor view.
 const EMPTY_NEW = (defaultAssigneeValue = "") => ({
@@ -35,6 +49,7 @@ export default function CounsellorTasks({
   onImpersonate = () => {},
   counsellors: counsellorsProp = null,
   adminUsername = "",
+  adminUsernameRaw = "",
   adminMirrors = [],
 }) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
@@ -148,7 +163,11 @@ export default function CounsellorTasks({
     return tasks.filter(
       (t) =>
         t.assignee_id === scopedCounsellorId ||
-        (t.lead_id && myLeadIds.has(t.lead_id))
+        (t.lead_id && myLeadIds.has(t.lead_id)) ||
+        // Admin-targeted tasks I created — server returns them so I can
+        // track tasks I sent up; without this clause they'd vanish from
+        // every section in the scoped view.
+        (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
     );
   }, [tasks, leads, isScoped, scopedCounsellorId]);
 
@@ -164,21 +183,18 @@ export default function CounsellorTasks({
         const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
         return bt - at;
       });
-    // Strip "admin" prefix for comparison — stored as "adminSuhas" but
-    // adminUsername is the display name "Suhas".
-    const toDisplay = (u) => {
-      if (!u) return u;
-      const rest = u.replace(/^admin/i, "");
-      return rest && /^[a-zA-Z]/.test(rest)
-        ? rest.charAt(0).toUpperCase() + rest.slice(1)
-        : u;
-    };
+    // For a scoped counsellor session, "My Tasks" must include tasks
+    // they CREATED for an admin (assignee_kind='admin', creator_id=me) —
+    // otherwise the task they sent up vanishes from their own view
+    // (server returns it but `isScoped ? [] : ...` would drop it from
+    // "Other People's Tasks" too).
     const isMine = (t) =>
       isScoped
-        ? t.assignee_id === scopedCounsellorId
+        ? t.assignee_id === scopedCounsellorId ||
+          (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
         : t.assignee_kind === "admin" &&
-          (toDisplay(t.assignee_admin_username) === adminUsername ||
-            adminMirrors.includes(toDisplay(t.assignee_admin_username)));
+          (adminDisplay(t.assignee_admin_username) === adminUsername ||
+            adminMirrors.includes(adminDisplay(t.assignee_admin_username)));
     return {
       myActiveTasks: active.filter(isMine),
       otherPeopleActiveTasks: isScoped ? [] : active.filter((t) => !isMine(t)),
@@ -529,7 +545,13 @@ export default function CounsellorTasks({
       if (isScoped) {
         payload.assignee_id = scopedCounsellorId;
       } else {
-        payload.assignee_admin_username = adminUsername;
+        // Server validates against the raw lowercased form
+        // (`adminUsernameSet` from EXTRA_ADMINS), not the stripped
+        // display name — so for adminSuhas/adminJyoti the display name
+        // ("Suhas") would 400 with "unknown admin username". Use the
+        // raw form when threaded through; fall back to display so the
+        // legacy ADMIN_USERNAME=admin123 path still works.
+        payload.assignee_admin_username = adminUsernameRaw || adminUsername;
       }
       const created = await api.createTask(payload);
       setTasks((prev) => [...prev, created]);
@@ -758,7 +780,7 @@ export default function CounsellorTasks({
                 )}
                 {!isScoped && (
                   <span className="text-[14px] text-black">
-                    {task.assignee_admin_username || <span className=" text-black">Unassigned</span>}
+                    {adminDisplay(task.assignee_admin_username) || <span className=" text-black">Unassigned</span>}
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
@@ -1083,7 +1105,7 @@ export default function CounsellorTasks({
                     {task.assignee_kind === "admin" && (
                       <span className="mt-0.5 inline-flex items-center gap-1 self-start border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-black">
                         <Lock className="h-2.5 w-2.5 shrink-0" />
-                        for {task.assignee_admin_username}
+                        for {adminDisplay(task.assignee_admin_username)}
                       </span>
                     )}
                     {/* Latest-comment preview. Hidden once the thread is
@@ -1120,7 +1142,7 @@ export default function CounsellorTasks({
                     {task.assignee_kind === "admin" ? (
                       <span className="inline-flex items-center gap-1 text-black">
                         <Lock className="h-3 w-3 shrink-0" />
-                        {task.assignee_admin_username}
+                        {adminDisplay(task.assignee_admin_username)}
                       </span>
                     ) : task.assignee_id && task.assignee_name && onImpersonate ? (
                       <button
