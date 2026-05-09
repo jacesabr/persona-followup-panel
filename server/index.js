@@ -14,6 +14,7 @@ import authRouter from "./routes/auth.js";
 import studentsRouter from "./routes/students.js";
 import applicationsRouter from "./routes/applications.js";
 import requiredDocsRouter from "./routes/required-docs.js";
+import adminAiRouter from "./routes/admin-ai.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
 import { autoAudit } from "./auditing.js";
@@ -232,6 +233,9 @@ app.use("/api/applications", (req, res, next) =>
 app.use("/api/required-docs", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/admin/ai", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 app.use("/api/auth", writeLimiter);
 
 // autoAudit middleware on the pre-merge surfaces (leads/tasks/counsellors)
@@ -258,6 +262,11 @@ app.use("/api/applications", requireAuth, autoAudit("intake_applications"), appl
 // calls requireStaff or requireStudent itself. Audit wrapper still
 // fine: it noops on routes that don't write.
 app.use("/api/required-docs", requireAuth, autoAudit("intake_required_docs"), requiredDocsRouter);
+// Admin-only AI artifact pipeline (/pending, /dispatch). Mount-level
+// requireAuth + admin-only checks inside each handler. Used by the
+// scheduled Claude Code routine that runs manual_opus_generate.md
+// every hour against unprocessed students.
+app.use("/api/admin/ai", requireAuth, autoAudit("intake_students"), adminAiRouter);
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");
