@@ -35,6 +35,7 @@ import Frame from "./Frame.jsx";
 import { api } from "./api.js";
 import {
   CHAPTERS,
+  COUNTRIES,
   INTAKE_CHAPTERS,
   PANEL_CHAPTERS,
   validateIntakeRequired,
@@ -57,8 +58,55 @@ const ALL_PAGES = INTAKE_CHAPTERS.flatMap((c) =>
 const PAGES_BY_ID = Object.fromEntries(ALL_PAGES.map((p) => [p.id, p]));
 const DEFAULT_ORDER = ALL_PAGES.map((p) => p.id);
 
+// Build an SVG data URI that visually stands in for the autofilled
+// file. We don't have real bytes for a mock, but rendering the
+// filename + a "DEMO PREVIEW" caption inside an <img> means the
+// student always sees *something* to confirm an upload happened —
+// no more bare "filename ✓" floating with no proof of content.
+//
+// The SVG uses `vector-effect="non-scaling-stroke"` and a fixed
+// viewBox so it scales sharp at any size the FilePreview /
+// RepeaterThumb container picks. Filenames that overflow the
+// label area get ellipsised to keep the layout stable.
+function mockPreviewDataUrl(name) {
+  const ext = (name.split(".").pop() || "").toUpperCase();
+  const safe = (s) => String(s).replace(/[<>&"']/g, (c) => ({
+    "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;",
+  }[c]));
+  const trimmed = name.length > 32 ? name.slice(0, 32) + "…" : name;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 420" preserveAspectRatio="xMidYMid meet">
+    <rect width="600" height="420" fill="#faf9f5"/>
+    <rect x="24" y="24" width="552" height="372" fill="#ffffff" stroke="#d6d3d1" stroke-width="2"/>
+    <rect x="48" y="56" width="350" height="14" fill="#1c1917"/>
+    <rect x="48" y="86" width="220" height="8" fill="#a8a29e"/>
+    <rect x="48" y="120" width="504" height="1" fill="#d6d3d1"/>
+    <g fill="#a8a29e">
+      <rect x="48"  y="140" width="240" height="6"/>
+      <rect x="300" y="140" width="180" height="6"/>
+      <rect x="48"  y="160" width="200" height="6"/>
+      <rect x="300" y="160" width="220" height="6"/>
+      <rect x="48"  y="180" width="280" height="6"/>
+      <rect x="300" y="180" width="160" height="6"/>
+      <rect x="48"  y="200" width="200" height="6"/>
+      <rect x="300" y="200" width="240" height="6"/>
+      <rect x="48"  y="220" width="320" height="6"/>
+      <rect x="48"  y="250" width="504" height="1"/>
+      <rect x="48"  y="270" width="180" height="6"/>
+      <rect x="48"  y="290" width="280" height="6"/>
+      <rect x="48"  y="310" width="220" height="6"/>
+    </g>
+    <rect x="430" y="270" width="120" height="60" fill="#f5f5f0" stroke="#d6d3d1"/>
+    <text x="490" y="306" text-anchor="middle" font-family="serif" font-size="16" font-style="italic" fill="#78716c">signature</text>
+    <rect x="24" y="368" width="552" height="28" fill="#cc785c"/>
+    <text x="40" y="387" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" font-weight="600" letter-spacing="2" fill="#ffffff">DEMO PREVIEW · ${safe(ext)} · ${safe(trimmed)}</text>
+  </svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 // Build an "already-uploaded" file slot for the autofill mock so the
-// fill-state UI shows green and pages count as complete.
+// fill-state UI shows green and pages count as complete. uploadedUrl
+// points to an inline SVG so FilePreview / RepeaterThumb can render
+// a visible thumbnail rather than skipping the preview block.
 const mockFile = (name, size = 245678) => ({
   name,
   size,
@@ -72,8 +120,9 @@ const mockFile = (name, size = 245678) => ({
   lastModified: Date.now(),
   status: "uploaded",
   error: null,
-  uploadedUrl: `stub://mock/${encodeURIComponent(name)}`,
+  uploadedUrl: mockPreviewDataUrl(name),
   uploadedAt: new Date().toISOString(),
+  isDemoMock: true,
 });
 
 const MOCK = {
@@ -1974,13 +2023,20 @@ const FileSlot = forwardRef(function FileSlot(
 function FilePreview({ slot }) {
   const url = slot?.uploadedUrl;
   if (!url) return null;
-  // Autofill mock writes stub:// URLs that no browser can render. Skip
-  // the preview block in that case so the demo state shows the
-  // "uploaded" pill without a broken image underneath.
+  // Legacy stub:// mock URLs — kept as a guard for any persisted state
+  // from before mock files were switched to data URIs. Real uploads and
+  // current mocks both fall through to the renderers below.
   if (url.startsWith("stub://")) return null;
   const type = slot?.type || "";
   const name = slot?.name || "uploaded file";
-  if (type.startsWith("image/")) {
+  // Demo mocks keep the file's real mime (application/pdf for marksheets,
+  // image/jpeg for photos) but the URL points at an inline SVG, which
+  // <img> can render regardless of the slot's declared mime. So if the
+  // URL is a data:image/* we always go through the inline-image branch —
+  // this is what gives autofilled PDFs a visible thumbnail instead of a
+  // bare "PDF · Open ↗" card with no proof of content.
+  const urlIsInlineImage = url.startsWith("data:image/");
+  if (type.startsWith("image/") || urlIsInlineImage) {
     return (
       <a
         href={url}
@@ -2134,7 +2190,10 @@ function RepeaterThumb({ slot }) {
   }
   const type = slot?.type || "";
   const name = slot?.name || "uploaded file";
-  const isImage = type.startsWith("image/");
+  // data:image/* URLs always render as inline thumbs even if the slot's
+  // mime is application/pdf — that's how autofilled mock PDFs surface a
+  // visible thumbnail rather than the bare "PDF ↗" label.
+  const isImage = type.startsWith("image/") || url.startsWith("data:image/");
   return (
     <a
       href={url}
@@ -2415,7 +2474,7 @@ function FieldGlyph({ field }) {
 // StudentApplicationsStatusTab — student-side view of every
 // application they've submitted, plus a form to add new ones.
 //
-//   - "Add a new application" form sends `pending=true` rows to the
+//   - "Add a new university" form sends `pending=true` rows to the
 //     staff Applications panel for review.
 //   - Each row exposes status, deadline, requirements, and an inline
 //     two-way comment thread (student ↔ assigned counsellor ↔ admin).
@@ -2496,7 +2555,7 @@ function StudentApplicationsStatusTab() {
             onClick={() => setCreating(true)}
             className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f]"
           >
-            <Plus className="h-4 w-4" /> Add a new application
+            <Plus className="h-4 w-4" /> Add a new university
           </button>
         )}
         {creating && (
@@ -2517,7 +2576,7 @@ function StudentApplicationsStatusTab() {
           </div>
         ) : apps.length === 0 ? (
           <p className="border border-stone-900/15 bg-white px-4 py-4 text-sm text-stone-800">
-            No applications yet. Click <span className="font-semibold">Add a new application</span> above to submit your first one for review.
+            No universities yet. Click <span className="font-semibold">Add a new university</span> above to submit your first one for review.
           </p>
         ) : (
           apps.map((app) => <StudentAppCard key={app.id} app={app} />)
@@ -2561,7 +2620,7 @@ function NewApplicationForm({ onCancel, onCreated }) {
   return (
     <form onSubmit={submit} className="border border-stone-900/15 bg-white p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
-        New application
+        New university
       </p>
       <p className="mt-1 text-sm text-stone-800">
         Your counsellor will see this in their pending-review queue once you submit.
@@ -2587,13 +2646,16 @@ function NewApplicationForm({ onCancel, onCreated }) {
         </label>
         <label className="block">
           <span className="text-sm font-semibold text-black">Country</span>
-          <input
-            type="text"
+          <select
             value={country}
             onChange={(e) => setCountry(e.target.value)}
-            placeholder="e.g. Canada"
             className="mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none"
-          />
+          >
+            <option value="">— pick one —</option>
+            {COUNTRIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </label>
         <label className="block md:col-span-2">
           <span className="text-sm font-semibold text-black">Program</span>

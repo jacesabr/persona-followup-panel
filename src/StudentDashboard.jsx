@@ -719,13 +719,22 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
   let resolvedId = fileId ?? null;
   let resolvedName = fileName ?? null;
   let resolvedMime = mimeType ?? null;
+  // Inline-URL fallback for autofill demo slots: those carry a data:
+  // SVG in slot.uploadedUrl but no fileId, since they were never
+  // round-tripped through the upload endpoint. Without this branch the
+  // dashboard summary would show "filename ✓" with nothing under it
+  // in demo mode — exactly the bare-reference look we want to avoid.
+  let inlineUrl = null;
   if (slot && typeof slot === "object") {
     if (slot.status !== "uploaded") return null;
     resolvedId = slot.fileId ?? null;
     resolvedName = slot.name ?? null;
     resolvedMime = slot.type ?? null;
+    if (!resolvedId && typeof slot.uploadedUrl === "string" && slot.uploadedUrl.startsWith("data:")) {
+      inlineUrl = slot.uploadedUrl;
+    }
   }
-  if (!resolvedId) return null;
+  if (!resolvedId && !inlineUrl) return null;
   // Mime fallback: infer from filename extension when we weren't given
   // an explicit mime (the required-doc rows don't carry one). Anything
   // else lands in the PDF link-card branch, which is the right default
@@ -736,12 +745,17 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
     else if (ext === "png") resolvedMime = "image/png";
     else if (ext === "pdf") resolvedMime = "application/pdf";
   }
-  const url = studentId
+  const url = inlineUrl
+    ? inlineUrl
+    : studentId
     ? `/api/students/${studentId}/files/${resolvedId}`
     : `/api/students/me/files/${resolvedId}`;
   const type = resolvedMime || "";
   const name = resolvedName || "uploaded file";
-  if (type.startsWith("image/")) {
+  // Demo data: SVGs always render inline as images regardless of the
+  // slot's declared mime — same reasoning as FilePreview in the intake.
+  const urlIsInlineImage = url.startsWith("data:image/");
+  if (type.startsWith("image/") || urlIsInlineImage) {
     return (
       <a
         href={url}
