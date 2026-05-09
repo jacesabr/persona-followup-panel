@@ -493,6 +493,18 @@ router.post("/:id/appointments", async (req, res, next) => {
   }
 });
 
+// Patch one of {notes, scheduled_for}. At least one must be present —
+// PATCH {} would silently no-op or, in earlier versions, NULL fields
+// the caller didn't intend to touch. Each field is only updated when
+// the body explicitly carries the key.
+//
+// scheduled_for changes recompute the lead's service_date in the same
+// transaction as the appointment update, mirroring POST. The response
+// shape is { appointment, lead } so the client can patch its lead-row
+// cache (the followup table's "Appointment Date" column) without a
+// refetch, and HistoryPopup / SessionPopup can read appointment from
+// it. Old callers passing only notes still receive { appointment,
+// lead: null } — see SimpleFollowup.jsx for the consumer side.
 router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
   try {
     const { leadId, apptId } = req.params;
@@ -503,31 +515,84 @@ router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
       return res.status(400).json({ error: "invalid appointment id" });
     }
     if (!(await checkLeadAccess(req, res, leadId))) return;
-    // Only touch `notes` when the request explicitly sends it. Earlier
-    // version unconditionally SET notes = $3, so a PATCH {} (or any
-    // partial PATCH that omitted notes — none yet but inevitable as
-    // this route grows) silently NULLed any existing notes. Reject
-    // empty-body PATCH outright to make the contract explicit.
-    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "notes")) {
+    const body = req.body || {};
+    const hasNotes = Object.prototype.hasOwnProperty.call(body, "notes");
+    const hasSchedule = Object.prototype.hasOwnProperty.call(body, "scheduled_for");
+    if (!hasNotes && !hasSchedule) {
       return res.status(400).json({ error: "no fields to update" });
     }
-    const { notes } = req.body;
-    if (notes != null && (!isString(notes) || notes.length > 2000)) {
-      return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
-    }
-    const cleanNotes = isString(notes) && notes.trim() ? notes.trim() : null;
 
-    const { rows } = await pool.query(
-      `UPDATE lead_appointments
-       SET notes = $3
-       WHERE id = $1 AND lead_id = $2
-       RETURNING *`,
-      [apptId, leadId, cleanNotes]
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "appointment not found" });
+    let cleanNotes = null;
+    if (hasNotes) {
+      const { notes } = body;
+      if (notes != null && (!isString(notes) || notes.length > 2000)) {
+        return res.status(400).json({ error: "notes must be a string up to 2000 chars" });
+      }
+      cleanNotes = isString(notes) && notes.trim() ? notes.trim() : null;
     }
-    res.json(rows[0]);
+
+    if (hasSchedule) {
+      const { scheduled_for } = body;
+      if (!scheduled_for || !isValidUtcIso(scheduled_for)) {
+        return res
+          .status(400)
+          .json({ error: "scheduled_for must be ISO 8601 with explicit timezone (Z or ±HH:MM)" });
+      }
+    }
+
+    const setFragments = [];
+    const params = [apptId, leadId];
+    if (hasNotes) {
+      params.push(cleanNotes);
+      setFragments.push(`notes = $${params.length}`);
+    }
+    if (hasSchedule) {
+      params.push(body.scheduled_for);
+      setFragments.push(`scheduled_for = $${params.length}`);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: apptRows } = await client.query(
+        `UPDATE lead_appointments
+         SET ${setFragments.join(", ")}
+         WHERE id = $1 AND lead_id = $2
+         RETURNING *`,
+        params
+      );
+      if (apptRows.length === 0) {
+        await client.query("ROLLBACK").catch(() => {});
+        return res.status(404).json({ error: "appointment not found" });
+      }
+      let lead = null;
+      if (hasSchedule) {
+        // service_date = next-upcoming non-ad-hoc, else most-recent
+        // non-ad-hoc — same recompute used by POST so a date change
+        // can shift the row's "Appointment Date" column accurately.
+        const { rows: leadRows } = await client.query(
+          `UPDATE leads SET
+             service_date = COALESCE(
+               (SELECT MIN(scheduled_for) FROM lead_appointments
+                  WHERE lead_id = $1 AND ad_hoc = FALSE AND scheduled_for >= NOW()),
+               (SELECT MAX(scheduled_for) FROM lead_appointments
+                  WHERE lead_id = $1 AND ad_hoc = FALSE)
+             ),
+             updated_at = NOW()
+           WHERE id = $1
+           RETURNING *`,
+          [leadId]
+        );
+        lead = leadRows[0] || null;
+      }
+      await client.query("COMMIT");
+      res.json({ appointment: apptRows[0], lead });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (e) {
     next(e);
   }

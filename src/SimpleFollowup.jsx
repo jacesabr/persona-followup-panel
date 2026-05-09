@@ -70,6 +70,12 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   const [creating, setCreating] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Sort mode for the active lead sheet. "newest" is the default — the
+  // closest-to-now appointment first, then increasingly distant future,
+  // then most-recent past. The other modes are explicit overrides for
+  // when a counsellor wants to scan by recency-of-creation, alphabetic
+  // grouping, or phone-prefix grouping.
+  const [sortMode, setSortMode] = useState("newest");
   // The lead whose calendar popup is currently open (null = closed).
   const [calendarLead, setCalendarLead] = useState(null);
   // The lead whose history popup is currently open (null = closed).
@@ -355,20 +361,56 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       return bt - at; // most-recently-archived first
     });
 
-  // Sort: most-urgent upcoming first, then increasingly distant future, then
-  // past most-recent-first, then leads with no service_date last.
+  // Sort dispatch. The four modes:
+  //   newest — default. Soonest upcoming first, then distant future,
+  //            then most-recent past. Leads without a service_date sink.
+  //            "Newest" reads as "closest to today, leaning forward" —
+  //            what a counsellor scanning the day's work wants by default.
+  //   oldest — strict ascending by service_date (oldest past first).
+  //            Useful for clearing missed-notes backlog.
+  //   name   — alphabetical by lead name. Group-by-name effectively
+  //            since duplicates cluster.
+  //   phone  — by digits of contact, then name as a stable tiebreaker.
+  //            Group-by-phone for catching duplicate contacts.
   const now = Date.now();
-  const sortedLeads = [...activeLeads].sort((a, b) => {
-    const at = a.service_date ? new Date(a.service_date).getTime() : null;
-    const bt = b.service_date ? new Date(b.service_date).getTime() : null;
-    if (at == null && bt == null) return 0;
-    if (at == null) return 1;
-    if (bt == null) return -1;
-    const aFuture = at >= now;
-    const bFuture = bt >= now;
-    if (aFuture !== bFuture) return aFuture ? -1 : 1;
-    return aFuture ? at - bt : bt - at;
-  });
+  const sortedLeads = [...activeLeads];
+  if (sortMode === "newest") {
+    sortedLeads.sort((a, b) => {
+      const at = a.service_date ? new Date(a.service_date).getTime() : null;
+      const bt = b.service_date ? new Date(b.service_date).getTime() : null;
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      const aFuture = at >= now;
+      const bFuture = bt >= now;
+      if (aFuture !== bFuture) return aFuture ? -1 : 1;
+      return aFuture ? at - bt : bt - at;
+    });
+  } else if (sortMode === "oldest") {
+    sortedLeads.sort((a, b) => {
+      const at = a.service_date ? new Date(a.service_date).getTime() : null;
+      const bt = b.service_date ? new Date(b.service_date).getTime() : null;
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return at - bt;
+    });
+  } else if (sortMode === "name") {
+    sortedLeads.sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+    );
+  } else if (sortMode === "phone") {
+    sortedLeads.sort((a, b) => {
+      const ap = (a.contact || "").replace(/\D/g, "");
+      const bp = (b.contact || "").replace(/\D/g, "");
+      if (ap === bp) {
+        return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
+      }
+      if (!ap) return 1;
+      if (!bp) return -1;
+      return ap.localeCompare(bp);
+    });
+  }
 
   return (
     <>
@@ -379,20 +421,35 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
             {activeLeads.length} {activeLeads.length === 1 ? "row" : "rows"}
           </span>
         </div>
-        {!showNew && (
-          <button
-            onClick={() => {
-              // Refresh the new-lead form state every time the row opens so
-              // inquiryDate reflects the *current* IST day even if the user
-              // left the page open across midnight.
-              setNewLead(emptyNew());
-              setShowNew(true);
-            }}
-            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f]"
-          >
-            <Plus className="h-3 w-3" /> New
-          </button>
-        )}
+        <div className="flex items-baseline gap-3">
+          <label className="inline-flex items-baseline gap-1.5">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-black">Sort</span>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              className="border border-stone-300 bg-white px-1.5 py-0.5 text-[12px] outline-none focus:border-[#cc785c]"
+            >
+              <option value="newest">Newest (closest to today)</option>
+              <option value="oldest">Oldest</option>
+              <option value="name">Name (group by)</option>
+              <option value="phone">Phone (group by)</option>
+            </select>
+          </label>
+          {!showNew && (
+            <button
+              onClick={() => {
+                // Refresh the new-lead form state every time the row opens so
+                // inquiryDate reflects the *current* IST day even if the user
+                // left the page open across midnight.
+                setNewLead(emptyNew());
+                setShowNew(true);
+              }}
+              className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f]"
+            >
+              <Plus className="h-3 w-3" /> New
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -720,6 +777,31 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         <SessionPopup
           lead={sessionLead}
           onClose={() => setSessionLead(null)}
+          onAppointmentPatched={(appointment, updatedLead) => {
+            // The counsellor moved this appointment. Two pieces of
+            // state to reconcile:
+            //   1) the parent lead-list cache, whose "Appointment Date"
+            //      column reads lead.service_date (recomputed server-
+            //      side as next-upcoming non-ad-hoc, else most-recent);
+            //   2) the popup's own copy of the lead, whose date display
+            //      reads next_appointment_scheduled_for — that field
+            //      tracks the *specific* appointment open in the popup
+            //      and may diverge from service_date if the row is past.
+            if (updatedLead) {
+              setLeads((prev) =>
+                prev.map((l) => (l.id === updatedLead.id ? { ...l, ...updatedLead } : l))
+              );
+            }
+            setSessionLead((prev) =>
+              prev && prev.id === sessionLead.id
+                ? {
+                    ...prev,
+                    next_appointment_scheduled_for: appointment.scheduled_for,
+                    service_date: updatedLead?.service_date ?? prev.service_date,
+                  }
+                : prev
+            );
+          }}
         />
       )}
     </>
@@ -872,10 +954,13 @@ function HistoryPopup({ lead, onClose }) {
     setSavingId(editingId);
     setSaveErr(null);
     try {
-      const updated = await api.updateAppointment(lead.id, editingId, {
+      // PATCH now returns { appointment, lead } so the caller can patch
+      // the parent lead-list cache when scheduled_for changes. Notes-
+      // only edits leave lead=null and we just swap the appointment row.
+      const { appointment } = await api.updateAppointment(lead.id, editingId, {
         notes: editText.trim() || null,
       });
-      setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      setAppointments((prev) => prev.map((a) => (a.id === appointment.id ? appointment : a)));
       setEditingId(null);
       setEditText("");
     } catch (e) {
@@ -1604,7 +1689,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 // self anyway, so the body field is moot. Admin sessions: the lead's
 // counsellor is the right default; admin can reassign in the tasks
 // panel afterward if needed.
-function SessionPopup({ lead, onClose }) {
+function SessionPopup({ lead, onClose, onAppointmentPatched }) {
   const apptId = lead.next_appointment_id;
   const apptDate = lead.next_appointment_scheduled_for;
   const isAdHoc = !!lead.next_appointment_ad_hoc;
@@ -1620,6 +1705,23 @@ function SessionPopup({ lead, onClose }) {
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesErr, setNotesErr] = useState(null);
+
+  // Editable IST datetime-local input for the appointment time. Pre-
+  // filled from the lead's current scheduled_for; the Save button only
+  // lights up when the local input differs, so a counsellor can't
+  // accidentally PATCH the same value (and re-trigger an audit row).
+  const [dateInput, setDateInput] = useState(
+    apptDate ? utcIsoToIstInput(apptDate) : ""
+  );
+  const [savingDate, setSavingDate] = useState(false);
+  const [dateErr, setDateErr] = useState(null);
+  // Re-sync the input when the parent passes a new lead with a
+  // different scheduled_for (e.g. after the patch resolves and we
+  // bubble service_date back up). Without this the input stays on the
+  // user's last-typed value even after a successful save.
+  useEffect(() => {
+    setDateInput(apptDate ? utcIsoToIstInput(apptDate) : "");
+  }, [apptDate]);
 
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -1664,6 +1766,7 @@ function SessionPopup({ lead, onClose }) {
     setSavingNotes(true);
     setNotesErr(null);
     try {
+      // Notes-only PATCH leaves lead=null in the response; ignore it.
       await api.updateAppointment(lead.id, apptId, {
         notes: notes.trim() || null,
       });
@@ -1671,6 +1774,28 @@ function SessionPopup({ lead, onClose }) {
       setNotesErr(e.message);
     } finally {
       setSavingNotes(false);
+    }
+  };
+
+  const saveDate = async () => {
+    setDateErr(null);
+    const utc = localInputToUtcIso(dateInput);
+    if (!utc) {
+      setDateErr("Pick a valid date and time.");
+      return;
+    }
+    setSavingDate(true);
+    try {
+      const { appointment, lead: updatedLead } = await api.updateAppointment(
+        lead.id,
+        apptId,
+        { scheduled_for: utc }
+      );
+      onAppointmentPatched?.(appointment, updatedLead);
+    } catch (e) {
+      setDateErr(e.message);
+    } finally {
+      setSavingDate(false);
     }
   };
 
@@ -1730,14 +1855,36 @@ function SessionPopup({ lead, onClose }) {
             <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-black">
               {lead.name}
             </h3>
-            <p className="text-[14px] text-black">
-              {apptDate ? formatDateInIst(apptDate) : "—"}
-              {apptDate && (
-                <span className="ml-2 tabular-nums text-black">
-                  {formatTimeInIst(apptDate)}
-                </span>
-              )}
-            </p>
+            {/* Editable IST datetime — counsellors set the date here when
+                logging an ad-hoc call, or move an existing appointment if
+                the slot needs to shift. Save button only enables when the
+                input differs from the persisted value, so a no-op tap can't
+                spam the audit log. */}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <input
+                type="datetime-local"
+                value={dateInput}
+                onChange={(e) => setDateInput(e.target.value)}
+                disabled={savingDate}
+                className="border border-stone-300 bg-white px-2 py-1 text-[13px] tabular-nums outline-none focus:border-[#cc785c] disabled:opacity-50"
+              />
+              <button
+                onClick={saveDate}
+                disabled={
+                  savingDate ||
+                  !dateInput ||
+                  (apptDate && dateInput === utcIsoToIstInput(apptDate))
+                }
+                className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-40"
+              >
+                {savingDate && <Loader2 className="h-3 w-3 animate-spin" />}
+                Save date
+              </button>
+              <span className="text-[11px] text-stone-700">IST</span>
+            </div>
+            {dateErr && (
+              <p className="mt-1 text-[12px] text-red-700">{dateErr}</p>
+            )}
           </div>
           <button
             onClick={onClose}
