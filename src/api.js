@@ -224,6 +224,10 @@ export const api = {
   // IELTS-tracking archive (independent of full-student is_archived).
   // Used by the IELTS panel to mirror the lead-sheet archive UX —
   // hides the row from the active list, surfaces it under "Archived".
+  // Student: who's their assigned counsellor? Returns
+  // { counsellor: { id, name, email } | null }. Used by the Application
+  // status tab to surface ownership (and flag "not assigned yet").
+  getMyCounsellor: () => request("GET", "/api/students/me/counsellor"),
   // Student: read own non-archived applications (status + deadline, no notes).
   listMyApplications: () => request("GET", "/api/applications/me"),
   // Student: create a new application against own account. Always lands

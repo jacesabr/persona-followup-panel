@@ -1352,8 +1352,8 @@ function PageCard({
           </span>
         )}
       </div>
-      <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
-      {page.helper && <p className="mt-3 text-lg font-semibold text-black">{page.helper}</p>}
+      <h2 className={`mt-2 font-serif leading-tight ${hideNav ? "text-2xl" : "text-3xl md:text-4xl"}`}>{page.title}</h2>
+      {page.helper && <p className={`${hideNav ? "mt-2 text-sm text-stone-800" : "mt-3 text-lg font-semibold text-black"}`}>{page.helper}</p>}
 
       {/* page.preamble: an array of one-line strings rendered as a
           compact numbered list above the fields. Used by p_required_docs
@@ -2426,9 +2426,8 @@ function StudentApplicationsStatusTab() {
 
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.3em] text-black">▸ Application status</p>
-      <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">Your school applications</h2>
-      <p className="mt-3 text-sm text-stone-800">
+      <h2 className="font-serif text-2xl leading-tight text-black">Your school applications</h2>
+      <p className="mt-2 text-sm text-stone-800">
         <span className="font-semibold">Counsellor:</span>{" "}
         {counsellor === undefined
           ? "—"
@@ -2436,10 +2435,8 @@ function StudentApplicationsStatusTab() {
           ? counsellor.name
           : "not yet assigned — your application will sit in the shared review queue until an admin assigns one."}
       </p>
-      <p className="mt-3 text-sm text-stone-800">
-        Add a new university here and your counsellor will pick it up in
-        their pending-review queue. Use the comments under each row to
-        flag requirements or anything you need help with.
+      <p className="mt-2 text-sm text-stone-800">
+        Add a new university here and your counsellor will pick it up in their pending-review queue. Use the comments under each row to flag requirements or anything you need help with.
       </p>
 
       {error && (

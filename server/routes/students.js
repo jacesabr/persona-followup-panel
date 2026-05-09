@@ -578,6 +578,28 @@ router.get("/me/record", requireStudent, async (req, res, next) => {
   }
 });
 
+// GET /me/counsellor — name + contact for the assigned counsellor, or
+// null when nobody's been attached yet. Surfaced on the student-side
+// Application status tab so the student knows who's in their queue
+// (and so an unassigned student is visible at a glance).
+router.get("/me/counsellor", requireStudent, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name, c.email
+         FROM intake_students s
+         LEFT JOIN counsellors c ON c.id = s.counsellor_id
+        WHERE s.student_id = $1`,
+      [req.user.studentId]
+    );
+    if (rows.length === 0 || !rows[0].id) {
+      return res.json({ counsellor: null });
+    }
+    res.json({ counsellor: { id: rows[0].id, name: rows[0].name, email: rows[0].email } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // PUT /me/record — accepts optional `expectedUpdatedAt` precondition.
 // When the student has the form open in two tabs and tab A's debounced
 // save fires after tab B's, naive last-write-wins silently wipes A's
