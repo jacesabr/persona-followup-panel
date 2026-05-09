@@ -4,7 +4,13 @@ import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
-import StudentDashboard from "./StudentDashboard.jsx";
+import StudentDashboard, {
+  extractAnswers,
+  groupAnswersBySchema,
+  ChapterSummaryBlock,
+  DocumentPreview,
+  buildFieldIndex,
+} from "./StudentDashboard.jsx";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
 // Two purposes:
@@ -770,7 +776,7 @@ function StudentDetail({ detail, role, onRefresh }) {
 
       <Section title="Intake form data">
         {student?.data && Object.keys(student.data).length > 0 ? (
-          <IntakeAnswers data={student.data} />
+          <IntakeAnswers data={student.data} studentId={student.student_id} />
         ) : (
           <p className=" text-black">Student hasn't started filling the form yet.</p>
         )}
@@ -870,28 +876,7 @@ function StudentDetail({ detail, role, onRefresh }) {
       </Section>
 
       <Section title={`Uploaded documents (${files?.length || 0})`}>
-        {files?.length ? (
-          <div className="space-y-1">
-            {files.map((f) => (
-              <div key={f.id} className="flex items-center gap-2 border border-stone-200 bg-white px-3 py-2">
-                <span className="font-mono text-[10px] text-black">{f.field_id}</span>
-                <a
-                  href={`/api/students/${student.student_id}/files/${f.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 truncate text-black underline-offset-2 hover:underline"
-                >
-                  {f.original_name}
-                </a>
-                <span className="shrink-0 text-[10px] text-black">
-                  {humanSize(f.size)}{f.superseded_at && " · superseded"}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className=" text-black">No files uploaded.</p>
-        )}
+        <UploadedDocsPreview files={files} studentId={student.student_id} />
       </Section>
     </div>
   );
@@ -942,65 +927,44 @@ function humanRelative(iso) {
   return `${Math.round(mo / 12)}y ago`;
 }
 
-// IntakeAnswers — render the student.data blob as human-readable
-// rows. The intake JSONB is `{ answers: {fieldId: value, ...},
-// order: [...], lastStep: N }`. We only show `answers`; the other
-// keys are UI bookkeeping. File slots collapse to "[file: name]"
-// since the actual download lives in the Uploaded files section.
-function IntakeAnswers({ data }) {
-  const answers = (data && typeof data === "object" && data.answers) || data || {};
-  const entries = Object.entries(answers).filter(([, v]) => v != null && v !== "");
-  if (entries.length === 0) {
-    return <p className=" text-black">No answers yet.</p>;
+// IntakeAnswers — render the student.data blob the same way the
+// student sees it on their dashboard summary: chapter → page →
+// label/value rows, with inline image/PDF previews next to each
+// transcribed value. Lets staff verify the source document right
+// where the value appears, without bouncing to a separate uploads
+// section. studentId routes file URLs through the staff endpoint
+// so cookie-role authorisation works.
+function IntakeAnswers({ data, studentId }) {
+  const answers = extractAnswers(data);
+  const grouped = groupAnswersBySchema(answers);
+  if (grouped.length === 0) {
+    return <p className="text-sm text-stone-800">No answers yet.</p>;
   }
   return (
-    <div className="border border-stone-200 bg-white">
-      <table className="w-full">
-        <tbody>
-          {entries.map(([key, val]) => (
-            <tr key={key} className="border-b border-stone-100 last:border-0">
-              <td className="w-1/3 px-3 py-1.5 align-top font-mono text-[10px] text-black">{key}</td>
-              <td className="px-3 py-1.5 text-[11px] text-black">
-                <AnswerCell value={val} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      {grouped.map((chapter) => (
+        <ChapterSummaryBlock key={chapter.id} chapter={chapter} studentId={studentId} />
+      ))}
     </div>
   );
 }
 
-function AnswerCell({ value }) {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    // File slot shape: { name, status, uploadedUrl, ... }
-    if (typeof value.name === "string" && "status" in value) {
-      return (
-        <span className="font-mono text-[10px] text-black">
-          [file: {value.name}{value.status === "uploaded" ? " ✓" : ` (${value.status})`}]
-        </span>
-      );
-    }
-    // Generic nested object — fall back to compact JSON.
-    return (
-      <pre className="overflow-auto text-[10px] text-black">
-        {JSON.stringify(value, null, 2)}
-      </pre>
-    );
+// UploadedDocsPreview — staff-side mirror of the student's "Your
+// documents" section. Renders every uploaded file inline (image as
+// <img>, PDF as <object>) so the admin can verify each artifact at a
+// glance instead of opening every link separately.
+function UploadedDocsPreview({ files, studentId }) {
+  const fieldIndex = useMemo(() => buildFieldIndex(), []);
+  if (!files || files.length === 0) {
+    return <p className="text-sm text-stone-800">Student hasn't uploaded any documents yet.</p>;
   }
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className=" text-black">(empty)</span>;
-    return (
-      <ol className="list-decimal pl-4">
-        {value.map((item, i) => (
-          <li key={i} className="text-[11px]">
-            <AnswerCell value={item} />
-          </li>
-        ))}
-      </ol>
-    );
-  }
-  return <span>{String(value)}</span>;
+  return (
+    <div className="space-y-4">
+      {files.map((f) => (
+        <DocumentPreview key={f.id} file={f} fieldIndex={fieldIndex} studentId={studentId} />
+      ))}
+    </div>
+  );
 }
 
 // ============================================================
@@ -1119,10 +1083,10 @@ function RequiredDocsStaff({ studentId, role }) {
         </p>
       )}
 
-      {lors.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Letters of recommendation</p>
-          {lors.map((d) => (
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Letters of recommendation</p>
+        {lors.length > 0 ? (
+          lors.map((d) => (
             <DocStaffCard
               key={d.id}
               doc={d}
@@ -1132,14 +1096,18 @@ function RequiredDocsStaff({ studentId, role }) {
               onToggleDone={() => toggleDone(d)}
               busy={!!busy[d.id]}
             />
-          ))}
-        </div>
-      )}
+          ))
+        ) : (
+          <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
+            Student hasn't sent any LOR briefs yet — no recipient details have been submitted in their intake.
+          </p>
+        )}
+      </div>
 
-      {interns.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Internships</p>
-          {interns.map((d) => (
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Internships</p>
+        {interns.length > 0 ? (
+          interns.map((d) => (
             <DocStaffCard
               key={d.id}
               doc={d}
@@ -1149,9 +1117,13 @@ function RequiredDocsStaff({ studentId, role }) {
               onToggleDone={() => toggleDone(d)}
               busy={!!busy[d.id]}
             />
-          ))}
-        </div>
-      )}
+          ))
+        ) : (
+          <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
+            Student hasn't sent any internship briefs yet — no company details have been submitted in their intake.
+          </p>
+        )}
+      </div>
 
       {sop && (
         <div className="space-y-2">

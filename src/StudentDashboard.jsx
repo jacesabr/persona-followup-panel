@@ -589,7 +589,7 @@ function ChapterBlock({ chapter }) {
 // reader can scan top-to-bottom in one column rather than
 // parsing run-on sentences.
 // ============================================================
-function ChapterSummaryBlock({ chapter, studentId }) {
+export function ChapterSummaryBlock({ chapter, studentId }) {
   return (
     <div className="border border-stone-200 bg-white">
       <div className="border-b border-stone-100 px-6 py-3">
@@ -923,7 +923,7 @@ function FieldValue({ value, field }) {
 // documents" section so the student (and staff in preview) can
 // read every uploaded artifact without leaving the dashboard.
 // ============================================================
-function DocumentPreview({ file, fieldIndex, studentId }) {
+export function DocumentPreview({ file, fieldIndex, studentId }) {
   const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
   const title = meta?.label || prettifyFieldId(file.field_id);
   const description =
@@ -1033,7 +1033,7 @@ function DocumentTile({ file, fieldIndex, studentId }) {
 // admin endpoint's `student.data`. Both wrap the answer map under a
 // top-level "answers" key (with order/lastStep alongside it for the
 // form's own bookkeeping).
-function extractAnswers(data) {
+export function extractAnswers(data) {
   if (!data || typeof data !== "object") return {};
   if (data.answers && typeof data.answers === "object") return data.answers;
   return data;
@@ -1043,7 +1043,7 @@ function extractAnswers(data) {
 // Skip pages where every field is empty so we don't render long blocks
 // of dashes for sections the student deliberately skipped (optional
 // chapters like "post-graduate university" for an undergrad applicant).
-function groupAnswersBySchema(answers) {
+export function groupAnswersBySchema(answers) {
   const out = [];
   for (const chapter of CHAPTERS) {
     const pages = [];
@@ -1073,7 +1073,7 @@ function isAnswered(v) {
 // decorated with the parent page's title/helper and the chapter's
 // title so the document tile can show useful "details" copy without
 // the schema needing to repeat itself per-field.
-function buildFieldIndex() {
+export function buildFieldIndex() {
   const idx = new Map();
   for (const chapter of CHAPTERS) {
     for (const page of chapter.pages) {
