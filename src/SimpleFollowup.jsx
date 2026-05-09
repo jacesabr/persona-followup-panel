@@ -10,7 +10,6 @@ import {
   Undo2,
   History,
   Pencil,
-  Calendar,
   Star,
   Trash2,
 } from "lucide-react";
@@ -336,12 +335,12 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   }
 
-  // 9 cols: select · date created · contact · purpose · status · appointment date · history · counsellor · archive
-  // Widths chosen so headers don't wrap with their content padding +
-  // letter-spacing. "Date created" / "Appointment date" need ~7.5rem and
-  // ~10rem respectively at the new larger header size. The trailing 3rem
-  // is the per-row archive icon button (sibling to the bulk action banner).
-  const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 6rem 10rem 4.5rem 7rem 3rem";
+  // 10 cols: select · date created · contact · purpose · status · appointment date · history · make notes · counsellor · archive
+  // History and Make Notes used to share a stacked-button cell; splitting
+  // them into their own columns gave the "Make Notes" call-to-action room
+  // to read at full button size. ~5.5rem each is enough for the icon +
+  // single-line label without truncation.
+  const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 6rem 10rem 4.5rem 5.5rem 7rem 3rem";
 
   // Counsellor scoping: hide leads not belonging to this counsellor.
   // Admin (role=admin) sees everything.
@@ -503,6 +502,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           <span className="whitespace-nowrap">Status</span>
           <span className="whitespace-nowrap">Appointment Date</span>
           <span className="whitespace-nowrap">History</span>
+          <span className="whitespace-nowrap">Make Notes</span>
           <span className="whitespace-nowrap">Counsellor</span>
           <span className="whitespace-nowrap text-right">Archive</span>
         </div>
@@ -573,7 +573,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 rows above/below. */}
             <span className="text-[11px]  text-black">auto</span>
             <span className="text-[11px]  text-black">later</span>
-            {/* History column: nothing to view yet for an unsaved lead. */}
+            {/* History + Make Notes columns: nothing to view / write
+                yet on an unsaved lead, so both stay empty. */}
+            <span></span>
             <span></span>
             <span className="flex items-center gap-1">
               {isScoped ? (
@@ -699,27 +701,32 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
-              <span className="flex flex-col gap-1">
+              <span>
                 <button
                   onClick={() => setHistoryLead(lead)}
                   title="View appointment history"
-                  className="inline-flex items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] text-black outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+                  className="inline-flex w-full items-center justify-center gap-1 border border-stone-300 bg-white px-1.5 py-1 text-[12px] text-black outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
                 >
                   <History className="h-3.5 w-3.5" /> View
                 </button>
-                {/* Session button — always shown. If the lead has an
-                    official (non-ad_hoc) upcoming or recent appointment,
-                    open the popup against that. Otherwise create a new
-                    ad_hoc=true row at NOW() (a "pre-appointment quick
-                    call") and open against it, so the counsellor can log
-                    notes from any conversation that happens before the
-                    formal session is even booked. */}
+              </span>
+              {/* Make Notes button — always shown, lives in its own
+                  column. If the lead has an official (non-ad_hoc)
+                  upcoming or recent appointment, the popup opens against
+                  that one so the notes attach to it. Otherwise we POST
+                  a new ad_hoc=true row at NOW() and open against it, so
+                  the counsellor can log notes from any conversation
+                  that happens before the formal session is even booked.
+                  HistoryPopup labels each entry "Note created before
+                  appointment #N" so the relative ordering reads at a
+                  glance. */}
+              <span>
                 <button
                   onClick={() => openSession(lead)}
-                  title="Open session notes + tasks for the current conversation"
-                  className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[12px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
+                  title="Make notes for the current conversation"
+                  className="inline-flex w-full items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[12px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
                 >
-                  <Calendar className="h-3.5 w-3.5" /> Session
+                  <Pencil className="h-3.5 w-3.5" /> Make Notes
                 </button>
               </span>
               <span className="text-[14px] text-black">
@@ -984,6 +991,29 @@ function HistoryPopup({ lead, onClose }) {
       (x, y) => new Date(y.scheduled_for).getTime() - new Date(x.scheduled_for).getTime()
     );
 
+  // Number the lead's official (non-ad-hoc) appointments chronologically.
+  // Each row's header reads "Note created before appointment #N" — N is
+  // resolved against the row's created_at timestamp by walking this list.
+  // Ad-hoc rows are excluded from numbering: they're notes-only, not
+  // formal appointments, and including them would shift the numbering
+  // every time a counsellor logs a quick call.
+  const officialAppts = appointments
+    .filter((a) => !a.ad_hoc)
+    .sort(
+      (x, y) => new Date(x.scheduled_for).getTime() - new Date(y.scheduled_for).getTime()
+    );
+  // For a given note-creation timestamp, return the 1-indexed position
+  // of the next-upcoming official appointment in officialAppts. null if
+  // no official appointment was scheduled in the future relative to that
+  // moment — caller renders "before next appointment date set".
+  const nextApptIndexFor = (createdAt) => {
+    const ms = new Date(createdAt).getTime();
+    for (let i = 0; i < officialAppts.length; i++) {
+      if (new Date(officialAppts[i].scheduled_for).getTime() > ms) return i + 1;
+    }
+    return null;
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
       <div
@@ -1034,7 +1064,7 @@ function HistoryPopup({ lead, onClose }) {
                     <HistoryRow
                       key={a.id}
                       appt={a}
-                      serviceDate={lead.service_date}
+                      nextApptIndex={nextApptIndexFor(a.created_at)}
                       isEditing={editingId === a.id}
                       isSaving={savingId === a.id}
                       editText={editText}
@@ -1053,7 +1083,7 @@ function HistoryPopup({ lead, onClose }) {
                     <HistoryRow
                       key={a.id}
                       appt={a}
-                      serviceDate={lead.service_date}
+                      nextApptIndex={nextApptIndexFor(a.created_at)}
                       isEditing={editingId === a.id}
                       isSaving={savingId === a.id}
                       editText={editText}
@@ -1087,7 +1117,7 @@ function Section({ title, children }) {
 
 function HistoryRow({
   appt,
-  serviceDate,
+  nextApptIndex,
   isEditing,
   isSaving,
   editText,
@@ -1103,42 +1133,43 @@ function HistoryRow({
   const isPast = new Date(appt.scheduled_for).getTime() < Date.now();
   const sessionMissed = isPast && !appt.notes;
 
-  // ad_hoc rows were created via the always-on Session button when there
-  // was no calendar-booked appointment to attach notes to. Compare to the
-  // lead's official service_date so the banner reads "before" / "after"
-  // accurately. service_date is null when no official appointment has
-  // ever been booked → the row stands as a pre-appointment quick call.
-  let adHocBanner = null;
-  if (appt.ad_hoc) {
-    const apptMs = new Date(appt.scheduled_for).getTime();
-    if (!serviceDate) {
-      adHocBanner = "Pre-appointment quick call — no official appointment has been booked yet";
-    } else {
-      const svcMs = new Date(serviceDate).getTime();
-      if (apptMs < svcMs) {
-        adHocBanner = "Pre-appointment quick call — this session occurred before the official appointment was registered";
-      } else if (apptMs > svcMs) {
-        adHocBanner = "Post-appointment follow-up — this session occurred after the official appointment date";
-      } else {
-        adHocBanner = "Ad-hoc note on the official appointment day";
-      }
-    }
-  }
+  // The row's primary header is the moment the note was created (i.e.,
+  // when the appointment row was inserted). Per request: every history
+  // row reads "Note created … — before appointment #N", anchored to the
+  // next-upcoming official appointment relative to the note's creation
+  // time. nextApptIndex is null when no upcoming appointment was on the
+  // books at that moment, in which case the label falls back to "before
+  // next appointment date set".
+  const noteRelative =
+    nextApptIndex != null
+      ? `Note created before appointment #${nextApptIndex}`
+      : "Note created before next appointment date set";
 
   return (
     <li className="px-5 py-3">
-      {adHocBanner && (
-        <p className="mb-2 text-[13px] font-bold text-red-700">
-          {adHocBanner}
-        </p>
-      )}
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[16px] font-semibold tabular-nums text-black">
-          {formatDateInIst(appt.scheduled_for)}
-          <span className="ml-2 font-normal text-black">
-            {formatTimeInIst(appt.scheduled_for)}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <span className="block text-[16px] font-semibold tabular-nums text-black">
+            {formatDateInIst(appt.created_at)}
+            <span className="ml-2 font-normal text-black">
+              {formatTimeInIst(appt.created_at)}
+            </span>
           </span>
-        </span>
+          <span className="mt-0.5 block text-[12px] font-semibold uppercase tracking-[0.14em] text-[#cc785c]">
+            {noteRelative}
+          </span>
+          {/* Ad-hoc rows have scheduled_for == created_at by construction
+              (the row is created at NOW() with no formal appointment to
+              anchor to), so showing scheduled_for again would just be the
+              same timestamp twice. Only non-ad-hoc rows surface the
+              appointment's actual scheduled time as a secondary line. */}
+          {!appt.ad_hoc && (
+            <span className="mt-1 block text-[12px] tabular-nums text-stone-700">
+              Appointment scheduled for {formatDateInIst(appt.scheduled_for)}
+              <span className="ml-1.5">{formatTimeInIst(appt.scheduled_for)}</span>
+            </span>
+          )}
+        </div>
         {!isEditing && (
           <button
             onClick={onStartEdit}
@@ -1840,7 +1871,7 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
         <header className="flex items-start justify-between border-b border-stone-200 px-5 py-3">
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
-              Session
+              Make Notes
               {isAdHoc && (
                 <span className="ml-2 border border-red-700 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.18em] text-red-700">
                   Ad-hoc · pre-appointment quick call
