@@ -227,6 +227,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_student
 CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);
 CREATE INDEX IF NOT EXISTS idx_intake_students_counsellor ON intake_students(counsellor_id);
 CREATE INDEX IF NOT EXISTS idx_intake_students_active     ON intake_students(updated_at DESC) WHERE is_archived = FALSE;
+-- Marker for the AI artifacts pipeline (manual_opus_generate.md). NULL
+-- means "this student has never been processed"; the scheduled
+-- Claude Code routine picks up NULL rows every 4 hours, generates
+-- resume / SOP draft / LOR & internship drafts / per-file
+-- descriptions / autofilled answers, and stamps NOW() when done.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS ai_artifacts_generated_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_intake_students_ai_pending
+  ON intake_students(updated_at DESC)
+  WHERE ai_artifacts_generated_at IS NULL AND is_archived = FALSE AND intake_phase = 'done';
 
 CREATE TABLE IF NOT EXISTS intake_files (
   id            BIGSERIAL PRIMARY KEY,
@@ -249,6 +258,17 @@ CREATE INDEX IF NOT EXISTS idx_intake_files_active
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_files_one_active
   ON intake_files(student_id, field_id, COALESCE(row_index, -1))
   WHERE superseded_at IS NULL;
+
+-- AI-generated description + extracted fields per uploaded file. The
+-- Claude Code routine reads each active file, writes a 2-3 sentence
+-- description ("This is a 10th grade marksheet from CBSE board…")
+-- into ai_description, and any structured key-values it can lift
+-- (Aadhar number, marks %, passport expiry, etc.) into ai_extracted.
+-- Both stay NULL on legacy rows + on rows the routine hasn't reached
+-- yet. ai_extracted feeds the autofill pass that backfills empty
+-- intake answers.
+ALTER TABLE intake_files ADD COLUMN IF NOT EXISTS ai_description TEXT;
+ALTER TABLE intake_files ADD COLUMN IF NOT EXISTS ai_extracted JSONB;
 
 -- Auto-extraction was retired in favour of manual entry on the
 -- doc-review screen. Drop the table + its indexes if present so the
