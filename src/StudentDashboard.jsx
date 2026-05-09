@@ -776,22 +776,48 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
       </a>
     );
   }
+  // Inline PDF preview via <object>. Desktop browsers (Chrome / Edge /
+  // Firefox / Safari) all render PDFs in <object> using their built-in
+  // viewer, so the doc shows up right next to its transcribed values
+  // without a click. iOS Safari + most Android browsers refuse to
+  // render PDFs inline — when that happens <object> falls back to its
+  // children, so we put the same "PDF · filename · Open ↗" card we used
+  // to render unconditionally inside as the fallback. Result: desktop
+  // users see the doc inline, mobile users still get a working tap.
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-2 inline-flex max-w-sm items-center gap-3 border border-stone-200 bg-white px-3 py-2 transition hover:border-stone-900 hover:bg-stone-50"
-      title="Open in a new tab"
-    >
-      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-300 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
-        PDF
-      </span>
-      <span className="min-w-0 truncate text-sm text-black">{name}</span>
-      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-700">
-        Open ↗
-      </span>
-    </a>
+    <div className="mt-2">
+      <object
+        data={url}
+        type="application/pdf"
+        className="block w-full max-w-2xl border border-stone-200 bg-white"
+        style={{ height: 560 }}
+      >
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex max-w-sm items-center gap-3 border border-stone-200 bg-white px-3 py-2 transition hover:border-stone-900 hover:bg-stone-50"
+          title="Open in a new tab"
+        >
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-300 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
+            PDF
+          </span>
+          <span className="min-w-0 truncate text-sm text-black">{name}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-700">
+            Open ↗
+          </span>
+        </a>
+      </object>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:text-[#cc785c]"
+        title="Open in a new tab"
+      >
+        Open full size ↗
+      </a>
+    </div>
   );
 }
 

@@ -131,12 +131,34 @@ app.set("trust proxy", 1);
 //       style-src 'self' https: 'unsafe-inline'  — bundled CSS + Google Fonts CSS
 //       font-src   'self' https: data: — Google Fonts (gstatic) + base64 fallbacks
 //       img-src    'self' data:        — covers the data: URI favicon in index.html
+//       object-src 'self'              — same-origin PDF embeds (FilePreview /
+//                                        MiniFilePreview render uploaded marksheets
+//                                        inline via <object data="/api/students/...
+//                                        /files/:id" type="application/pdf">). Helmet's
+//                                        default is 'none' which would silently blank
+//                                        the embed; the fallback card inside <object>
+//                                        still works there but desktop users miss the
+//                                        whole point of the inline view.
+//       frame-src  'self'              — Chrome routes <object type=application/pdf>
+//                                        through its built-in PDF viewer iframe, which
+//                                        is governed by frame-src; without this the
+//                                        PDF area renders blank on Chromium browsers.
 //
 // Default helmet style-src includes 'unsafe-inline' for backwards compat
 // with libraries that inject inline styles; lucide-react's SVG icons are
 // rendered through React (no inline <style>) so this is generous but
 // not load-bearing today.
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "object-src": ["'self'"],
+        "frame-src": ["'self'"],
+      },
+    },
+  })
+);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 

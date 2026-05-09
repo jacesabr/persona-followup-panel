@@ -2060,25 +2060,49 @@ function FilePreview({ slot }) {
     );
   }
   // PDF (or any non-image — the upload validator only accepts PDF / JPEG
-  // / PNG, so this branch is effectively "PDF").
+  // / PNG, so this branch is effectively "PDF"). Inline preview via
+  // <object>: desktop browsers render the PDF in their built-in viewer
+  // so the student can verify content next to the slot without
+  // clicking through. iOS Safari / most Android browsers refuse to
+  // render PDFs inline — <object> falls back to its children there, so
+  // the same "PDF · filename · Open ↗" card we used to render
+  // unconditionally now lives inside as the cross-device fallback.
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-2 flex items-center justify-between gap-3 border border-stone-900/15 bg-white px-3 py-3 transition hover:border-stone-900 hover:bg-stone-50"
-      title="Open in a new tab"
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-900/30 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-black">
-          PDF
-        </span>
-        <span className="min-w-0 truncate text-sm text-black">{name}</span>
-      </div>
-      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-black">
-        Open ↗
-      </span>
-    </a>
+    <div className="mt-2">
+      <object
+        data={url}
+        type="application/pdf"
+        className="block w-full border border-stone-900/15 bg-white"
+        style={{ height: 480 }}
+      >
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-between gap-3 bg-white px-3 py-3 transition hover:bg-stone-50"
+          title="Open in a new tab"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-900/30 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-black">
+              PDF
+            </span>
+            <span className="min-w-0 truncate text-sm text-black">{name}</span>
+          </div>
+          <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-black">
+            Open ↗
+          </span>
+        </a>
+      </object>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.15em] text-black hover:text-[#cc785c]"
+        title="Open in a new tab"
+      >
+        Open full size ↗
+      </a>
+    </div>
   );
 }
 
