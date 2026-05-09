@@ -31,7 +31,13 @@ import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
 
-export default function StudentDashboard({ studentName, onExit, staffPreview = null, embedded = false }) {
+// `section` (optional) restricts rendering to a single block when set:
+//   "summary"        — application summary only
+//   "documents"      — uploaded-file previews only
+//   "required-docs"  — LOR / internship / SOP lifecycle only
+//   "resume"         — generated resume only
+// Unset = render everything in sequence (used by staff preview).
+export default function StudentDashboard({ studentName, onExit, staffPreview = null, embedded = false, section = null }) {
   const isStaffPreview = !!staffPreview;
 
   const [files, setFiles] = useState(() =>
@@ -154,7 +160,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
       )}
 
       <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : embedded ? "max-w-3xl px-0 py-2" : "max-w-3xl px-6 py-12"}`}>
-        {!isStaffPreview && (
+        {!isStaffPreview && !section && (
           <h1 className="font-serif text-3xl">{headerName}</h1>
         )}
 
@@ -164,61 +170,67 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           </p>
         )}
 
-        <section className="mt-10">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your application — summary</h2>
-          <p className="mt-1 text-sm text-stone-800">
-            A plain-English read of everything you've submitted so far. (Documents are previewed below.)
-          </p>
-          <div className="mt-4 space-y-6">
-            {answers === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
-                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
-              </div>
-            ) : grouped.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
-                No answers recorded yet.
-              </p>
-            ) : (
-              grouped.map((chapter) => (
-                <NarrativeChapterBlock key={chapter.id} chapter={chapter} />
-              ))
-            )}
-          </div>
-        </section>
+        {(!section || section === "summary") && (
+          <section className={section ? "" : "mt-10"}>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your application — summary</h2>
+            <p className="mt-1 text-sm text-stone-800">
+              Everything you've submitted so far, grouped the way you filled it out.
+            </p>
+            <div className="mt-5 space-y-5">
+              {answers === null ? (
+                <div className="flex items-center gap-2 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                </div>
+              ) : grouped.length === 0 ? (
+                <p className="border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+                  No answers recorded yet.
+                </p>
+              ) : (
+                grouped.map((chapter) => (
+                  <ChapterSummaryBlock key={chapter.id} chapter={chapter} />
+                ))
+              )}
+            </div>
+          </section>
+        )}
 
-        <section className="mt-12">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your documents</h2>
-          <p className="mt-1 text-sm text-stone-800">
-            Every file you uploaded, rendered inline. Images appear as photos, PDFs render as readable previews.
-          </p>
-          <div className="mt-4 space-y-6">
-            {files === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
-                <Loader2 className="h-3 w-3 animate-spin" /> Loading…
-              </div>
-            ) : files.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
-                No documents uploaded.
-              </p>
-            ) : (
-              files.map((f) => (
-                <DocumentPreview
-                  key={f.id}
-                  file={f}
-                  fieldIndex={fieldIndex}
-                  studentId={isStaffPreview ? studentId : null}
-                />
-              ))
-            )}
-          </div>
-        </section>
+        {(!section || section === "documents") && (
+          <section className={section ? "" : "mt-12"}>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your documents</h2>
+            <p className="mt-1 text-sm text-stone-800">
+              Every file you uploaded, rendered inline. Images appear as photos, PDFs render as readable previews.
+            </p>
+            <div className="mt-5 space-y-6">
+              {files === null ? (
+                <div className="flex items-center gap-2 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                </div>
+              ) : files.length === 0 ? (
+                <p className="border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+                  No documents uploaded.
+                </p>
+              ) : (
+                files.map((f) => (
+                  <DocumentPreview
+                    key={f.id}
+                    file={f}
+                    fieldIndex={fieldIndex}
+                    studentId={isStaffPreview ? studentId : null}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Application status — read-only view of the student's school
-            applications managed by their counsellor. */}
-        {myApplications && myApplications.length > 0 && (
+            applications managed by their counsellor. Only rendered in
+            the all-sections (staff-preview) path; PanelTabs has its
+            own dedicated tab for this. */}
+        {!section && myApplications && myApplications.length > 0 && (
           <section className="mt-10">
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Application status</h2>
-            <p className="mt-1 text-xs text-black">
+            <p className="mt-1 text-sm text-stone-800">
               Your school applications as tracked by your counsellor.
             </p>
             <div className="mt-3 space-y-2">
@@ -229,17 +241,13 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           </section>
         )}
 
-        {/* Required documents — LOR / Internship / SOP lifecycle.
-            Renders only when the student has at least one row (created
-            on intake completion). Staff-preview view is read-only;
-            actual uploads only happen from the student-facing path. */}
-        {requiredDocs && requiredDocs.length > 0 && (
-          <section className="mt-10">
+        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length > 0 && (
+          <section className={section ? "" : "mt-10"}>
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required documents</h2>
-            <p className="mt-1 text-xs text-black">
+            <p className="mt-1 text-sm text-stone-800">
               Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-3">
               {requiredDocs.map((d) => (
                 <RequiredDocRow
                   key={d.id}
@@ -252,14 +260,27 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           </section>
         )}
 
-        {/* Generated resume — read-only. The regenerate flow lives on
-            the staff side; the student just sees the latest output. */}
-        {latestResume && (
-          <section className="mt-10">
+        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && section === "required-docs" && (
+          <section>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required documents</h2>
+            <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+              Nothing's been requested yet — your counsellor will populate this list once they review your intake.
+            </p>
+          </section>
+        )}
+
+        {(!section || section === "resume") && (
+          <section className={section ? "" : "mt-10"}>
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your resume</h2>
-            <div className="mt-3 border border-stone-900/15 bg-white p-6">
-              <ResumeView latest={latestResume} />
-            </div>
+            {latestResume ? (
+              <div className="mt-4 border border-stone-200 bg-white p-6">
+                <ResumeView latest={latestResume} />
+              </div>
+            ) : (
+              <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+                Your resume hasn't been generated yet. Your counsellor will trigger it once your intake is complete.
+              </p>
+            )}
           </section>
         )}
       </main>
@@ -549,90 +570,117 @@ function ChapterBlock({ chapter }) {
 }
 
 // ============================================================
-// NarrativeChapterBlock — readable prose-style summary of a
-// chapter. Each page becomes a sentence-like paragraph that
-// strings the answered fields together with their labels, so a
-// reader can skim the entire application top-to-bottom without
-// parsing key-value tables.
+// ChapterSummaryBlock — clean two-column read of one chapter.
+// Each page is a heading + a dl of label/value pairs, so the
+// reader can scan top-to-bottom in one column rather than
+// parsing run-on sentences.
 // ============================================================
-function NarrativeChapterBlock({ chapter }) {
+function ChapterSummaryBlock({ chapter }) {
   return (
-    <div className="border border-stone-900/15 bg-white px-6 py-5">
-      <h3 className="font-serif text-xl text-black">{chapter.title}</h3>
-      <div className="mt-3 space-y-3">
+    <div className="border border-stone-200 bg-white">
+      <div className="border-b border-stone-100 px-6 py-3">
+        <h3 className="font-serif text-xl text-black">{chapter.title}</h3>
+      </div>
+      <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <NarrativePage key={page.id} page={page} />
+          <PageSummary key={page.id} page={page} />
         ))}
       </div>
     </div>
   );
 }
 
-function NarrativePage({ page }) {
-  const sentences = page.fields
-    .map((f) => fieldToSentence(f))
-    .filter(Boolean);
-  if (sentences.length === 0) return null;
+function PageSummary({ page }) {
+  const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
+  if (fields.length === 0) return null;
   return (
-    <div>
-      <p className="font-medium text-stone-800">{page.title}</p>
-      <p className="mt-1 text-base leading-relaxed text-black">
-        {sentences.map((s, i) => (
-          <span key={i}>
-            {s}
-            {i < sentences.length - 1 ? " " : ""}
-          </span>
-        ))}
+    <div className="px-6 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-600">
+        {page.title}
       </p>
+      <dl className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-[180px_1fr]">
+        {fields.map((f) => (
+          <SummaryFieldRow key={f.id} field={f} />
+        ))}
+      </dl>
     </div>
   );
 }
 
-// Render a single field as a "Label: value." sentence, picking
-// a sensible value-string per type. Returns null if the field
-// has no answer worth rendering.
-function fieldToSentence(field) {
-  const v = field.value;
-  if (!isAnswered(v)) return null;
-  if (field.type === "info") return null;
-  const label = field.label || prettifyFieldId(field.id);
-  const valueStr = formatScalarValue(v, field);
-  if (valueStr == null) return null;
-  return `${label}: ${valueStr}.`;
+function SummaryFieldRow({ field }) {
+  return (
+    <>
+      <dt className="text-sm text-stone-700">{field.label}</dt>
+      <dd className="text-base text-black">
+        <SummaryFieldValue value={field.value} field={field} />
+      </dd>
+    </>
+  );
 }
 
-function formatScalarValue(value, field) {
-  if (value == null || value === "") return null;
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  // File slot
+function SummaryFieldValue({ value, field }) {
+  if (value == null || value === "") {
+    return <span className="text-stone-400">—</span>;
+  }
+  if (typeof value === "boolean") {
+    return <span>{value ? "Yes" : "No"}</span>;
+  }
+  // File slot — surface filename + status. Actual previews live
+  // in the Documents tab.
   if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
-    if (value.status === "uploaded") return `${value.name || "file"} (uploaded)`;
-    return `${value.name || "file"} (${value.status})`;
+    return (
+      <span className="inline-flex items-baseline gap-1.5">
+        <Paperclip className="h-3.5 w-3.5 -translate-y-px text-stone-700" />
+        <span>{value.name || "(file)"}</span>
+        {value.status === "uploaded" ? (
+          <span className="text-emerald-700">✓</span>
+        ) : (
+          <span className="text-stone-600">({value.status})</span>
+        )}
+      </span>
+    );
   }
   if (Array.isArray(value)) {
-    if (value.length === 0) return null;
+    if (value.length === 0) {
+      return <span className="text-stone-400">(none)</span>;
+    }
     const itemFields = field?.itemFields || [];
-    const rows = value
-      .map((row, i) => {
-        if (!row || typeof row !== "object") return String(row);
-        const parts = (itemFields.length > 0 ? itemFields : Object.keys(row).map((k) => ({ id: k, label: k })))
-          .map((sub) => {
-            const sv = row[sub.id];
-            if (!isAnswered(sv)) return null;
-            const sub_str = formatScalarValue(sv, sub);
-            return sub_str ? `${sub.label} ${sub_str}` : null;
-          })
-          .filter(Boolean)
-          .join("; ");
-        return parts ? `(${i + 1}) ${parts}` : null;
-      })
-      .filter(Boolean);
-    return rows.length ? rows.join(" ") : null;
+    return (
+      <ol className="list-decimal space-y-3 pl-5 marker:text-stone-500">
+        {value.map((row, i) => (
+          <li key={i}>
+            <RepeaterRowSummary row={row} itemFields={itemFields} />
+          </li>
+        ))}
+      </ol>
+    );
   }
   if (typeof value === "object") {
-    return JSON.stringify(value);
+    return (
+      <pre className="overflow-auto whitespace-pre-wrap text-xs text-stone-700">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    );
   }
-  return String(value);
+  return <span>{String(value)}</span>;
+}
+
+function RepeaterRowSummary({ row, itemFields }) {
+  if (!row || typeof row !== "object") return <span>{String(row)}</span>;
+  const subs = itemFields.length > 0
+    ? itemFields
+    : Object.keys(row).map((k) => ({ id: k, label: k }));
+  const filled = subs
+    .map((sub) => ({ sub, val: row[sub.id] }))
+    .filter(({ val }) => isAnswered(val));
+  if (filled.length === 0) return <span className="text-stone-400">(empty)</span>;
+  return (
+    <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-[140px_1fr]">
+      {filled.map(({ sub, val }) => (
+        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} />
+      ))}
+    </dl>
+  );
 }
 
 function PageBlock({ page }) {

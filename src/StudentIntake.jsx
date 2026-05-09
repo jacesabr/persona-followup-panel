@@ -1120,23 +1120,35 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   // refetch handle out of the dashboard.
   const [overviewKey, setOverviewKey] = useState(0);
 
+  // Tabs that re-render StudentDashboard need its key bumped so the
+  // dashboard re-fetches files / required-docs / resumes on every tab
+  // entry (the same reason Overview did).
+  const DASHBOARD_TABS = new Set(["overview", "documents", "required-docs", "resume"]);
   const switchTo = (id) => {
     if (id === activeTab) return;
-    if (id === "overview") setOverviewKey((k) => k + 1);
+    if (DASHBOARD_TABS.has(id)) setOverviewKey((k) => k + 1);
     setActiveTab(id);
   };
 
   // Status tab sits between Overview and the schema-driven panel
-  // chapters. It's the single place students manage their school
-  // applications: pick country/uni/program, submit for review, and
-  // comment on each row's requirements/needs. No archive/delete from
-  // the student side — once submitted, the row is staff's to triage.
+  // chapters. Documents / Required documents / Resume are read-only
+  // views over data the StudentDashboard already loads — they each
+  // render the dashboard with a `section` prop so only the relevant
+  // block shows.
   const tabs = [
     { id: "overview", label: "Overview" },
+    { id: "documents", label: "Your documents" },
+    { id: "required-docs", label: "Required documents" },
+    { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
     ...PANEL_CHAPTERS.map((c) => ({ id: c.id, label: c.title })),
   ];
   const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
+  const dashboardSection = activeTab === "overview" ? "summary"
+    : activeTab === "documents" ? "documents"
+    : activeTab === "required-docs" ? "required-docs"
+    : activeTab === "resume" ? "resume"
+    : null;
 
   const panelSwitcher = (
     <div className="mb-8 -mt-2 flex items-center gap-2">
@@ -1173,12 +1185,13 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
       belowHeader={panelSwitcher}
     >
       <main className="pb-16">
-        {activeTab === "overview" && (
+        {dashboardSection && (
           <StudentDashboard
-            key={overviewKey}
+            key={`${dashboardSection}-${overviewKey}`}
             studentName={studentName}
             onExit={onExit}
             embedded
+            section={dashboardSection}
           />
         )}
         {activeTab === "status" && <StudentApplicationsStatusTab />}
