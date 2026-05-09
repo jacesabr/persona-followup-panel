@@ -94,7 +94,7 @@ async function refuseIfPlaintextPasswordsPresent() {
   try {
     const { rows } = await pool.query(
       `SELECT id, name, username FROM counsellors
-        WHERE password IS NOT NULL AND password NOT LIKE 'scrypt:%'`
+        WHERE password_hash IS NOT NULL AND password_hash NOT LIKE 'scrypt:%'`
     );
     if (rows.length > 0) {
       console.error(
