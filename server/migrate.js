@@ -422,6 +422,24 @@ CREATE INDEX IF NOT EXISTS idx_intake_applications_pending
   ON intake_applications(created_at DESC)
   WHERE pending = TRUE AND archived = FALSE;
 
+-- Dedup index for the xlsx import path. Originally written as
+-- `WHERE student_id IS NULL` only — which silently dropped legitimate
+-- re-applications: a student who'd cancelled an old UCL CS application
+-- and was re-applying this cycle would have their new (active) row
+-- skipped by ON CONFLICT DO NOTHING. The fix: only enforce uniqueness
+-- among NON-archived rows, so an archived "old try" leaves the slot
+-- free for the new active one. The xlsx import script now also marks
+-- status='cancelled' rows as archived=TRUE on insert so this works
+-- end-to-end on re-runs.
+DROP INDEX IF EXISTS uq_app_name_uni_prog;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_app_name_uni_prog
+  ON intake_applications (
+    LOWER(TRIM(student_name)),
+    LOWER(TRIM(university)),
+    COALESCE(LOWER(TRIM(program)), '')
+  )
+  WHERE student_id IS NULL AND archived = FALSE;
+
 -- ============================================================
 -- intake_required_docs: per-student LOR / Internship / SOP items.
 -- One row per item. Replaces the legacy lor1/lor2/internship*/sop

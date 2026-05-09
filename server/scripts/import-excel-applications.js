@@ -8,7 +8,15 @@
  * Requires xlsx package:  npm install xlsx
  * Requires DATABASE_URL to be set in .env (loaded automatically via dotenv).
  *
- * Safe to re-run: uses ON CONFLICT DO NOTHING keyed on (student_name, university, program).
+ * Safe to re-run: uses ON CONFLICT DO NOTHING keyed on
+ * (student_name, university, program), but only enforces uniqueness
+ * among archived=FALSE rows. So a re-run that includes both an old
+ * cancelled application AND a new active one for the same student/uni
+ * will land both: the cancelled row is inserted as archived=TRUE
+ * (out of the unique-index slot), and the active row gets the slot.
+ *
+ * The unique index itself is created/maintained by server/migrate.js
+ * — running this script no longer mutates the schema.
  */
 
 import "dotenv/config";
@@ -257,26 +265,22 @@ async function main() {
   try {
     await client.query("BEGIN");
 
-    await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_app_name_uni_prog
-        ON intake_applications (
-          LOWER(TRIM(student_name)),
-          LOWER(TRIM(university)),
-          COALESCE(LOWER(TRIM(program)), '')
-        )
-        WHERE student_id IS NULL;
-    `);
-
-    let inserted = 0;
+    let insertedActive = 0;
+    let insertedArchived = 0;
     let skipped = 0;
 
     for (const rec of records) {
+      // status='cancelled' rows represent applications the student has
+      // already given up on — insert them as archived=TRUE so they
+      // don't occupy the (name, uni, program) unique-index slot, and a
+      // re-application later (or in the same import) lands cleanly.
+      const isCancelled = rec.status === "cancelled";
       const res = await client.query(
         `INSERT INTO intake_applications
-           (student_name, university, program, deadline, country, requirements, notes, status, pending)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+           (student_name, university, program, deadline, country, requirements, notes, status, pending, archived, archived_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10)
          ON CONFLICT (LOWER(TRIM(student_name)), LOWER(TRIM(university)), COALESCE(LOWER(TRIM(program)), ''))
-           WHERE student_id IS NULL
+           WHERE student_id IS NULL AND archived = FALSE
          DO NOTHING`,
         [
           rec.studentName,
@@ -287,14 +291,20 @@ async function main() {
           rec.requirements ?? null,
           rec.notes ?? null,
           rec.status,
+          isCancelled,
+          isCancelled ? new Date() : null,
         ]
       );
-      if (res.rowCount > 0) inserted++;
-      else skipped++;
+      if (res.rowCount > 0) {
+        if (isCancelled) insertedArchived++;
+        else insertedActive++;
+      } else skipped++;
     }
 
     await client.query("COMMIT");
-    console.log(`Done. Inserted: ${inserted}, Skipped (duplicates): ${skipped}`);
+    console.log(
+      `Done. Inserted active: ${insertedActive}, inserted archived (cancelled): ${insertedArchived}, skipped (active duplicates): ${skipped}`
+    );
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("Import failed, rolled back:", err.message);

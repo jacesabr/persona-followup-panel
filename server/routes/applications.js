@@ -643,11 +643,15 @@ export async function seedApplicationsForStudent(client, studentId, answers) {
     if (!uni) continue;
     const country = (p.country || "").trim() || null;
     const program = (p.program || "").trim() || null;
+    // archived=FALSE filter so a previously-archived application
+    // (e.g. cancelled last cycle) doesn't block re-application this
+    // cycle — same rule the xlsx import's partial unique index uses.
     const exists = await client.query(
       `SELECT 1 FROM intake_applications
         WHERE student_id = $1
           AND university = $2
           AND program IS NOT DISTINCT FROM $3
+          AND archived = FALSE
         LIMIT 1`,
       [studentId, uni, program]
     );
