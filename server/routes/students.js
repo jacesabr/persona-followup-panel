@@ -777,19 +777,6 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
           missing,
         });
       }
-      // Pre-flight: refuse to flip phase if the style corpus is empty.
-      // Without this the auto-fire would insert a 'pending' row, hit
-      // NoCorpusError in executeResume, and flip to 'failed' 30s later —
-      // confusing both student and staff. Catch it before the
-      // transaction commits so the student stays on intake with an
-      // actionable message.
-      if (!(await corpusHasExample())) {
-        await client.query("ROLLBACK");
-        return res.status(503).json({
-          error: "Resume style corpus not loaded yet — your counsellor needs to import the example. Try again in a few minutes.",
-          code: "NO_CORPUS",
-        });
-      }
       await client.query(
         `UPDATE intake_students
             SET intake_phase = 'done',
@@ -811,40 +798,22 @@ router.put("/me/intake/phase", requireStudent, express.json(), async (req, res, 
       // workflow. Idempotent — re-runs on every post-done save as the
       // student fills the destination tab in their dashboard.
       await seedApplicationsForStudent(client, studentId, answers);
-      // Auto-fire one 300-word resume in the same transaction. Hard-
-      // coded shape for v1 — multi-resume picker comes back later. Take
-      // the per-student inflight lock so a refresh-spam can't stack
-      // multiple auto-resumes.
-      await reserveInflightOrThrow(client, studentId, 1);
-      const ins = await client.query(
-        `INSERT INTO intake_resumes
-           (student_id, label, length_pages, length_words, style, domain, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-         RETURNING id`,
-        [studentId, "auto-summary", null, 300, null, null]
-      );
-      const resumeId = ins.rows[0].id;
       await client.query("COMMIT");
-      // Fire-and-forget after commit so a runner crash leaves the row
-      // in 'pending' for the boot sweeper, not orphaned-mid-tx.
-      executeResume({
-        resumeId,
-        spec: { label: "auto-summary", length_words: 300 },
-      }).catch((e) => console.error("[resume] auto-fire unhandled:", e));
+      // Auto-fire of resume generation removed — the LLM-summarised
+      // resume is on the roadmap but not the immediate path. The
+      // manual /me/resumes route + staff regenerate route remain in
+      // place so the feature can be turned back on without re-running
+      // a phase transition. corpus checks / inflight reservation /
+      // executeResume call all moved with it.
       audit(req, {
         table: "intake_students",
         id: studentId,
         action: "intake_done",
-        diff: { resume_id: String(resumeId) },
+        diff: {},
       });
-      return res.json({ phase: "done", resumeId: String(resumeId) });
+      return res.json({ phase: "done" });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
-      if (e.code === "INFLIGHT_CAP") {
-        return res.status(429).json({
-          error: "a resume is already generating; refresh to see it",
-        });
-      }
       throw e;
     } finally {
       client.release();

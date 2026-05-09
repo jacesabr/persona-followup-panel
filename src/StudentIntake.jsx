@@ -837,11 +837,13 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     }
   }, [persist]);
 
-  // "Proceed to your panel" — finishes intake and lets the existing
-  // phase=generating render path swap StudentIntake for StudentDashboard.
+  // "Proceed to your panel" — flips intake_phase=done on the server and
+  // renders the post-intake panels. Resume generation no longer auto-
+  // fires here (planned future work), so we go straight to 'done' and
+  // skip the transitional 'generating' phase.
   const handleProceedToPanel = useCallback(async () => {
     if (await completeIntake()) {
-      setPhase("generating");
+      setPhase("done");
       onComplete?.(answersRef.current);
     }
   }, [completeIntake, onComplete]);
