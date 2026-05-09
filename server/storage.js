@@ -50,7 +50,13 @@ function makeLocal() {
     async exists(key) {
       return fs.existsSync(key);
     },
-    async openReadStream(key) {
+    async openReadStream(key, opts = {}) {
+      const { start, end } = opts;
+      if (start != null) {
+        // fs.createReadStream's start/end are inclusive byte offsets,
+        // matching HTTP Range semantics — pass them through unchanged.
+        return fs.createReadStream(key, { start, end });
+      }
       return fs.createReadStream(key);
     },
     async deleteIfExists(key) {
@@ -126,8 +132,14 @@ async function makeS3() {
         throw e;
       }
     },
-    async openReadStream(key) {
-      const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    async openReadStream(key, opts = {}) {
+      const params = { Bucket: bucket, Key: key };
+      if (opts.start != null) {
+        // Translate fs-style {start, end} into S3's HTTP Range header
+        // so partial reads round-trip the same way as the local backend.
+        params.Range = `bytes=${opts.start}-${opts.end ?? ""}`;
+      }
+      const out = await client.send(new GetObjectCommand(params));
       return out.Body; // Readable stream in Node
     },
     async deleteIfExists(key) {

@@ -2,19 +2,27 @@
  * Daily backup runner.
  *
  * Dumps every public table from the prod Postgres into one
- * gzipped JSON object and uploads it to a Google Cloud Storage
- * bucket. Designed to be invoked by a Render Cron Job once a day,
- * but safe to run manually any time (e.g. before a risky import).
+ * gzipped JSON object and uploads it to Cloudflare R2 (the same
+ * bucket student files live in, under a `backups/` prefix).
+ * Designed to be invoked by a Render Cron Job once a day, but
+ * safe to run manually any time (e.g. before a risky import).
  *
  * Why JSON dumps and not pg_dump:
- *   - Render's basic_256mb plan doesn't include shell access for
- *     the Postgres instance, and Render Cron services don't ship
- *     postgresql-client by default. A pure-JS dump avoids the
- *     binary dependency entirely.
+ *   - Render Cron services don't ship postgresql-client and we
+ *     don't get shell access on basic_256mb to install it. A
+ *     pure-JS dump avoids the binary dependency entirely.
  *   - Restore = run migrate.js (idempotent), then INSERT each row
  *     from the JSON. Sequence values are preserved so generated
  *     ids continue cleanly. Code lives next to this script if a
  *     restore is ever needed.
+ *
+ * Why R2 + same bucket as student files:
+ *   - The S3 credentials we already have in env are scoped to this
+ *     bucket; a separate backup bucket would need a separate
+ *     account-level Cloudflare API token to create.
+ *   - R2 is geo-redundant + has versioning when enabled. One
+ *     bucket = one set of permissions to rotate, one place to
+ *     monitor.
  *
  * Restore sketch (intentionally not a one-button command — you
  * should think twice before running):
@@ -23,19 +31,20 @@
  *   3. For each table: TRUNCATE + INSERT rows from the dump
  *   4. SELECT setval(seq_name, last_value) for every sequence
  *
- * Env vars expected:
- *   DATABASE_URL                — prod Postgres connection string
- *   GCS_BUCKET                  — e.g. "persona-followup-backups"
- *   GCS_SERVICE_ACCOUNT_KEY     — full JSON of the service account
- *                                 key, inlined as a single env var
- *                                 (Render lets you do this even
- *                                 with newlines escaped)
- *   BACKUP_PREFIX               — optional, defaults to ""
+ * Env vars expected (already set on the web service):
+ *   DATABASE_URL          prod Postgres connection string
+ *   S3_BUCKET             e.g. "persona-intake-files"
+ *   S3_ENDPOINT           e.g. "https://<account>.r2.cloudflarestorage.com"
+ *   S3_REGION             "auto" for R2
+ *   S3_FORCE_PATH_STYLE   "true" for R2
+ *   S3_ACCESS_KEY_ID      R2 access key
+ *   S3_SECRET_ACCESS_KEY  R2 secret
+ *   BACKUP_PREFIX         optional, defaults to "backups"
  */
 
 import "dotenv/config";
 import zlib from "node:zlib";
-import { Storage } from "@google-cloud/storage";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import pool from "../db.js";
 
 async function dumpAllTables() {
@@ -76,36 +85,24 @@ async function dumpAllTables() {
   return dump;
 }
 
-function buildGcsClient() {
-  const keyJson = process.env.GCS_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GCS_SERVICE_ACCOUNT_KEY not set");
-  let credentials;
-  try {
-    credentials = JSON.parse(keyJson);
-  } catch (e) {
-    throw new Error("GCS_SERVICE_ACCOUNT_KEY is not valid JSON: " + e.message);
+function buildS3Client() {
+  const required = ["S3_BUCKET", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"];
+  for (const k of required) {
+    if (!process.env[k]) throw new Error(`${k} not set`);
   }
-  return new Storage({ credentials, projectId: credentials.project_id });
-}
-
-async function uploadToGcs(bucket, objectName, gzipBuffer) {
-  const file = bucket.file(objectName);
-  await file.save(gzipBuffer, {
-    contentType: "application/gzip",
-    metadata: {
-      contentEncoding: "gzip",
-      cacheControl: "no-cache",
+  return new S3Client({
+    region: process.env.S3_REGION || "auto",
+    endpoint: process.env.S3_ENDPOINT,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
     },
-    resumable: false,
   });
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL not set");
-  }
-  const bucketName = process.env.GCS_BUCKET;
-  if (!bucketName) throw new Error("GCS_BUCKET not set");
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL not set");
 
   const startedAt = Date.now();
   console.log("[backup] dumping tables…");
@@ -120,13 +117,25 @@ async function main() {
   const now = new Date();
   const day = now.toISOString().slice(0, 10);
   const time = now.toISOString().slice(11, 19).replace(/:/g, "");
-  const prefix = process.env.BACKUP_PREFIX || "";
-  const objectName = `${prefix ? prefix + "/" : ""}${day}/snapshot-${day}T${time}Z.json.gz`;
+  const prefix = process.env.BACKUP_PREFIX || "backups";
+  const objectKey = `${prefix}/${day}/snapshot-${day}T${time}Z.json.gz`;
 
-  console.log("[backup] uploading to gs://" + bucketName + "/" + objectName);
-  const storage = buildGcsClient();
-  const bucket = storage.bucket(bucketName);
-  await uploadToGcs(bucket, objectName, gz);
+  const bucket = process.env.S3_BUCKET;
+  console.log(`[backup] uploading to s3://${bucket}/${objectKey}`);
+  const s3 = buildS3Client();
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: objectKey,
+    Body: gz,
+    ContentType: "application/gzip",
+    ContentEncoding: "gzip",
+    CacheControl: "no-cache",
+    Metadata: {
+      "snapshot-at": dump.snapshot_at,
+      "table-count": String(dump.counts.tables),
+      "row-count": String(dump.counts.rows),
+    },
+  }));
 
   const elapsed = Date.now() - startedAt;
   console.log(

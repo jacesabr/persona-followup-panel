@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye, Send, Clock } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -736,9 +736,13 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
 }
 
 // ============================================================
-// StudentDetail — read-only view of intake answers + uploaded files
-// + any generated resumes for one student. Staff can also trigger
-// a regenerate per resume row (no read-write surface beyond that).
+// StudentDetail — paginated read-only view of one student's data.
+//
+// Mirrors the student intake's prev/next flow so the admin can step
+// horizontally through the same chapters/pages the student filled
+// in, then through resumes / required-docs / uploaded files. One
+// step on screen at a time keeps the row's expanded height roughly
+// bounded to a laptop viewport instead of the prior wall of scroll.
 // ============================================================
 function StudentDetail({ detail, role, onRefresh }) {
   const { student, files, resumes } = detail;
@@ -756,128 +760,206 @@ function StudentDetail({ detail, role, onRefresh }) {
       setRegen((p) => ({ ...p, [resumeId]: { busy: false, err: e?.message || "Regenerate failed." } }));
     }
   }, [student.student_id, onRefresh]);
-  // Phase pill: explicit signal of where the student is in the
-  // pipeline. Replaces the implicit-from-counts indicator.
+
+  // Flat step sequence. Each chapter page becomes its own step (only
+  // pages that have at least one answered field — `groupAnswersBySchema`
+  // already filters those). Then the three always-on admin sections.
+  const grouped = useMemo(() => {
+    const answers = extractAnswers(student?.data);
+    return groupAnswersBySchema(answers);
+  }, [student?.data]);
+
+  const steps = useMemo(() => {
+    const out = [];
+    grouped.forEach((chapter) => {
+      chapter.pages.forEach((page) => {
+        out.push({
+          kind: "page",
+          chapterTitle: chapter.title,
+          page,
+          title: `${chapter.title} · ${page.title}`,
+        });
+      });
+    });
+    if (grouped.length === 0) {
+      out.push({ kind: "empty", title: "Intake form data" });
+    }
+    out.push({ kind: "resumes", title: `AI-generated resumes (${resumes?.length || 0})` });
+    out.push({ kind: "required", title: "Required documents (LOR / Internship / SOP)" });
+    out.push({ kind: "uploads", title: `Uploaded documents (${files?.length || 0})` });
+    return out;
+  }, [grouped, resumes?.length, files?.length]);
+
+  const [stepIdx, setStepIdx] = useState(0);
+  // Clamp if step list shrinks (e.g. resume row deleted).
+  useEffect(() => {
+    if (stepIdx > steps.length - 1) setStepIdx(Math.max(0, steps.length - 1));
+  }, [steps.length, stepIdx]);
+
+  const step = steps[stepIdx] || steps[0];
+  const goPrev = () => setStepIdx((i) => Math.max(0, i - 1));
+  const goNext = () => setStepIdx((i) => Math.min(steps.length - 1, i + 1));
+  const atStart = stepIdx === 0;
+  const atEnd = stepIdx === steps.length - 1;
+
   const phaseLabel = ({
     intake: "Filling intake form",
     generating: "Generating resume",
     done: "Intake complete",
   }[student?.intake_phase] || "Filling intake form");
+  const phaseTone =
+    student?.intake_phase === "done" ? "text-emerald-700"
+    : student?.intake_phase === "generating" ? "text-amber-700"
+    : "text-black";
+
   return (
-    <div className="space-y-5 text-xs">
-      <div className="flex items-center justify-between border-b border-stone-200 pb-2">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-black">Pipeline phase</span>
-        <span className={`text-[11px] font-medium ${
-          student?.intake_phase === "done" ? "text-emerald-700"
-          : student?.intake_phase === "generating" ? "text-amber-700"
-          : "text-black"
-        }`}>{phaseLabel}</span>
+    <div className="text-xs">
+      {/* Pagination header — pipeline phase on the left, prev/next on
+          the right. Sticky to the top of the expanded panel so the
+          counter and arrows stay reachable while a tall PDF preview
+          scrolls below. */}
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-black">Pipeline</span>
+          <span className={`text-[11px] font-medium ${phaseTone}`}>{phaseLabel}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={atStart}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            <ArrowLeft className="h-3 w-3" /> Prev
+          </button>
+          <span className="min-w-[60px] text-center text-[10px] uppercase tracking-[0.15em] text-black">
+            {stepIdx + 1} / {steps.length}
+          </span>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={atEnd}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Next <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
-      <Section title="Intake form data">
-        {student?.data && Object.keys(student.data).length > 0 ? (
-          <IntakeAnswers data={student.data} studentId={student.student_id} />
-        ) : (
-          <p className=" text-black">Student hasn't started filling the form yet.</p>
-        )}
-      </Section>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h3 className="font-serif text-base text-black">{step?.title}</h3>
+      </div>
 
-      {/* Order: intake answers → AI-generated content → uploaded
-          documents. Mirrors how staff actually skim a profile — what
-          the student said, then what the system produced from it, then
-          the underlying source files for verification. */}
-      <Section title={`AI-generated resumes (${resumes?.length || 0})`}>
-        {resumes?.length ? (
-          <div className="space-y-3">
-            {resumes.map((r) => {
-              const snapshot = parseSnapshot(r.source_snapshot);
-              const stale =
-                r.status === "succeeded" &&
-                student?.updated_at &&
-                r.created_at &&
-                new Date(student.updated_at).getTime() > new Date(r.created_at).getTime() + 5_000;
-              return (
-              <div key={r.id} className="border border-stone-200 bg-white">
-                <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
-                  <span className="text-black">
-                    {r.label || `Resume #${r.id}`}
-                    {stale && (
-                      <span
-                        className="ml-2 rounded-sm bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-amber-800"
-                        title={`Student edited their data after this resume was generated (${humanRelative(student.updated_at)} vs ${humanRelative(r.created_at)})`}
-                      >
-                        may be stale
-                      </span>
-                    )}
+      {step?.kind === "page" && (
+        <ChapterSummaryBlock
+          chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
+          studentId={student.student_id}
+        />
+      )}
+      {step?.kind === "empty" && (
+        <p className="border border-stone-200 bg-white px-4 py-3 text-black">
+          Student hasn't started filling the form yet.
+        </p>
+      )}
+      {step?.kind === "resumes" && (
+        <ResumesStep
+          resumes={resumes}
+          student={student}
+          regen={regen}
+          onRegen={handleRegen}
+        />
+      )}
+      {step?.kind === "required" && (
+        <RequiredDocsStaff studentId={student.student_id} role={role} />
+      )}
+      {step?.kind === "uploads" && (
+        <UploadedDocsPreview files={files} studentId={student.student_id} />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ResumesStep — extracted from the old Section so the paginated
+// detail view can drop it in as one step. Pure presentation;
+// regenerate handler comes from the parent so it can refresh detail.
+// ============================================================
+function ResumesStep({ resumes, student, regen, onRegen }) {
+  if (!resumes || resumes.length === 0) {
+    return <p className="text-black">No resumes generated yet.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      {resumes.map((r) => {
+        const snapshot = parseSnapshot(r.source_snapshot);
+        const stale =
+          r.status === "succeeded" &&
+          student?.updated_at &&
+          r.created_at &&
+          new Date(student.updated_at).getTime() > new Date(r.created_at).getTime() + 5_000;
+        return (
+          <div key={r.id} className="border border-stone-200 bg-white">
+            <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
+              <span className="text-black">
+                {r.label || `Resume #${r.id}`}
+                {stale && (
+                  <span
+                    className="ml-2 rounded-sm bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-amber-800"
+                    title={`Student edited their data after this resume was generated (${humanRelative(student.updated_at)} vs ${humanRelative(r.created_at)})`}
+                  >
+                    may be stale
                   </span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] uppercase tracking-[0.15em] text-black">
-                      {snapshot?.actual_words && snapshot?.target_words
-                        ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
-                            {snapshot.actual_words}w / {snapshot.target_words}w target
-                          </span>
-                        : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
-                      {" · "}
-                      <span className={
-                        r.status === "succeeded" ? "text-emerald-700"
-                        : r.status === "failed" ? "text-red-700"
-                        : "text-amber-700"
-                      }>{r.status}</span>
-                    </span>
-                    {(r.status === "succeeded" || r.status === "failed") && (
-                      <button
-                        type="button"
-                        onClick={() => handleRegen(r.id)}
-                        disabled={regen[r.id]?.busy}
-                        className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:text-black disabled:opacity-50"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${regen[r.id]?.busy ? "animate-spin" : ""}`} />
-                        {regen[r.id]?.busy ? "Starting…" : "Regenerate"}
-                      </button>
-                    )}
-                  </div>
-                </header>
-                {regen[r.id]?.err && (
-                  <p className="border-b border-stone-100 bg-red-50 px-3 py-1.5 text-[10px] text-red-700">
-                    {regen[r.id].err}
-                  </p>
                 )}
-                {snapshot?.length_warning && (
-                  <p className="border-b border-stone-100 bg-amber-50 px-3 py-1.5 text-[10px] text-amber-800">
-                    ⚠ {snapshot.length_warning}
-                  </p>
-                )}
-                {/* Same renderer the student sees on their dashboard.
-                    Capped height with overflow so a 2-page resume
-                    doesn't dominate the row. */}
-                {r.content_md ? (
-                  <div className="max-h-[600px] overflow-auto bg-white px-4 py-3">
-                    <ResumeMarkdown>{r.content_md}</ResumeMarkdown>
-                  </div>
-                ) : r.error ? (
-                  <p className="px-3 py-2 text-[10px] text-red-700">{String(r.error).slice(0, 300)}</p>
-                ) : (
-                  <p className="px-3 py-2 text-[10px]  text-black">Generation in progress…</p>
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] uppercase tracking-[0.15em] text-black">
+                  {snapshot?.actual_words && snapshot?.target_words
+                    ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
+                        {snapshot.actual_words}w / {snapshot.target_words}w target
+                      </span>
+                    : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
+                  {" · "}
+                  <span className={
+                    r.status === "succeeded" ? "text-emerald-700"
+                    : r.status === "failed" ? "text-red-700"
+                    : "text-amber-700"
+                  }>{r.status}</span>
+                </span>
+                {(r.status === "succeeded" || r.status === "failed") && (
+                  <button
+                    type="button"
+                    onClick={() => onRegen(r.id)}
+                    disabled={regen[r.id]?.busy}
+                    className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:text-black disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${regen[r.id]?.busy ? "animate-spin" : ""}`} />
+                    {regen[r.id]?.busy ? "Starting…" : "Regenerate"}
+                  </button>
                 )}
               </div>
-              );
-            })}
+            </header>
+            {regen[r.id]?.err && (
+              <p className="border-b border-stone-100 bg-red-50 px-3 py-1.5 text-[10px] text-red-700">
+                {regen[r.id].err}
+              </p>
+            )}
+            {snapshot?.length_warning && (
+              <p className="border-b border-stone-100 bg-amber-50 px-3 py-1.5 text-[10px] text-amber-800">
+                ⚠ {snapshot.length_warning}
+              </p>
+            )}
+            {r.content_md ? (
+              <div className="max-h-[600px] overflow-auto bg-white px-4 py-3">
+                <ResumeMarkdown>{r.content_md}</ResumeMarkdown>
+              </div>
+            ) : r.error ? (
+              <p className="px-3 py-2 text-[10px] text-red-700">{String(r.error).slice(0, 300)}</p>
+            ) : (
+              <p className="px-3 py-2 text-[10px] text-black">Generation in progress…</p>
+            )}
           </div>
-        ) : (
-          <p className=" text-black">No resumes generated yet.</p>
-        )}
-      </Section>
-
-      <Section title="Required documents (LOR / Internship / SOP)">
-        <RequiredDocsStaff
-          studentId={student.student_id}
-          role={role}
-        />
-      </Section>
-
-      <Section title={`Uploaded documents (${files?.length || 0})`}>
-        <UploadedDocsPreview files={files} studentId={student.student_id} />
-      </Section>
+        );
+      })}
     </div>
   );
 }
@@ -925,28 +1007,6 @@ function humanRelative(iso) {
   const mo = Math.round(d / 30);
   if (mo < 12) return `${mo}mo ago`;
   return `${Math.round(mo / 12)}y ago`;
-}
-
-// IntakeAnswers — render the student.data blob the same way the
-// student sees it on their dashboard summary: chapter → page →
-// label/value rows, with inline image/PDF previews next to each
-// transcribed value. Lets staff verify the source document right
-// where the value appears, without bouncing to a separate uploads
-// section. studentId routes file URLs through the staff endpoint
-// so cookie-role authorisation works.
-function IntakeAnswers({ data, studentId }) {
-  const answers = extractAnswers(data);
-  const grouped = groupAnswersBySchema(answers);
-  if (grouped.length === 0) {
-    return <p className="text-sm text-stone-800">No answers yet.</p>;
-  }
-  return (
-    <div className="space-y-4">
-      {grouped.map((chapter) => (
-        <ChapterSummaryBlock key={chapter.id} chapter={chapter} studentId={studentId} />
-      ))}
-    </div>
-  );
 }
 
 // UploadedDocsPreview — staff-side mirror of the student's "Your
@@ -1286,22 +1346,6 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
     </div>
   );
 }
-
-function Section({ title, children }) {
-  return (
-    <div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-black">{title}</p>
-      {children}
-    </div>
-  );
-}
-
-const humanSize = (b) => {
-  if (b == null) return "";
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 ** 2) return `${(b / 1024).toFixed(0)} KB`;
-  return `${(b / 1024 ** 2).toFixed(1)} MB`;
-};
 
 // CSV download for the visible roster rows. Common parent-meeting prep
 // path. Uses RFC 4180 quoting (wrap fields in "..", escape any embedded

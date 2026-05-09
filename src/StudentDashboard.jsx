@@ -23,7 +23,11 @@ import {
   CheckCircle2,
   Upload,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import { Document, Page } from "react-pdf";
+import { PhotoProvider, PhotoView } from "react-photo-view";
 import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -784,73 +788,178 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId, fieldId 
   if (type.startsWith("image/") || urlIsInlineImage) {
     return (
       <div className="mt-2 max-w-sm">
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="block border border-stone-200 bg-white"
-          title="Open full size"
-        >
-          <img
-            src={url}
-            alt={name}
-            loading="lazy"
-            decoding="async"
-            referrerPolicy="no-referrer"
-            className="block max-h-60 w-full object-contain"
-            style={{ imageOrientation: "from-image" }}
-          />
-        </a>
+        <LightboxImage src={url} alt={name} maxHeightClass="max-h-60" />
         {docSummary && (
           <p className="mt-1 text-sm text-stone-800">{docSummary}</p>
         )}
       </div>
     );
   }
-  // Inline PDF preview via <object>. Desktop browsers (Chrome / Edge /
-  // Firefox / Safari) all render PDFs in <object> using their built-in
-  // viewer, so the doc shows up right next to its transcribed values
-  // without a click. iOS Safari + most Android browsers refuse to
-  // render PDFs inline — when that happens <object> falls back to its
-  // children, so we put the same "PDF · filename · Open ↗" card we used
-  // to render unconditionally inside as the fallback. Result: desktop
-  // users see the doc inline, mobile users still get a working tap.
+  // PDF — full client-side render via react-pdf (pdf.js under the hood).
+  // Replaces the previous <object> fallback, which Chrome/Edge handled
+  // but iOS Safari + most Android browsers refused to render inline.
+  // Now every device draws to a canvas, so the doc is readable without
+  // bouncing through "Open in new tab".
   return (
-    <div className="mt-2">
-      <object
-        data={url}
-        type="application/pdf"
-        className="block w-full max-w-2xl border border-stone-200 bg-white"
-        style={{ height: 560 }}
-      >
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex max-w-sm items-center gap-3 border border-stone-200 bg-white px-3 py-2 transition hover:border-stone-900 hover:bg-stone-50"
-          title="Open in a new tab"
-        >
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-300 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
+    <div className="mt-2 max-w-2xl">
+      <InlinePdf url={url} fileName={name} maxHeight={560} />
+      {docSummary && (
+        <p className="mt-2 text-sm text-stone-800">{docSummary}</p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LightboxImage — wraps an <img> with react-photo-view so a click
+// pops a full-screen lightbox with pinch/scroll zoom, drag-pan, and
+// rotate (matters for sideways-phone-shot marksheets). The image
+// honours its EXIF orientation tag via `image-orientation: from-image`
+// so most rotated phone photos display correctly without the rotate
+// button being needed at all.
+// ============================================================
+function LightboxImage({ src, alt, maxHeightClass = "max-h-60", className = "" }) {
+  return (
+    <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
+      <PhotoView src={src}>
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className={`block w-full cursor-zoom-in object-contain border border-stone-200 bg-white ${maxHeightClass} ${className}`}
+          style={{ imageOrientation: "from-image" }}
+        />
+      </PhotoView>
+    </PhotoProvider>
+  );
+}
+
+// ============================================================
+// InlinePdf — page-by-page PDF viewer powered by react-pdf. Renders
+// the current page to a canvas sized to the container width, with
+// prev/next page nav and an "Open in new tab" escape hatch.
+//
+// `withCredentials` is set on the document fetch so the same cookie
+// that authorised the JSON request authorises the binary fetch too —
+// required for our auth-gated /api/students/.../files/:id route.
+// ============================================================
+function InlinePdf({ url, fileName, maxHeight = 560 }) {
+  const [numPages, setNumPages] = useState(null);
+  const [pageNum, setPageNum] = useState(1);
+  const [width, setWidth] = useState(null);
+  const [error, setError] = useState(null);
+  const containerRef = useRef(null);
+
+  // Same-origin file URLs are stable across renders for the same id; an
+  // object literal `{ url, withCredentials }` would be a new reference
+  // every render and trigger an infinite refetch loop in <Document>.
+  const fileSpec = useMemo(() => ({ url, withCredentials: true }), [url]);
+
+  useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w && w > 0) setWidth(w);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Reset page index whenever the source changes (a different file
+  // may have a different page count; staying on page 7 of an old doc
+  // would silently render blank).
+  useEffect(() => {
+    setPageNum(1);
+    setError(null);
+  }, [url]);
+
+  const goPrev = () => setPageNum((p) => Math.max(1, p - 1));
+  const goNext = () => setPageNum((p) => Math.min(numPages || 1, p + 1));
+
+  return (
+    <div className="border border-stone-200 bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 bg-stone-50 px-3 py-1.5">
+        <span className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-stone-700">
+          <span className="inline-flex h-5 items-center border border-stone-300 bg-white px-1.5 font-semibold">
             PDF
           </span>
-          <span className="min-w-0 truncate text-sm text-black">{name}</span>
-          <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-700">
-            Open ↗
+          <span className="truncate text-stone-800" title={fileName}>{fileName}</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={pageNum <= 1}
+            className="inline-flex items-center border border-stone-300 bg-white p-1 text-stone-700 transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+            title="Previous page"
+          >
+            <ChevronLeft className="h-3 w-3" />
+          </button>
+          <span className="min-w-[44px] text-center text-[10px] uppercase tracking-[0.15em] text-stone-700">
+            {numPages ? `${pageNum} / ${numPages}` : "…"}
           </span>
-        </a>
-      </object>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:text-[#cc785c]"
-        title="Open in a new tab"
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={!numPages || pageNum >= numPages}
+            className="inline-flex items-center border border-stone-300 bg-white p-1 text-stone-700 transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+            title="Next page"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-1 inline-flex items-center text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:text-[#cc785c]"
+            title="Open in a new tab"
+          >
+            Open ↗
+          </a>
+        </span>
+      </header>
+      <div
+        ref={containerRef}
+        className="relative overflow-auto bg-stone-100"
+        style={{ maxHeight }}
       >
-        Open full size ↗
-      </a>
-      {docSummary && (
-        <p className="mt-1 max-w-2xl text-sm text-stone-800">{docSummary}</p>
-      )}
+        {error ? (
+          <div className="px-3 py-6 text-center text-xs text-red-700">
+            Couldn't render this PDF inline. <a href={url} target="_blank" rel="noreferrer" className="underline">Open it directly</a>.
+          </div>
+        ) : (
+          <Document
+            file={fileSpec}
+            onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+            onLoadError={(e) => setError(e?.message || "load error")}
+            loading={
+              <div className="flex items-center justify-center px-3 py-10 text-xs text-stone-700">
+                <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Loading PDF…
+              </div>
+            }
+            error={
+              <div className="px-3 py-6 text-center text-xs text-red-700">
+                Couldn't load this PDF.
+              </div>
+            }
+          >
+            {width && (
+              <Page
+                pageNumber={pageNum}
+                width={width}
+                renderAnnotationLayer={false}
+                loading={
+                  <div className="flex items-center justify-center px-3 py-10 text-xs text-stone-700">
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Rendering page…
+                  </div>
+                }
+              />
+            )}
+          </Document>
+        )}
+      </div>
     </div>
   );
 }
@@ -992,18 +1101,22 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
       </div>
       <div className="bg-stone-50">
         {isImg && (
-          <img
-            src={href}
-            alt={title}
-            className="mx-auto block max-h-[80vh] w-auto max-w-full"
-          />
+          <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
+            <PhotoView src={href}>
+              <img
+                src={href}
+                alt={title}
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="mx-auto block max-h-[80vh] w-auto max-w-full cursor-zoom-in"
+                style={{ imageOrientation: "from-image" }}
+              />
+            </PhotoView>
+          </PhotoProvider>
         )}
         {isPdf && (
-          <iframe
-            src={href}
-            title={title}
-            className="block h-[80vh] w-full border-0"
-          />
+          <InlinePdf url={href} fileName={file.original_name} maxHeight="80vh" />
         )}
         {!isImg && !isPdf && (
           <div className="px-4 py-8 text-center text-sm text-stone-800">

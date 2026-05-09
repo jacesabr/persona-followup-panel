@@ -1031,6 +1031,82 @@ router.get("/me/files", requireStudent, async (req, res, next) => {
   }
 });
 
+// Parse a single-range HTTP Range header against a known total size.
+// Returns { start, end } (inclusive offsets) or null when the header is
+// absent / malformed / multi-range — caller falls back to a full 200.
+// pdf.js issues single-range fetches only, which is the case we care
+// about; multipart byteranges are deliberately unsupported.
+function parseRange(header, totalSize) {
+  if (!header || typeof header !== "string" || !header.startsWith("bytes=")) return null;
+  const spec = header.slice(6);
+  if (spec.includes(",")) return null;
+  const dash = spec.indexOf("-");
+  if (dash < 0) return null;
+  const startStr = spec.slice(0, dash);
+  const endStr = spec.slice(dash + 1);
+  let start, end;
+  if (startStr === "") {
+    // suffix range: last N bytes
+    const n = Number(endStr);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    start = Math.max(0, totalSize - n);
+    end = totalSize - 1;
+  } else {
+    start = Number(startStr);
+    if (!Number.isFinite(start) || start < 0 || start >= totalSize) return null;
+    end = endStr === "" ? totalSize - 1 : Number(endStr);
+    if (!Number.isFinite(end)) return null;
+    if (end >= totalSize) end = totalSize - 1;
+  }
+  if (start > end) return null;
+  return { start, end };
+}
+
+// Stream a stored file to the response, honouring HTTP Range requests
+// when present. Used by both the student-side and staff-side download
+// routes — same headers, same range-handling semantics, single source
+// of truth. Range support matters for pdf.js: it issues partial fetches
+// to stream large marksheets page-by-page instead of buffering the
+// whole document.
+async function streamStoredFile(req, res, next, doc) {
+  try {
+    const store = await getStorage();
+    if (!(await store.exists(doc.storage_path))) {
+      return res.status(410).json({ error: "File missing in storage." });
+    }
+    res.set("Content-Type", doc.mime_type);
+    // private = single-user (cookie-gated, contains personal data —
+    // Aadhar / passport scans). max-age = treat the response as
+    // immutable for an hour: file IDs are unique-per-upload (BIGSERIAL),
+    // so a "replace" gets a brand new URL and the browser cache for the
+    // old one becomes irrelevant. immutable hints the browser away from
+    // revalidating on back/forward nav.
+    res.set("Cache-Control", "private, max-age=3600, immutable");
+    res.set("Accept-Ranges", "bytes");
+    res.set(
+      "Content-Disposition",
+      `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
+    );
+
+    const range = parseRange(req.headers.range, doc.size);
+    if (range) {
+      res.status(206);
+      res.set("Content-Range", `bytes ${range.start}-${range.end}/${doc.size}`);
+      res.set("Content-Length", String(range.end - range.start + 1));
+      const stream = await store.openReadStream(doc.storage_path, range);
+      stream.on("error", (e) => next(e));
+      stream.pipe(res);
+    } else {
+      res.set("Content-Length", String(doc.size));
+      const stream = await store.openReadStream(doc.storage_path);
+      stream.on("error", (e) => next(e));
+      stream.pipe(res);
+    }
+  } catch (e) {
+    next(e);
+  }
+}
+
 // File download — student gets their own files only.
 router.get("/me/files/:id", requireStudent, async (req, res, next) => {
   try {
@@ -1047,27 +1123,7 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
     if (doc.student_id !== req.user.studentId) {
       return res.status(403).json({ error: "Forbidden." });
     }
-    const store = await getStorage();
-    if (!(await store.exists(doc.storage_path))) {
-      return res.status(410).json({ error: "File missing in storage." });
-    }
-    res.set("Content-Type", doc.mime_type);
-    res.set("Content-Length", String(doc.size));
-    // private = single-user (cookie-gated, contains personal data —
-    // Aadhar / passport scans). max-age = treat the response as
-    // immutable for an hour: file IDs are unique-per-upload (BIGSERIAL),
-    // so a "replace" gets a brand new URL and the browser cache for the
-    // old one becomes irrelevant. immutable hints the browser away from
-    // revalidating on back/forward nav, which keeps the inline preview
-    // snappy as the student bounces between intake pages.
-    res.set("Cache-Control", "private, max-age=3600, immutable");
-    res.set(
-      "Content-Disposition",
-      `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
-    );
-    const stream = await store.openReadStream(doc.storage_path);
-    stream.on("error", (e) => next(e));
-    stream.pipe(res);
+    return streamStoredFile(req, res, next, doc);
   } catch (e) {
     next(e);
   }
@@ -1095,22 +1151,7 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
     if (req.user.kind === "counsellor" && doc.counsellor_id !== req.user.counsellorId) {
       return res.status(403).json({ error: "not your student" });
     }
-    const store = await getStorage();
-    if (!(await store.exists(doc.storage_path))) {
-      return res.status(410).json({ error: "File missing in storage." });
-    }
-    res.set("Content-Type", doc.mime_type);
-    res.set("Content-Length", String(doc.size));
-    // Same Cache-Control rationale as the student-side route above —
-    // private + immutable, file IDs never alias.
-    res.set("Cache-Control", "private, max-age=3600, immutable");
-    res.set(
-      "Content-Disposition",
-      `inline; filename="${path.basename(doc.original_name).replace(/"/g, "")}"`
-    );
-    const stream = await store.openReadStream(doc.storage_path);
-    stream.on("error", (e) => next(e));
-    stream.pipe(res);
+    return streamStoredFile(req, res, next, doc);
   } catch (e) {
     next(e);
   }

@@ -155,6 +155,15 @@ app.use(
       directives: {
         "object-src": ["'self'"],
         "frame-src": ["'self'"],
+        // pdf.js spawns a Worker from a same-origin module asset
+        // (configured via pdfjs.GlobalWorkerOptions.workerSrc in
+        // src/viewer.js). worker-src in CSP3 falls back to script-src,
+        // but some browsers still gate it explicitly — naming it here
+        // avoids "fake worker" mode (which renders synchronously in
+        // the main thread and stalls the UI on big PDFs). 'blob:' is
+        // included for the rare path where pdf.js bootstraps via a
+        // blob: URL on Safari.
+        "worker-src": ["'self'", "blob:"],
       },
     },
   })
