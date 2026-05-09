@@ -4,9 +4,9 @@ import SimplePanel from "./SimplePanel.jsx";
 import AdminPanel from "./AdminPanel.jsx";
 import StudentIntake from "./StudentIntake.jsx";
 import { api, setUnauthorizedHandler } from "./api.js";
-import { formatInIst } from "../lib/time.js";
 import VersionBanner from "./VersionBanner.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
+import Frame from "./Frame.jsx";
 
 // Cross-tab auth notification. When one tab logs in/out the shared
 // persona_session cookie changes; other tabs would otherwise keep
@@ -315,71 +315,6 @@ export default function App() {
         />
       </Frame>
     </>
-  );
-}
-
-function Frame({ children, onSignOut, displayName, roleLabel }) {
-  const article = roleLabel === "Admin" ? "an" : "a";
-  return (
-    <div
-      className="min-h-screen w-full font-serif text-black"
-      style={{ backgroundColor: "#faf9f5" }}
-    >
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <header className="mb-10 flex items-center gap-4 border-b border-stone-300 pb-4">
-          {/* Left: wordmark */}
-          <span className="shrink-0 text-2xl font-semibold tracking-tight">Persona</span>
-
-          {/* Centre: welcome */}
-          {displayName && (
-            <div className="flex-1 text-center">
-              <span className="text-base font-bold text-black">Welcome, {displayName}</span>
-              <span className="text-base text-black"> · </span>
-              <span className="text-base text-[#cc785c]">
-                you are {article} <span className="font-bold">{roleLabel}</span> at Persona
-              </span>
-            </div>
-          )}
-          {!displayName && <div className="flex-1" />}
-
-          {/* Right: clock + sign out */}
-          <div className="shrink-0 flex items-center gap-5">
-            <LiveClock />
-            <button
-              onClick={onSignOut}
-              className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
-            >
-              <LogOut className="h-3 w-3" /> sign out
-            </button>
-          </div>
-        </header>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// Always-visible clock pinned to IST (Ludhiana / Asia/Kolkata). Updates every
-// second so anyone glancing at the header can confirm the displayed time
-// matches their wall clock — that's the whole point of having it here.
-function LiveClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <div className="text-right leading-tight">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-black">
-        Ludhiana time
-      </p>
-      <p className="text-xs font-semibold tabular-nums text-black">
-        {formatInIst(now.toISOString(), {
-          weekday: "short",
-          second: "2-digit",
-        })}
-      </p>
-    </div>
   );
 }
 
