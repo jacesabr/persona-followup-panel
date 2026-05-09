@@ -99,6 +99,20 @@ async function makeS3() {
         Body: body,
         ContentType: mimeType || "application/octet-stream",
       }));
+      // Defense-in-depth: HEAD the object we just wrote so save()
+      // guarantees "if I return, the bytes are in R2". R2 is strongly
+      // consistent so PutObject 200 already implies presence — this
+      // check exists to catch silent SDK/network/proxy failures and
+      // mis-signed requests that would otherwise let the upload route
+      // INSERT a DB row pointing at nothing. Throws on miss; the
+      // caller already runs orphan cleanup on save() throw.
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+      const reportedSize = Number(head.ContentLength ?? -1);
+      if (reportedSize !== body.length) {
+        throw new Error(
+          `[storage:s3] post-save HEAD size mismatch: wrote ${body.length}B, R2 reports ${reportedSize}B (key=${key})`
+        );
+      }
       // Best-effort tmp cleanup; multer also cleans on success/failure.
       try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
       return { key, size: body.length };
@@ -140,7 +154,18 @@ export async function getStorage() {
 }
 
 // Eager init for the boot sanity check — surfaces missing config at
-// startup instead of at first upload.
+// startup instead of at first upload. Production refuses to boot on
+// the local-disk backend: Render wipes the container disk on every
+// redeploy, so a "local" boot in prod silently corrupts every future
+// student upload. Make it loud and crash-fast so the deploy fails
+// instead of going live with the wrong storage.
 export async function initStorage() {
   await getStorage();
+  if (process.env.NODE_ENV === "production" && _instance.name !== "s3") {
+    throw new Error(
+      `[storage] refusing to boot in production with backend=${_instance.name}. ` +
+      `Render's container disk is wiped on every redeploy, so set STORAGE_BACKEND=s3 ` +
+      `with valid S3_BUCKET / S3_ENDPOINT / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY.`
+    );
+  }
 }
