@@ -31,6 +31,7 @@ import {
   transitionPhase,
 } from "./intakeFiles.js";
 import StudentDashboard from "./StudentDashboard.jsx";
+import Frame from "./Frame.jsx";
 import { api } from "./api.js";
 import {
   CHAPTERS,
@@ -1137,53 +1138,41 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   ];
   const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
 
-  return (
-    <div
-      className="min-h-screen w-full font-serif text-black"
-      style={{ backgroundColor: "#f4f0e6" }}
-    >
-      <header className="sticky top-0 z-10 border-b border-stone-900/10 bg-[#f4f0e6]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm text-black">the</span>
-            <span className="text-lg font-semibold tracking-tight">Persona</span>
-            <span className="text-[10px] uppercase tracking-[0.25em] text-black">
-              · {studentName || "student"}
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <SaveIndicator state={saveState} />
+  const panelSwitcher = (
+    <div className="mb-8 -mt-2 flex items-center gap-2">
+      <span className="mr-1 inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.2em] text-black">
+        <SaveIndicator state={saveState} />
+      </span>
+      <nav className="flex flex-wrap items-center gap-2">
+        {tabs.map((t) => {
+          const isActive = t.id === activeTab;
+          return (
             <button
+              key={t.id}
               type="button"
-              onClick={onExit}
-              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
+              onClick={() => switchTo(t.id)}
+              className={`whitespace-nowrap border px-4 py-2 text-sm transition ${
+                isActive
+                  ? "border-[#cc785c] bg-[#cc785c] text-white"
+                  : "border-stone-300 bg-white text-black hover:border-stone-900"
+              }`}
             >
-              <LogOut className="h-3 w-3" /> Sign out
+              {t.label}
             </button>
-          </div>
-        </div>
-        <nav className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto px-6">
-          {tabs.map((t) => {
-            const isActive = t.id === activeTab;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => switchTo(t.id)}
-                className={`whitespace-nowrap border-b-2 px-3 py-2 text-[11px] uppercase tracking-[0.2em] transition ${
-                  isActive
-                    ? "border-stone-900 text-black"
-                    : "border-transparent text-black/60 hover:text-black"
-                }`}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
-      </header>
+          );
+        })}
+      </nav>
+    </div>
+  );
 
-      <main className="mx-auto max-w-3xl px-6 pb-16 pt-8">
+  return (
+    <Frame
+      onSignOut={onExit}
+      displayName={studentName || "student"}
+      roleLabel="Student"
+      belowHeader={panelSwitcher}
+    >
+      <main className="pb-16">
         {activeTab === "overview" && (
           <StudentDashboard
             key={overviewKey}
@@ -1202,7 +1191,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
           />
         )}
       </main>
-    </div>
+    </Frame>
   );
 }
 

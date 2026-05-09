@@ -165,44 +165,44 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         )}
 
         <section className="mt-10">
-          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your information</h2>
-          <p className="mt-1 text-xs text-black">
-            Everything you submitted on the intake form, grouped the same way you filled it out.
+          <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your application — summary</h2>
+          <p className="mt-1 text-sm text-stone-800">
+            A plain-English read of everything you've submitted so far. (Documents are previewed below.)
           </p>
-          <div className="mt-3 space-y-4">
+          <div className="mt-4 space-y-6">
             {answers === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-black">
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
               </div>
             ) : grouped.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs  text-black">
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
                 No answers recorded yet.
               </p>
             ) : (
               grouped.map((chapter) => (
-                <ChapterBlock key={chapter.id} chapter={chapter} />
+                <NarrativeChapterBlock key={chapter.id} chapter={chapter} />
               ))
             )}
           </div>
         </section>
 
-        <section className="mt-10">
+        <section className="mt-12">
           <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your documents</h2>
-          <p className="mt-1 text-xs text-black">
-            Everything you uploaded — marksheets, passport pages, photos, certificates. Click any tile to open the file.
+          <p className="mt-1 text-sm text-stone-800">
+            Every file you uploaded, rendered inline. Images appear as photos, PDFs render as readable previews.
           </p>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="mt-4 space-y-6">
             {files === null ? (
-              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-xs text-black sm:col-span-2">
+              <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
               </div>
             ) : files.length === 0 ? (
-              <p className="border border-stone-900/15 bg-white px-4 py-3 text-xs  text-black sm:col-span-2">
+              <p className="border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
                 No documents uploaded.
               </p>
             ) : (
               files.map((f) => (
-                <DocumentTile
+                <DocumentPreview
                   key={f.id}
                   file={f}
                   fieldIndex={fieldIndex}
@@ -548,6 +548,93 @@ function ChapterBlock({ chapter }) {
   );
 }
 
+// ============================================================
+// NarrativeChapterBlock — readable prose-style summary of a
+// chapter. Each page becomes a sentence-like paragraph that
+// strings the answered fields together with their labels, so a
+// reader can skim the entire application top-to-bottom without
+// parsing key-value tables.
+// ============================================================
+function NarrativeChapterBlock({ chapter }) {
+  return (
+    <div className="border border-stone-900/15 bg-white px-6 py-5">
+      <h3 className="font-serif text-xl text-black">{chapter.title}</h3>
+      <div className="mt-3 space-y-3">
+        {chapter.pages.map((page) => (
+          <NarrativePage key={page.id} page={page} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NarrativePage({ page }) {
+  const sentences = page.fields
+    .map((f) => fieldToSentence(f))
+    .filter(Boolean);
+  if (sentences.length === 0) return null;
+  return (
+    <div>
+      <p className="font-medium text-stone-800">{page.title}</p>
+      <p className="mt-1 text-base leading-relaxed text-black">
+        {sentences.map((s, i) => (
+          <span key={i}>
+            {s}
+            {i < sentences.length - 1 ? " " : ""}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+// Render a single field as a "Label: value." sentence, picking
+// a sensible value-string per type. Returns null if the field
+// has no answer worth rendering.
+function fieldToSentence(field) {
+  const v = field.value;
+  if (!isAnswered(v)) return null;
+  if (field.type === "info") return null;
+  const label = field.label || prettifyFieldId(field.id);
+  const valueStr = formatScalarValue(v, field);
+  if (valueStr == null) return null;
+  return `${label}: ${valueStr}.`;
+}
+
+function formatScalarValue(value, field) {
+  if (value == null || value === "") return null;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  // File slot
+  if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
+    if (value.status === "uploaded") return `${value.name || "file"} (uploaded)`;
+    return `${value.name || "file"} (${value.status})`;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    const itemFields = field?.itemFields || [];
+    const rows = value
+      .map((row, i) => {
+        if (!row || typeof row !== "object") return String(row);
+        const parts = (itemFields.length > 0 ? itemFields : Object.keys(row).map((k) => ({ id: k, label: k })))
+          .map((sub) => {
+            const sv = row[sub.id];
+            if (!isAnswered(sv)) return null;
+            const sub_str = formatScalarValue(sv, sub);
+            return sub_str ? `${sub.label} ${sub_str}` : null;
+          })
+          .filter(Boolean)
+          .join("; ");
+        return parts ? `(${i + 1}) ${parts}` : null;
+      })
+      .filter(Boolean);
+    return rows.length ? rows.join(" ") : null;
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 function PageBlock({ page }) {
   return (
     <div className="px-4 py-3">
@@ -641,6 +728,70 @@ function FieldValue({ value, field }) {
     );
   }
   return <span>{String(value)}</span>;
+}
+
+// ============================================================
+// DocumentPreview — full inline render of one uploaded document.
+// Images render as <img>, PDFs as <iframe>, anything else falls
+// back to a download link. Shown in the Overview's "Your
+// documents" section so the student (and staff in preview) can
+// read every uploaded artifact without leaving the dashboard.
+// ============================================================
+function DocumentPreview({ file, fieldIndex, studentId }) {
+  const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
+  const title = meta?.label || prettifyFieldId(file.field_id);
+  const description =
+    meta?.pageHelper ||
+    (meta?.pageTitle && meta?.chapterTitle
+      ? `${meta.chapterTitle} · ${meta.pageTitle}`
+      : meta?.placeholder || null);
+  const href = studentId
+    ? `/api/students/${studentId}/files/${file.id}`
+    : `/api/students/me/files/${file.id}`;
+  const isImg = isImage(file.mime_type);
+  const isPdf = file.mime_type === "application/pdf";
+  return (
+    <div className="border border-stone-900/15 bg-white">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
+        <p className="text-base font-medium text-black">{title}</p>
+        {description && (
+          <p className="text-sm text-stone-800">{description}</p>
+        )}
+        <p className="ml-auto text-sm text-stone-800">
+          {file.original_name} · {humanSize(file.size)} · {friendlyMimeLabel(file.mime_type)}
+        </p>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-[#cc785c] underline underline-offset-4 hover:text-[#b86a4f]"
+        >
+          Open in new tab
+        </a>
+      </div>
+      <div className="bg-stone-50">
+        {isImg && (
+          <img
+            src={href}
+            alt={title}
+            className="mx-auto block max-h-[80vh] w-auto max-w-full"
+          />
+        )}
+        {isPdf && (
+          <iframe
+            src={href}
+            title={title}
+            className="block h-[80vh] w-full border-0"
+          />
+        )}
+        {!isImg && !isPdf && (
+          <div className="px-4 py-8 text-center text-sm text-stone-800">
+            Inline preview isn't available for this file type. Use "Open in new tab" above.
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function DocumentTile({ file, fieldIndex, studentId }) {
