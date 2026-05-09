@@ -31,6 +31,31 @@ import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
 
+// Plain-English description shown beneath every uploaded document
+// (admin or student view). Keyed by the leaf field id, so repeater
+// uploads like "activities_list[3].proof" resolve to "proof". Use
+// concise, jargon-light copy — counsellors / admins read these to
+// remind themselves what each artifact is supposed to be.
+const DOC_SUMMARIES = {
+  aadharFile: "Government-issued 12-digit unique identity number (UIDAI). Used as proof of identity, address, and date of birth in India.",
+  photoFile: "Recent passport-style photograph of the applicant. Universities use this for ID cards and admission packets.",
+  panFile: "PAN card — Permanent Account Number issued by India's Income Tax Department. Used as a tax identifier.",
+  passportFront: "Passport bio-data page (photo + personal info). Required for visa filing and university i20 paperwork.",
+  passportBack: "Passport address page. Pairs with the front page in any international application packet.",
+  marks10sheet: "Class 10 marksheet (CBSE / ICSE / State Board). Official secondary-examination transcript.",
+  marks11sheet: "Class 11 report card. Universities use it to confirm progression into Class 12.",
+  marks12sheet: "Class 12 marksheet — the qualifying transcript for undergraduate admissions.",
+  cgpaSheet: "Undergraduate transcript / consolidated mark sheet, used for postgraduate applications.",
+  ieltsCert: "IELTS Test Report Form (TRF). Confirms English-language proficiency for international universities.",
+  testScore: "Standardised test score report (SAT / ACT / GRE / GMAT etc.) attached to the application.",
+  proof: "Certificate or document evidencing this co-curricular activity, achievement, or course.",
+};
+function getDocSummary(fieldId) {
+  if (!fieldId) return null;
+  const leaf = String(fieldId).split(".").pop().split("[")[0];
+  return DOC_SUMMARIES[leaf] || DOC_SUMMARIES[fieldId] || null;
+}
+
 // `section` (optional) restricts rendering to a single block when set:
 //   "summary"        — application summary only
 //   "documents"      — uploaded-file previews only
@@ -654,7 +679,7 @@ function SummaryFieldValue({ value, field, studentId }) {
             <span className="text-stone-600">({value.status})</span>
           )}
         </span>
-        <MiniFilePreview slot={value} studentId={studentId} />
+        <MiniFilePreview slot={value} studentId={studentId} fieldId={field?.id} />
       </div>
     );
   }
@@ -711,7 +736,8 @@ function RepeaterRowSummary({ row, itemFields, studentId }) {
 // the student / staff can verify the actual content next to its
 // transcribed values without bouncing through the Documents tab.
 // ============================================================
-function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
+function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId, fieldId }) {
+  const docSummary = getDocSummary(fieldId);
   // Two callers: the answers-summary slot (has slot.{fileId,name,type})
   // and the required-docs row (has explicit fileId + filename, no mime
   // — inferred from the extension). Either path resolves to (id, name,
@@ -757,23 +783,28 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
   const urlIsInlineImage = url.startsWith("data:image/");
   if (type.startsWith("image/") || urlIsInlineImage) {
     return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 block max-w-sm border border-stone-200 bg-white"
-        title="Open full size"
-      >
-        <img
-          src={url}
-          alt={name}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          className="block max-h-60 w-full object-contain"
-          style={{ imageOrientation: "from-image" }}
-        />
-      </a>
+      <div className="mt-2 max-w-sm">
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="block border border-stone-200 bg-white"
+          title="Open full size"
+        >
+          <img
+            src={url}
+            alt={name}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="block max-h-60 w-full object-contain"
+            style={{ imageOrientation: "from-image" }}
+          />
+        </a>
+        {docSummary && (
+          <p className="mt-1 text-sm text-stone-800">{docSummary}</p>
+        )}
+      </div>
     );
   }
   // Inline PDF preview via <object>. Desktop browsers (Chrome / Edge /
@@ -817,6 +848,9 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
       >
         Open full size ↗
       </a>
+      {docSummary && (
+        <p className="mt-1 max-w-2xl text-sm text-stone-800">{docSummary}</p>
+      )}
     </div>
   );
 }
@@ -936,6 +970,7 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
     : `/api/students/me/files/${file.id}`;
   const isImg = isImage(file.mime_type);
   const isPdf = file.mime_type === "application/pdf";
+  const docSummary = getDocSummary(file.field_id);
   return (
     <div className="border border-stone-900/15 bg-white">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
@@ -976,6 +1011,11 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           </div>
         )}
       </div>
+      {docSummary && (
+        <p className="border-t border-stone-200 px-4 py-3 text-sm text-stone-800">
+          <span className="text-stone-600">What this is — </span>{docSummary}
+        </p>
+      )}
     </div>
   );
 }
