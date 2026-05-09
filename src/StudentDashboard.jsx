@@ -119,25 +119,34 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     }
   }, [isStaffPreview, studentId]);
 
+  // Keep `resumes` reachable inside the polling tick without putting
+  // it in the effect's deps. The previous version listed `resumes` in
+  // the dep array; every load() call setResumes() with a new array
+  // identity, which retore down + re-armed the interval (and called
+  // load() again) on every tick — burning ~1 API call per second on
+  // top of the intended 4s cadence. Now the interval owns the timer
+  // for the lifetime of the component and just reads the latest value
+  // from the ref each tick.
+  const resumesRef = useRef(resumes);
+  useEffect(() => { resumesRef.current = resumes; }, [resumes]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       await load();
       if (cancelled) return;
     })();
-    // Keep polling while a resume is mid-generation so the markdown
-    // appears in place without the student needing to refresh.
     pollRef.current = setInterval(() => {
-      const inflight = (resumes || []).some(
-        (r) => r.status === "pending" || r.status === "running"
+      const r = resumesRef.current;
+      const inflight = (r || []).some(
+        (x) => x.status === "pending" || x.status === "running"
       );
-      if (resumes === null || inflight) load();
+      if (r === null || inflight) load();
     }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(pollRef.current);
     };
-  }, [resumes, load]);
+  }, [load]);
 
   const latestResume = (resumes || [])[0] || null;
 

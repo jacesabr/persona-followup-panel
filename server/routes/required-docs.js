@@ -419,9 +419,35 @@ export default router;
 // Exposed for use by server/routes/students.js when intake completes:
 // reads paths_list-style briefs out of data.answers and creates the
 // LOR/Internship rows + the auto-SOP row in one transaction.
+//
+// Downward reconciliation: if a student deletes one of N existing LOR
+// or internship rows from the intake form, we delete the now-orphan
+// `seq > newCount` rows so the staff side doesn't keep showing
+// stale recipient data for a row the student no longer wants. We
+// only delete rows that haven't been sent to the student yet
+// (requested_at IS NULL); once a request is out the door, the row
+// is operationally meaningful and deleting it would lose audit trail.
 export async function seedRequiredDocsForStudent(client, studentId, answers) {
   const lors = Array.isArray(answers?.lors_list) ? answers.lors_list : [];
   const interns = Array.isArray(answers?.internships_list) ? answers.internships_list : [];
+
+  // Count of valid (non-blank) entries in the new lists, used as the
+  // upper-bound seq to keep. Mirrors the per-row "skip if blank" rule
+  // below so we don't accidentally delete a real row.
+  const liveLorCount = lors.filter((r) => {
+    if (!r || typeof r !== "object") return false;
+    const name = (r.recipient_name || "").trim();
+    const role = (r.recipient_role || "").trim();
+    const reason = (r.reason_brief || "").trim();
+    return !!(name || role || reason);
+  }).length;
+  const liveInternCount = interns.filter((r) => {
+    if (!r || typeof r !== "object") return false;
+    const company = (r.company_name || "").trim();
+    const website = (r.company_website || "").trim();
+    const activity = (r.activity_brief || "").trim();
+    return !!(company || website || activity);
+  }).length;
 
   let seq = 0;
   for (const r of lors) {
@@ -443,6 +469,13 @@ export async function seedRequiredDocsForStudent(client, studentId, answers) {
       [studentId, seq, name || null, role || null, reason || null]
     );
   }
+  // Drop tail rows the student removed (only if not already requested).
+  await client.query(
+    `DELETE FROM intake_required_docs
+       WHERE student_id = $1 AND kind = 'lor'
+         AND seq > $2 AND requested_at IS NULL`,
+    [studentId, liveLorCount]
+  );
 
   seq = 0;
   for (const r of interns) {
@@ -464,6 +497,12 @@ export async function seedRequiredDocsForStudent(client, studentId, answers) {
       [studentId, seq, company || null, website || null, activity || null]
     );
   }
+  await client.query(
+    `DELETE FROM intake_required_docs
+       WHERE student_id = $1 AND kind = 'internship'
+         AND seq > $2 AND requested_at IS NULL`,
+    [studentId, liveInternCount]
+  );
 
   // SOP — exactly one row, auto-created. Idempotent via the
   // (student, kind, seq) unique index.

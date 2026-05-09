@@ -1663,8 +1663,11 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
 
 // POST /api/students/:student_id/reset-intake — admin only.
 // Clears intake_complete + intake_phase so the student can redo the
-// intake flow from scratch. Also wipes required_docs rows so they get
-// re-seeded when the student completes intake again.
+// intake flow from scratch. Also wipes required_docs rows + any
+// pending applications so they get re-seeded / re-submitted when the
+// student completes intake again. Active (non-archived) application
+// rows would otherwise stay in the staff queue pointing at the
+// now-empty intake — confusing and effectively phantom.
 // Useful for test accounts or when the intake schema changes significantly.
 router.post("/:student_id/reset-intake", requireAdmin, async (req, res, next) => {
   try {
@@ -1687,6 +1690,16 @@ router.post("/:student_id/reset-intake", requireAdmin, async (req, res, next) =>
       }
       await client.query(
         `DELETE FROM intake_required_docs WHERE student_id = $1`,
+        [student_id]
+      );
+      // Drop unfinished application rows. Archived rows stay (they
+      // are the historical record) — the student or admin can choose
+      // to ignore them after reset. The CASCADE on intake_students
+      // would handle this if the row itself were deleted, but reset
+      // keeps the row alive, so we have to clear by hand.
+      await client.query(
+        `DELETE FROM intake_applications
+           WHERE student_id = $1 AND archived = FALSE`,
         [student_id]
       );
       await client.query("COMMIT");

@@ -195,7 +195,14 @@ router.post("/login", async (req, res, next) => {
     audit({ ip: req.ip, headers: req.headers, user: { kind: "counsellor", counsellorId: row.id } }, {
       table: "sessions", id: sid, action: "login", notes: `counsellor:${row.username}`
     });
-    const { password: _pw, ...safe } = row;
+    // Strip password_hash before returning to the client. The
+    // SELECT above explicitly added it for the local verify; if we
+    // forget to drop it here the scrypt material lands in the
+    // login response body. The previous destructure was keyed on
+    // `password` — the column was renamed to `password_hash` in the
+    // migration audit (a2fed85), so the strip silently no-op'd
+    // until this audit caught it.
+    const { password_hash: _pwHash, ...safe } = row;
     res.json({ user_kind: "counsellor", counsellor: safe });
   } catch (e) {
     next(e);

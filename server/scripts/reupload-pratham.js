@@ -69,6 +69,28 @@ async function main() {
   const data = cur.rows[0].data || {};
   const answers = (data && typeof data === "object" && data.answers) || {};
 
+  // Idempotency guard: refuse to run if every active intake_files row
+  // for this student already lives in R2 (storage_path doesn't start
+  // with the legacy /opt/render/... local-disk prefix). Re-running
+  // when everything is already in R2 would create N more orphan blobs
+  // for no gain — supersede saves the DB but the R2 cost grows.
+  const active = await pool.query(
+    `SELECT COUNT(*) FILTER (WHERE storage_path LIKE '/opt/render/%')::int AS legacy,
+            COUNT(*)::int AS total
+       FROM intake_files
+      WHERE student_id = $1 AND superseded_at IS NULL`,
+    [STUDENT_ID]
+  );
+  const { legacy, total } = active.rows[0];
+  if (total > 0 && legacy === 0) {
+    console.log(
+      `[reupload] all ${total} active intake_files row(s) already point at R2 keys; nothing to do.`
+    );
+    await pool.end();
+    return;
+  }
+  console.log(`[reupload] ${legacy} legacy / ${total} active row(s) — proceeding.`);
+
   const updates = [];
 
   for (const f of FILE_MAP) {

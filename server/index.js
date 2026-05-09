@@ -93,18 +93,36 @@ async function seedCorpusIfEmpty() {
 async function refuseIfPlaintextPasswordsPresent() {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, username FROM counsellors
-        WHERE password_hash IS NOT NULL AND password_hash NOT LIKE 'scrypt:%'`
+      `SELECT id, name, username,
+              (password_hash IS NULL) AS hash_null,
+              (password_hash IS NOT NULL AND password_hash NOT LIKE 'scrypt:%') AS plaintext
+         FROM counsellors`
     );
-    if (rows.length > 0) {
+    const plaintext = rows.filter((r) => r.plaintext);
+    const nullHash = rows.filter((r) => r.hash_null);
+    if (plaintext.length > 0) {
       console.error(
-        `[startup] ${rows.length} counsellor row(s) still hold plaintext passwords:`,
-        rows.map((r) => `${r.username || r.id} (${r.name})`).join(", ")
+        `[startup] ${plaintext.length} counsellor row(s) still hold plaintext passwords:`,
+        plaintext.map((r) => `${r.username || r.id} (${r.name})`).join(", ")
       );
       console.error(
         "[startup] reset their passwords (admin UI) so they get re-hashed, then redeploy."
       );
       process.exit(1);
+    }
+    // password_hash IS NULL is a softer state — the row exists but
+    // can't authenticate. The original guard silently passed those
+    // rows because its WHERE clause filtered them out, which hid the
+    // problem. Warn (don't crash) so an operator notices and fixes
+    // it via the reset-password admin action.
+    if (nullHash.length > 0) {
+      console.warn(
+        `[startup] ${nullHash.length} counsellor row(s) have NULL password_hash — those accounts cannot log in:`,
+        nullHash.map((r) => `${r.username || r.id} (${r.name})`).join(", ")
+      );
+      console.warn(
+        "[startup] use admin → reset password to set credentials before they're needed."
+      );
     }
   } catch (e) {
     // If counsellors table doesn't exist yet (very first boot), skip gracefully.
