@@ -422,8 +422,8 @@ CREATE INDEX IF NOT EXISTS idx_intake_applications_pending
   ON intake_applications(created_at DESC)
   WHERE pending = TRUE AND archived = FALSE;
 
--- Dedup index for the xlsx import path. Originally written as
--- `WHERE student_id IS NULL` only — which silently dropped legitimate
+-- Dedup index for the xlsx import path. Originally written with
+-- WHERE student_id IS NULL only — which silently dropped legitimate
 -- re-applications: a student who'd cancelled an old UCL CS application
 -- and was re-applying this cycle would have their new (active) row
 -- skipped by ON CONFLICT DO NOTHING. The fix: only enforce uniqueness
