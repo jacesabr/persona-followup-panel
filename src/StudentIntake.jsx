@@ -1135,14 +1135,19 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   // views over data the StudentDashboard already loads — they each
   // render the dashboard with a `section` prop so only the relevant
   // block shows.
+  // The "destination" chapter (Where you want to go — primary target
+  // country) is folded into the Application status tab so the student's
+  // target country reads as a header for the list of universities they're
+  // actually applying to. It is intentionally omitted from the tab list.
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
     { id: "required-docs", label: "Required documents" },
     { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
-    ...PANEL_CHAPTERS.map((c) => ({ id: c.id, label: c.title })),
+    ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),
   ];
+  const destinationChapter = CHAPTERS.find((c) => c.id === "destination") || null;
   const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
   const dashboardSection = activeTab === "overview" ? "summary"
     : activeTab === "documents" ? "documents"
@@ -1194,7 +1199,19 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
             section={dashboardSection}
           />
         )}
-        {activeTab === "status" && <StudentApplicationsStatusTab />}
+        {activeTab === "status" && (
+          <div className="space-y-12">
+            {destinationChapter && (
+              <PanelChapterEditor
+                chapter={destinationChapter}
+                answers={answers}
+                onChange={onChange}
+                onBlur={onBlur}
+              />
+            )}
+            <StudentApplicationsStatusTab />
+          </div>
+        )}
         {activeChapter && (
           <PanelChapterEditor
             chapter={activeChapter}
@@ -1338,25 +1355,20 @@ function PageCard({
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">{page.title}</h2>
       {page.helper && <p className="mt-3 text-lg font-semibold text-black">{page.helper}</p>}
 
-      {/* page.preamble: an array of {heading, body} blocks that render
-          above the fields. Used by p_required_docs to explain the LOR /
-          Internship / SOP procedure in large-print bullet points before
-          the student fills anything in. */}
+      {/* page.preamble: an array of one-line strings rendered as a
+          compact numbered list above the fields. Used by p_required_docs
+          to walk the LOR / internship / SOP workflow without dominating
+          the page. */}
       {Array.isArray(page.preamble) && page.preamble.length > 0 && (
-        <div className="mt-6 space-y-4 border-l-2 border-stone-900/20 bg-[#f4f0e6]/60 px-5 py-5">
+        <div className="mt-6">
           <p className="text-[10px] uppercase tracking-[0.25em] text-black">
             How this works
           </p>
-          {page.preamble.map((block, i) => (
-            <div key={i}>
-              <p className="font-serif text-base font-semibold leading-snug text-black md:text-lg">
-                {block.heading}
-              </p>
-              <p className="mt-1 text-sm leading-relaxed text-black">
-                {block.body}
-              </p>
-            </div>
-          ))}
+          <ol className="mt-3 list-decimal space-y-1.5 pl-5 font-serif text-base leading-relaxed text-black marker:font-semibold marker:text-stone-700">
+            {page.preamble.map((text, i) => (
+              <li key={i}>{text}</li>
+            ))}
+          </ol>
         </div>
       )}
 
@@ -1449,7 +1461,7 @@ function FieldRow({ field, value, onChange, onBlur, inputRef, wide }) {
       </span>
       <FieldInput field={field} value={value} onChange={onChange} onBlur={onBlur} ref={inputRef} />
       {field.helper && (
-        <span className="mt-1 block text-[10px]  text-black">{field.helper}</span>
+        <span className="mt-2 block text-sm text-stone-800">{field.helper}</span>
       )}
     </Wrapper>
   );
@@ -2390,13 +2402,18 @@ function fmtCommentTime(d) {
 
 function StudentApplicationsStatusTab() {
   const [apps, setApps] = useState(null);
+  const [counsellor, setCounsellor] = useState(undefined); // undefined = loading, null = unassigned
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await api.listMyApplications();
+      const [list, who] = await Promise.all([
+        api.listMyApplications(),
+        api.getMyCounsellor().catch(() => ({ counsellor: null })),
+      ]);
       setApps(list);
+      setCounsellor(who?.counsellor ?? null);
       setError(null);
     } catch (e) {
       setError(e?.message || "Couldn't load your applications.");
@@ -2411,6 +2428,14 @@ function StudentApplicationsStatusTab() {
     <div>
       <p className="text-[10px] uppercase tracking-[0.3em] text-black">▸ Application status</p>
       <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">Your school applications</h2>
+      <p className="mt-3 text-sm text-stone-800">
+        <span className="font-semibold">Counsellor:</span>{" "}
+        {counsellor === undefined
+          ? "—"
+          : counsellor
+          ? counsellor.name
+          : "not yet assigned — your application will sit in the shared review queue until an admin assigns one."}
+      </p>
       <p className="mt-3 text-sm text-stone-800">
         Add a new university here and your counsellor will pick it up in
         their pending-review queue. Use the comments under each row to
