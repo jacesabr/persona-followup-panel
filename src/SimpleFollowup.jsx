@@ -281,6 +281,39 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   };
 
+  // Open the SessionPopup for a lead. If the lead already has an
+  // official (non-ad_hoc) "current" appointment surfaced via
+  // next_appointment_id, just open the popup against it. Otherwise
+  // POST a new ad_hoc=true row at NOW() — that's the "pre-appointment
+  // quick call" path. Server filters ad_hoc rows out of the
+  // service_date recompute so this can never accidentally promote
+  // itself into the lead's official next session.
+  const openSession = async (lead) => {
+    if (lead.next_appointment_id) {
+      setSessionLead(lead);
+      return;
+    }
+    try {
+      const { appointment } = await api.createAppointment(lead.id, {
+        scheduled_for: new Date().toISOString(),
+        ad_hoc: true,
+      });
+      setSessionLead({
+        ...lead,
+        next_appointment_id: appointment.id,
+        next_appointment_scheduled_for: appointment.scheduled_for,
+        // SessionPopup uses this to render an "Ad-hoc note" badge so the
+        // counsellor sees this row isn't tied to a formal calendar
+        // appointment yet. next_appointment_id is server-filtered to
+        // ad_hoc=false, so this flag only ever rides along when we just
+        // created the row ourselves on this very click.
+        next_appointment_ad_hoc: true,
+      });
+    } catch (e) {
+      setError(e.message || "Couldn't start a session.");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-black">
@@ -617,22 +650,20 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 >
                   <History className="h-3.5 w-3.5" /> View
                 </button>
-                {/* Session button — targets the next upcoming appointment
-                    if one exists, otherwise the most recent past one. Lets
-                    the counsellor keep adding notes after a session ends,
-                    right up until a followup is booked (at which point the
-                    button retargets to the new upcoming row automatically).
-                    Opens a popup that captures session notes + creates
-                    tasks linked to this specific appointment_id. */}
-                {lead.next_appointment_id && (
-                  <button
-                    onClick={() => setSessionLead(lead)}
-                    title="Open session notes + tasks for the current appointment"
-                    className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[12px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
-                  >
-                    <Calendar className="h-3.5 w-3.5" /> Session
-                  </button>
-                )}
+                {/* Session button — always shown. If the lead has an
+                    official (non-ad_hoc) upcoming or recent appointment,
+                    open the popup against that. Otherwise create a new
+                    ad_hoc=true row at NOW() (a "pre-appointment quick
+                    call") and open against it, so the counsellor can log
+                    notes from any conversation that happens before the
+                    formal session is even booked. */}
+                <button
+                  onClick={() => openSession(lead)}
+                  title="Open session notes + tasks for the current conversation"
+                  className="inline-flex items-center justify-center gap-1 border border-[#cc785c] bg-[#cc785c]/10 px-1.5 py-1 text-[12px] text-[#cc785c] outline-none hover:bg-[#cc785c] hover:text-white"
+                >
+                  <Calendar className="h-3.5 w-3.5" /> Session
+                </button>
               </span>
               <span className="text-[14px] text-black">
                 {counsellorNameById.get(lead.counsellor_id) ||
@@ -918,6 +949,7 @@ function HistoryPopup({ lead, onClose }) {
                     <HistoryRow
                       key={a.id}
                       appt={a}
+                      serviceDate={lead.service_date}
                       isEditing={editingId === a.id}
                       isSaving={savingId === a.id}
                       editText={editText}
@@ -936,6 +968,7 @@ function HistoryPopup({ lead, onClose }) {
                     <HistoryRow
                       key={a.id}
                       appt={a}
+                      serviceDate={lead.service_date}
                       isEditing={editingId === a.id}
                       isSaving={savingId === a.id}
                       editText={editText}
@@ -969,6 +1002,7 @@ function Section({ title, children }) {
 
 function HistoryRow({
   appt,
+  serviceDate,
   isEditing,
   isSaving,
   editText,
@@ -984,8 +1018,35 @@ function HistoryRow({
   const isPast = new Date(appt.scheduled_for).getTime() < Date.now();
   const sessionMissed = isPast && !appt.notes;
 
+  // ad_hoc rows were created via the always-on Session button when there
+  // was no calendar-booked appointment to attach notes to. Compare to the
+  // lead's official service_date so the banner reads "before" / "after"
+  // accurately. service_date is null when no official appointment has
+  // ever been booked → the row stands as a pre-appointment quick call.
+  let adHocBanner = null;
+  if (appt.ad_hoc) {
+    const apptMs = new Date(appt.scheduled_for).getTime();
+    if (!serviceDate) {
+      adHocBanner = "Pre-appointment quick call — no official appointment has been booked yet";
+    } else {
+      const svcMs = new Date(serviceDate).getTime();
+      if (apptMs < svcMs) {
+        adHocBanner = "Pre-appointment quick call — this session occurred before the official appointment was registered";
+      } else if (apptMs > svcMs) {
+        adHocBanner = "Post-appointment follow-up — this session occurred after the official appointment date";
+      } else {
+        adHocBanner = "Ad-hoc note on the official appointment day";
+      }
+    }
+  }
+
   return (
     <li className="px-5 py-3">
+      {adHocBanner && (
+        <p className="mb-2 text-[13px] font-bold text-red-700">
+          {adHocBanner}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[16px] font-semibold tabular-nums text-black">
           {formatDateInIst(appt.scheduled_for)}
@@ -1546,6 +1607,7 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 function SessionPopup({ lead, onClose }) {
   const apptId = lead.next_appointment_id;
   const apptDate = lead.next_appointment_scheduled_for;
+  const isAdHoc = !!lead.next_appointment_ad_hoc;
   // When apptDate is in the past, the popup is being used to document a
   // session that already happened — render a small badge so the counsellor
   // sees at a glance that this isn't an upcoming one. Once they book a
@@ -1654,7 +1716,12 @@ function SessionPopup({ lead, onClose }) {
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
               Session
-              {isPastSession && (
+              {isAdHoc && (
+                <span className="ml-2 border border-red-700 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.18em] text-red-700">
+                  Ad-hoc · pre-appointment quick call
+                </span>
+              )}
+              {!isAdHoc && isPastSession && (
                 <span className="ml-2 border border-stone-400 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-black">
                   Past · awaiting notes
                 </span>

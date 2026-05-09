@@ -117,22 +117,28 @@ router.get("/", async (req, res, next) => {
     // and the Session target retargets to the new appointment.
     // Both subqueries use NOW() (statement-stable in Postgres) so id and
     // scheduled_for always come from the same row.
+    // ad_hoc = FALSE filter on every appointment subquery so a
+    // pre-appointment quick-call note never becomes the lead's
+    // displayed "next session" or service_date. The Session button is
+    // now always shown on the client regardless of next_appointment_id,
+    // so the field's role here is purely "what calendar-booked session
+    // is the lead currently focused on?".
     const sql = `
       SELECT leads.*,
         COALESCE(
           (SELECT id FROM lead_appointments
-             WHERE lead_id = leads.id AND scheduled_for >= NOW()
+             WHERE lead_id = leads.id AND ad_hoc = FALSE AND scheduled_for >= NOW()
              ORDER BY scheduled_for ASC LIMIT 1),
           (SELECT id FROM lead_appointments
-             WHERE lead_id = leads.id AND scheduled_for < NOW()
+             WHERE lead_id = leads.id AND ad_hoc = FALSE AND scheduled_for < NOW()
              ORDER BY scheduled_for DESC LIMIT 1)
         ) AS next_appointment_id,
         COALESCE(
           (SELECT scheduled_for FROM lead_appointments
-             WHERE lead_id = leads.id AND scheduled_for >= NOW()
+             WHERE lead_id = leads.id AND ad_hoc = FALSE AND scheduled_for >= NOW()
              ORDER BY scheduled_for ASC LIMIT 1),
           (SELECT scheduled_for FROM lead_appointments
-             WHERE lead_id = leads.id AND scheduled_for < NOW()
+             WHERE lead_id = leads.id AND ad_hoc = FALSE AND scheduled_for < NOW()
              ORDER BY scheduled_for DESC LIMIT 1)
         ) AS next_appointment_scheduled_for
       FROM leads
@@ -430,7 +436,7 @@ router.post("/:id/appointments", async (req, res, next) => {
     const { id } = req.params;
     if (!(await checkLeadAccess(req, res, id))) return;
 
-    const { scheduled_for, notes } = req.body;
+    const { scheduled_for, notes, ad_hoc } = req.body;
     if (!scheduled_for || !isValidUtcIso(scheduled_for)) {
       return res
         .status(400)
@@ -448,24 +454,26 @@ router.post("/:id/appointments", async (req, res, next) => {
     }
 
     const cleanNotes = notes ? notes.trim() : null;
+    const cleanAdHoc = ad_hoc === true;
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const { rows: apptRows } = await client.query(
-        "INSERT INTO lead_appointments (lead_id, scheduled_for, notes) VALUES ($1, $2, $3) RETURNING *",
-        [id, scheduled_for, cleanNotes]
+        "INSERT INTO lead_appointments (lead_id, scheduled_for, notes, ad_hoc) VALUES ($1, $2, $3, $4) RETURNING *",
+        [id, scheduled_for, cleanNotes, cleanAdHoc]
       );
       // Recompute service_date from the appointments table itself so the
-      // value always reflects "next upcoming, else most recent past" no
-      // matter what order rows were inserted.
+      // value always reflects "next upcoming, else most recent past" —
+      // filtered to ad_hoc = FALSE so a quick pre-appointment call never
+      // becomes the lead's official next session date.
       const { rows: leadRows } = await client.query(
         `UPDATE leads SET
            service_date = COALESCE(
              (SELECT MIN(scheduled_for) FROM lead_appointments
-                WHERE lead_id = $1 AND scheduled_for >= NOW()),
+                WHERE lead_id = $1 AND ad_hoc = FALSE AND scheduled_for >= NOW()),
              (SELECT MAX(scheduled_for) FROM lead_appointments
-                WHERE lead_id = $1)
+                WHERE lead_id = $1 AND ad_hoc = FALSE)
            ),
            updated_at = NOW()
          WHERE id = $1

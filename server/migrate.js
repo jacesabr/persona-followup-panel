@@ -77,6 +77,16 @@ ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS appointment_id BIGINT
   REFERENCES lead_appointments(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_counsellor_tasks_appointment ON counsellor_tasks(appointment_id);
 
+-- Flag for appointment rows created via the always-on "Session" button
+-- when no calendar-booked appointment was active. Ad-hoc rows are
+-- excluded from the lead.service_date recompute and from the
+-- next_appointment_* fields surfaced to the followup table — so a
+-- "pre-appointment quick call" note never masquerades as the official
+-- next session. The HistoryPopup uses this flag to render a red
+-- "pre-appointment quick call" / "post-appointment follow-up" banner
+-- on the row.
+ALTER TABLE lead_appointments ADD COLUMN IF NOT EXISTS ad_hoc BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Free-form comments on a task. Counsellors use these to add notes
 -- without modifying the task itself (only admin can edit task text /
 -- due date). Append-only by design — no edit/delete route — so the
