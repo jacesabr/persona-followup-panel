@@ -77,12 +77,24 @@ function isSkipC(v) {
 // Does NOT strip "30/11/2025" (digits followed by "/").
 function cleanUniversity(v) {
   if (v == null) return null;
-  const cleaned = String(v)
+  const cleaned = stripInvisibles(String(v))
     .trim()
-    .replace(/^⁠/, "")                                    // zero-width no-break space
     .replace(/^[0-9]+(?:[.\s]+(?=[A-Za-z])|(?=[A-Z]))/, "") // "1. x", "1 x", "4UCL"
     .trim();
   return cleaned || null;
+}
+
+// ── strip Unicode invisibles that LOWER(TRIM(...)) doesn't catch ────────────
+// Bhoomi / Myra IILM duplicates this morning got past the unique index
+// because the Excel cell was prefixed with U+2060 WORD JOINER — distinct
+// from a regular space, so DB-side TRIM (whitespace-only) didn't collapse
+// them. Normalising here means the dedup index sees the same canonical
+// form regardless of how the source spreadsheet got its invisibles.
+function stripInvisibles(s) {
+  // U+200B..U+200D: zero-width space / non-joiner / joiner
+  // U+2060:        word joiner (the one Excel produced for us)
+  // U+FEFF:        zero-width no-break space / BOM
+  return s.replace(/[​‌‍⁠﻿]/g, "");
 }
 
 // ── detect values that look like a date (shouldn't be used as university) ───
@@ -224,7 +236,9 @@ async function main() {
     const status = COLOR_STATUS[color];
     if (!status) continue;
 
-    const studentName = row[C_NAME] != null ? String(row[C_NAME]).trim() : null;
+    const studentName = row[C_NAME] != null
+      ? stripInvisibles(String(row[C_NAME])).trim()
+      : null;
     if (!studentName) continue;
 
     const university = resolveUniversity(row);
@@ -235,7 +249,7 @@ async function main() {
     for (const ci of [C_F, C_J, C_E]) {
       const v = row[ci];
       if (v == null) continue;
-      const s = String(v).trim();
+      const s = stripInvisibles(String(v)).trim();
       if (!s || looksLikeDate(s)) continue;
       if (/^(done|offer|required|test|sop|nil|payment pending)$/i.test(s)) continue;
       program = s;

@@ -177,7 +177,7 @@ router.post("/", requireAdmin, async (req, res, next) => {
 
     try {
       const { rows } = await pool.query(
-        `INSERT INTO counsellors (id, name, whatsapp, email, username, password, password_plain)
+        `INSERT INTO counsellors (id, name, whatsapp, email, username, password_hash, password_plain)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING ${PUBLIC_COLUMNS}`,
         [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password), password]
@@ -273,6 +273,11 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
     fields.forEach((f) => {
       const v = req.body[f];
       let stored = v;
+      // The body field "password" maps to the SQL column "password_hash"
+      // (renamed for naming consistency with intake_students). The
+      // wire-level field name is unchanged, so the client API stays
+      // stable.
+      let column = f === "password" ? "password_hash" : f;
       if (f === "name" && typeof v === "string") stored = v.trim();
       else if (f === "email" && typeof v === "string") stored = v.trim().toLowerCase() || null;
       else if (f === "username" && typeof v === "string") stored = v.trim().toLowerCase() || null;
@@ -280,7 +285,7 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       else if (f === "password" && typeof v === "string") stored = hashPassword(v);
       else if (f === "supervisor_id") stored = v || null;
       values.push(stored);
-      setParts.push(`${f} = $${values.length}`);
+      setParts.push(`${column} = $${values.length}`);
     });
     if (fields.includes("password")) {
       values.push(req.body.password);
@@ -354,7 +359,7 @@ router.post("/me/change-password", express.json(), async (req, res, next) => {
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE counsellors SET password = $1, password_plain = $2 WHERE id = $3`,
+        `UPDATE counsellors SET password_hash = $1, password_plain = $2 WHERE id = $3`,
         [hashPassword(newPassword), newPassword, req.user.counsellorId]
       );
       await client.query(

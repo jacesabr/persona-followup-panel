@@ -133,7 +133,7 @@ router.post("/login", async (req, res, next) => {
     // Counsellor path — case-insensitive username lookup against the
     // (lowercased) stored value.
     const { rows } = await pool.query(
-      `SELECT ${COUNSELLOR_PUBLIC_COLUMNS}, password
+      `SELECT ${COUNSELLOR_PUBLIC_COLUMNS}, password_hash
        FROM counsellors
        WHERE LOWER(username) = LOWER($1)
        LIMIT 1`,
@@ -161,10 +161,10 @@ router.post("/login", async (req, res, next) => {
     // returns ~scrypt-fast while a hashed counsellor takes ~50ms,
     // leaking which counsellors haven't migrated yet.
     let ok = false;
-    if (isHashed(row.password)) {
-      ok = verifyHashed(password, row.password);
-    } else if (typeof row.password === "string") {
-      ok = safeStrEqual(password, row.password);
+    if (isHashed(row.password_hash)) {
+      ok = verifyHashed(password, row.password_hash);
+    } else if (typeof row.password_hash === "string") {
+      ok = safeStrEqual(password, row.password_hash);
       if (!ok) {
         verifyHashed(password, DUMMY_HASH);
       }
@@ -173,7 +173,7 @@ router.post("/login", async (req, res, next) => {
           // Backfill password_plain at the same time so legacy rows show
           // up correctly on the admin panel after first login.
           await pool.query(
-            "UPDATE counsellors SET password = $1, password_plain = COALESCE(password_plain, $2) WHERE id = $3",
+            "UPDATE counsellors SET password_hash = $1, password_plain = COALESCE(password_plain, $2) WHERE id = $3",
             [hashPassword(password), password, row.id]
           );
         } catch (e) {

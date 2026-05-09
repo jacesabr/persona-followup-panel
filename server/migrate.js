@@ -11,14 +11,26 @@ CREATE TABLE IF NOT EXISTS counsellors (
   whatsapp TEXT,
   email TEXT,
   username TEXT,
-  password TEXT,
+  password_hash TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- Idempotent rename: pre-migration deploys created the column as
+-- 'password', which mis-implied plaintext. Match intake_students's
+-- naming so the schema reads consistently. Renames only when the old
+-- column exists AND the new one doesn't (re-runs are no-ops).
+DO $rename_counsellors_password$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='counsellors' AND column_name='password')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_schema='public' AND table_name='counsellors' AND column_name='password_hash') THEN
+    ALTER TABLE counsellors RENAME COLUMN password TO password_hash;
+  END IF;
+END $rename_counsellors_password$;
 -- Plaintext copy stored alongside the scrypt hash so admin (and the
 -- counsellor themselves) can see the password on the panel — explicit
 -- product call by the operator. Tradeoff acknowledged: anyone with admin
--- session OR DB read can see all passwords. Hash stays the source of
--- truth for login.
+-- session OR DB read can see all passwords. password_hash stays the
+-- source of truth for login.
 ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS password_plain TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_counsellors_username ON counsellors(username) WHERE username IS NOT NULL;
 
@@ -117,28 +129,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_last_seen ON sessions(last_seen_at);
 
--- One-time wipe of demo data accumulated during the trial-mode era.
--- Marker table makes this idempotent: it runs exactly once (first boot
--- after this migration ships), then the IF NOT EXISTS short-circuits
--- forever. Real client data added afterwards is safe.
---
--- This block runs BEFORE the intake_* tables exist (on a brand-new DB)
--- because Postgres processes statements in order. On already-migrated
--- DBs the marker short-circuits, so the FK from intake_students.counsellor_id
--- never gets evaluated against the truncate. Safe.
-DO $persona_wipe$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_tables
-    WHERE schemaname = 'public' AND tablename = '_persona_post_demo_wipe'
-  ) THEN
-    CREATE TABLE _persona_post_demo_wipe (done_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
-    TRUNCATE TABLE sessions, counsellor_tasks, lead_appointments, leads, counsellors RESTART IDENTITY CASCADE;
-    INSERT INTO _persona_post_demo_wipe DEFAULT VALUES;
-    RAISE NOTICE 'persona: wiped demo data (one-shot, marker inserted)';
-  END IF;
-END
-$persona_wipe$;
+-- The previous demo-wipe TRUNCATE block has been removed. It was a
+-- one-shot guarded by the _persona_post_demo_wipe marker table; the
+-- marker now exists in every active prod DB so the block was already
+-- inert. Removing it eliminates the foot-gun where someone dropping
+-- the marker would silently nuke prod (sessions / tasks / appointments
+-- / leads / counsellors) on the next deploy boot. The marker table
+-- itself is left in place as archaeology — small, harmless.
 
 -- Legacy cleanup: drop tables and columns from the WhatsApp/email/
 -- transcript era. Safe on fresh DBs (IF EXISTS) and on upgraded ones.
@@ -147,6 +144,15 @@ DROP TABLE IF EXISTS lead_actionables CASCADE;
 ALTER TABLE leads DROP COLUMN IF EXISTS transcript;
 ALTER TABLE leads DROP COLUMN IF EXISTS notes;
 ALTER TABLE leads DROP COLUMN IF EXISTS reminder_sent;
+-- counsellor_name was a denormalised cache from the early schema;
+-- the followup table now reads counsellor_id and joins. Dead data on
+-- existing rows leaks if anyone ever exports the table directly.
+ALTER TABLE leads DROP COLUMN IF EXISTS counsellor_name;
+-- Redundant with idx_lead_appointments_scheduled (which is a
+-- (lead_id, scheduled_for) composite — leftmost-prefix already
+-- covers lead_id-only queries). Eats write amplification on every
+-- appointment insert without any read benefit.
+DROP INDEX IF EXISTS idx_lead_appointments_lead_id;
 
 -- ============================================================
 -- STUDENT INTAKE TABLES (merged in from persona-intake repo).
@@ -205,16 +211,18 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS schema_version INT NOT NULL
 -- re-enter the merged flow.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS intake_phase TEXT;
 UPDATE intake_students SET intake_phase = 'intake' WHERE intake_phase = 'doc_review';
-DO $$ BEGIN
-  IF EXISTS (
+-- Add the phase CHECK only when missing. Earlier this block dropped
+-- and re-added on every boot, which rewrites pg_constraint pointlessly
+-- and shows up in deploy logs as noise.
+DO $intake_phase_check$ BEGIN
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'intake_students_phase_check'
   ) THEN
-    ALTER TABLE intake_students DROP CONSTRAINT intake_students_phase_check;
+    ALTER TABLE intake_students
+      ADD CONSTRAINT intake_students_phase_check
+      CHECK (intake_phase IS NULL OR intake_phase IN ('intake', 'done'));
   END IF;
-  ALTER TABLE intake_students
-    ADD CONSTRAINT intake_students_phase_check
-    CHECK (intake_phase IS NULL OR intake_phase IN ('intake', 'done'));
-END $$;
+END $intake_phase_check$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_students_username ON intake_students(LOWER(username)) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_intake_students_lead       ON intake_students(lead_id);
 CREATE INDEX IF NOT EXISTS idx_intake_students_counsellor ON intake_students(counsellor_id);
@@ -546,6 +554,21 @@ ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_kind TEXT NOT NUL
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS assignee_admin_username TEXT;
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE counsellor_tasks ADD COLUMN IF NOT EXISTS creator_kind TEXT NOT NULL DEFAULT 'counsellor';
+-- Constrain the kind enums so a buggy PATCH or a hand-crafted INSERT
+-- can't land an unknown value (e.g. 'student' on a task) that the UI
+-- then renders incorrectly. Idempotent: only adds when missing.
+DO $task_kind_checks$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'counsellor_tasks_assignee_kind_check') THEN
+    ALTER TABLE counsellor_tasks
+      ADD CONSTRAINT counsellor_tasks_assignee_kind_check
+      CHECK (assignee_kind IN ('counsellor', 'admin'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'counsellor_tasks_creator_kind_check') THEN
+    ALTER TABLE counsellor_tasks
+      ADD CONSTRAINT counsellor_tasks_creator_kind_check
+      CHECK (creator_kind IN ('counsellor', 'admin'));
+  END IF;
+END $task_kind_checks$;
 -- Mirror authorship: when a named admin (e.g. adminSuhas) creates a
 -- task, this stores their raw lowercased username so the UI can show
 -- "Suhas created this" instead of a generic "Admin" — important now
@@ -562,22 +585,51 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_id TEXT REFERENCES intake_
 -- leaked cookie can't survive forever just because the attacker keeps it warm.
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS max_age_days INT NOT NULL DEFAULT 90;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS admin_username TEXT;
+-- Refresh the sessions user_kind CHECK only when its definition
+-- doesn't already match the current allow-list. The previous block
+-- dropped any check constraint on sessions on every boot — broad
+-- enough that adding a different check (e.g. max_age_days > 0)
+-- would have been silently wiped.
 DO $reauth_sessions$
+DECLARE
+  current_def TEXT;
+  expected_def TEXT := 'CHECK ((user_kind = ANY (ARRAY[''admin''::text, ''counsellor''::text, ''student''::text])))';
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'sessions_user_kind_check'
-       OR (conrelid = 'sessions'::regclass AND contype = 'c')
-  ) THEN
-    ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_user_kind_check;
+  SELECT pg_get_constraintdef(oid) INTO current_def
+    FROM pg_constraint
+   WHERE conname = 'sessions_user_kind_check';
+  IF current_def IS NULL THEN
+    ALTER TABLE sessions ADD CONSTRAINT sessions_user_kind_check
+      CHECK (user_kind IN ('admin', 'counsellor', 'student'));
+  ELSIF current_def <> expected_def THEN
+    ALTER TABLE sessions DROP CONSTRAINT sessions_user_kind_check;
+    ALTER TABLE sessions ADD CONSTRAINT sessions_user_kind_check
+      CHECK (user_kind IN ('admin', 'counsellor', 'student'));
   END IF;
 END
 $reauth_sessions$;
-ALTER TABLE sessions ADD CONSTRAINT sessions_user_kind_check
-  CHECK (user_kind IN ('admin', 'counsellor', 'student'));
 `;
 
 export async function migrate() {
-  await pool.query(SQL);
-  console.log("[migrate] schema ready");
+  // Atomic migration. Postgres' simple-query protocol does NOT wrap
+  // multi-statement queries in a transaction by default, so a failure
+  // in any statement would otherwise leave the DB in a half-applied
+  // state (statements before the failing one already committed).
+  // BEGIN/COMMIT around the whole SQL string makes this all-or-nothing.
+  // Note: CREATE INDEX inside a transaction holds an ACCESS EXCLUSIVE
+  // lock on the underlying table for the duration; for our table sizes
+  // this is fine (sub-second). For large tables, future migrations
+  // should switch to CREATE INDEX CONCURRENTLY out of band.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(SQL);
+    await client.query("COMMIT");
+    console.log("[migrate] schema ready");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
