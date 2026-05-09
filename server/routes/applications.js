@@ -79,6 +79,61 @@ router.get("/", requireStaff, async (req, res, next) => {
   }
 });
 
+// GET /api/applications/student/:student_id — staff-only.
+// Same row shape as GET /, scoped to a single student. Used by the
+// admin / counsellor "view student" surface so it doesn't have to
+// fetch the firm-wide list and filter client-side. Counsellor scope
+// follows the same rule as GET /: explicit a.counsellor_id, inherited
+// student counsellor, or shared inventory (both NULL).
+router.get("/student/:student_id", requireStaff, async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    if (!sid) return res.status(400).json({ error: "student_id required" });
+
+    // Authorisation: admin sees any student; counsellor sees only
+    // their own. Mirror the existing /api/students/:id check —
+    // there's no point letting a counsellor pull this student's
+    // applications if they can't view the student record itself.
+    if (req.user.kind === "counsellor") {
+      const own = await pool.query(
+        `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+        [sid]
+      );
+      // 404 not 403 to avoid disclosing the student exists.
+      if (own.rows.length === 0 || own.rows[0].counsellor_id !== req.user.counsellorId) {
+        return res.status(404).json({ error: "student not found" });
+      }
+    }
+
+    const { rows } = await pool.query(
+      `SELECT a.id, a.student_id, a.country, a.university, a.program,
+              a.deadline, a.requirements, a.notes, a.status,
+              a.pending, a.archived, a.archived_at,
+              a.created_at, a.updated_at,
+              a.counsellor_id,
+              c.name         AS counsellor_name,
+              COALESCE(s.display_name, a.student_name) AS student_name,
+              s.username     AS student_username
+         FROM intake_applications a
+         LEFT JOIN intake_students s ON s.student_id = a.student_id
+         LEFT JOIN counsellors c ON c.id = a.counsellor_id
+        WHERE a.student_id = $1
+        ORDER BY a.updated_at DESC`,
+      [sid]
+    );
+    const out = { pending: [], active: [], archived: [] };
+    for (const r of rows) {
+      const row = { ...r, id: String(r.id) };
+      if (row.archived) out.archived.push(row);
+      else if (row.pending) out.pending.push(row);
+      else out.active.push(row);
+    }
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/applications — counsellor manually adds a row. Body must
 // supply EITHER student_id (linked to an intake_students row) OR
 // student_name (free-text — the firm is mid-transition from the legacy

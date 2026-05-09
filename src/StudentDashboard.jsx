@@ -91,14 +91,16 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         const [detail, reqDocs, appsData] = await Promise.all([
           api.getStudent(studentId),
           api.listRequiredDocsForStudent(studentId).catch(() => []),
-          api.listApplications().catch(() => ({ pending: [], active: [], archived: [] })),
+          api.listApplicationsForStudent(studentId).catch(() => ({ pending: [], active: [], archived: [] })),
         ]);
         setFiles(detail.files || []);
         setAnswers(extractAnswers(detail.student?.data));
         setResumes(normalizeStaffResumes(detail.resumes));
         setRequiredDocs(reqDocs);
-        const allApps = [...(appsData.pending || []), ...(appsData.active || [])];
-        setMyApplications(allApps.filter((a) => a.student_id === studentId));
+        // Per-student endpoint already filters on student_id; no need
+        // to client-filter or merge non-archived buckets — preserve
+        // the same shape the firm-wide path produced for downstream.
+        setMyApplications([...(appsData.pending || []), ...(appsData.active || [])]);
       } else {
         const [fileList, record, resumeList, reqDocs, apps] = await Promise.all([
           listMyFiles(),

@@ -212,6 +212,11 @@ export const api = {
   // archived (soft-removed).
   // ----------------------------------------------------------------
   listApplications: () => request("GET", "/api/applications"),
+  // Staff: same row shape as listApplications, scoped to a single
+  // student. Use from the "view student" / staff-preview surfaces so
+  // they don't fetch the firm-wide list and filter client-side.
+  listApplicationsForStudent: (studentId) =>
+    request("GET", `/api/applications/student/${encodeURIComponent(studentId)}`),
   createApplication: (data) => request("POST", "/api/applications", data),
   updateApplication: (id, patch) =>
     request("PATCH", `/api/applications/${id}`, patch),
