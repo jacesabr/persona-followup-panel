@@ -187,7 +187,11 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
                 </p>
               ) : (
                 grouped.map((chapter) => (
-                  <ChapterSummaryBlock key={chapter.id} chapter={chapter} />
+                  <ChapterSummaryBlock
+                    key={chapter.id}
+                    chapter={chapter}
+                    studentId={isStaffPreview ? studentId : null}
+                  />
                 ))
               )}
             </div>
@@ -254,6 +258,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
                   doc={d}
                   isStaffPreview={isStaffPreview}
                   onAfterUpload={load}
+                  studentId={isStaffPreview ? studentId : null}
                 />
               ))}
             </div>
@@ -361,7 +366,7 @@ function ApplicationStatusRow({ app }) {
 // Day 5 — URGENT once we hit the deadline day. Reminders themselves
 // (email / WhatsApp) aren't wired up — just the visual.
 // ============================================================
-function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
+function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const fileRef = useRef(null);
@@ -433,10 +438,19 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload }) {
         </details>
       )}
       {doc.kind !== "sop" && doc.final_file_name && (
-        <p className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-700">
-          <CheckCircle2 className="h-3 w-3" />
-          Uploaded: <span className="text-black">{doc.final_file_name}</span>
-        </p>
+        <div className="mt-2">
+          <p className="inline-flex items-center gap-1 text-xs text-emerald-700">
+            <CheckCircle2 className="h-3 w-3" />
+            Uploaded: <span className="text-black">{doc.final_file_name}</span>
+          </p>
+          {doc.final_file_id && (
+            <MiniFilePreview
+              fileId={doc.final_file_id}
+              fileName={doc.final_file_name}
+              studentId={studentId}
+            />
+          )}
+        </div>
       )}
       {canUpload && !doc.final_file_id && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -575,7 +589,7 @@ function ChapterBlock({ chapter }) {
 // reader can scan top-to-bottom in one column rather than
 // parsing run-on sentences.
 // ============================================================
-function ChapterSummaryBlock({ chapter }) {
+function ChapterSummaryBlock({ chapter, studentId }) {
   return (
     <div className="border border-stone-200 bg-white">
       <div className="border-b border-stone-100 px-6 py-3">
@@ -583,14 +597,14 @@ function ChapterSummaryBlock({ chapter }) {
       </div>
       <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <PageSummary key={page.id} page={page} />
+          <PageSummary key={page.id} page={page} studentId={studentId} />
         ))}
       </div>
     </div>
   );
 }
 
-function PageSummary({ page }) {
+function PageSummary({ page, studentId }) {
   const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
   if (fields.length === 0) return null;
   return (
@@ -600,44 +614,48 @@ function PageSummary({ page }) {
       </p>
       <dl className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-[180px_1fr]">
         {fields.map((f) => (
-          <SummaryFieldRow key={f.id} field={f} />
+          <SummaryFieldRow key={f.id} field={f} studentId={studentId} />
         ))}
       </dl>
     </div>
   );
 }
 
-function SummaryFieldRow({ field }) {
+function SummaryFieldRow({ field, studentId }) {
   return (
     <>
       <dt className="text-sm text-stone-700">{field.label}</dt>
       <dd className="text-base text-black">
-        <SummaryFieldValue value={field.value} field={field} />
+        <SummaryFieldValue value={field.value} field={field} studentId={studentId} />
       </dd>
     </>
   );
 }
 
-function SummaryFieldValue({ value, field }) {
+function SummaryFieldValue({ value, field, studentId }) {
   if (value == null || value === "") {
     return <span className="text-stone-400">—</span>;
   }
   if (typeof value === "boolean") {
     return <span>{value ? "Yes" : "No"}</span>;
   }
-  // File slot — surface filename + status. Actual previews live
-  // in the Documents tab.
+  // File slot — filename + status pill, plus a mini preview of the
+  // actual file (image inline, PDF link-card) so the student can read
+  // each upload right where its values are summarised.
   if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
     return (
-      <span className="inline-flex items-baseline gap-1.5">
-        <Paperclip className="h-3.5 w-3.5 -translate-y-px text-stone-700" />
-        <span>{value.name || "(file)"}</span>
-        {value.status === "uploaded" ? (
-          <span className="text-emerald-700">✓</span>
-        ) : (
-          <span className="text-stone-600">({value.status})</span>
-        )}
-      </span>
+      <div>
+        <span className="inline-flex items-baseline gap-1.5">
+          <Paperclip className="h-3.5 w-3.5 -translate-y-px text-stone-700" />
+          <span>{value.name || "(file)"}</span>
+          {value.status === "uploaded" ? (
+            <span className="text-emerald-700">✓</span>
+          ) : (
+            <span className="text-stone-600">({value.status})</span>
+          )}
+        </span>
+        <MiniFilePreview slot={value} studentId={studentId} />
+      </div>
     );
   }
   if (Array.isArray(value)) {
@@ -649,7 +667,7 @@ function SummaryFieldValue({ value, field }) {
       <ol className="list-decimal space-y-3 pl-5 marker:text-stone-500">
         {value.map((row, i) => (
           <li key={i}>
-            <RepeaterRowSummary row={row} itemFields={itemFields} />
+            <RepeaterRowSummary row={row} itemFields={itemFields} studentId={studentId} />
           </li>
         ))}
       </ol>
@@ -665,7 +683,7 @@ function SummaryFieldValue({ value, field }) {
   return <span>{String(value)}</span>;
 }
 
-function RepeaterRowSummary({ row, itemFields }) {
+function RepeaterRowSummary({ row, itemFields, studentId }) {
   if (!row || typeof row !== "object") return <span>{String(row)}</span>;
   const subs = itemFields.length > 0
     ? itemFields
@@ -677,9 +695,89 @@ function RepeaterRowSummary({ row, itemFields }) {
   return (
     <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-[140px_1fr]">
       {filled.map(({ sub, val }) => (
-        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} />
+        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} studentId={studentId} />
       ))}
     </dl>
+  );
+}
+
+// ============================================================
+// MiniFilePreview — compact preview for an uploaded file slot.
+// Image: inline <img> (max 240px tall, click to open full size).
+// PDF:   link-card (iOS Safari renders <iframe src=*.pdf> blank,
+//        so a tappable card is the only thing that works
+//        cross-device).
+// Used everywhere a "filename ✓" reference appears in the UI so
+// the student / staff can verify the actual content next to its
+// transcribed values without bouncing through the Documents tab.
+// ============================================================
+function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId }) {
+  // Two callers: the answers-summary slot (has slot.{fileId,name,type})
+  // and the required-docs row (has explicit fileId + filename, no mime
+  // — inferred from the extension). Either path resolves to (id, name,
+  // mime) so the render branch below stays uniform.
+  let resolvedId = fileId ?? null;
+  let resolvedName = fileName ?? null;
+  let resolvedMime = mimeType ?? null;
+  if (slot && typeof slot === "object") {
+    if (slot.status !== "uploaded") return null;
+    resolvedId = slot.fileId ?? null;
+    resolvedName = slot.name ?? null;
+    resolvedMime = slot.type ?? null;
+  }
+  if (!resolvedId) return null;
+  // Mime fallback: infer from filename extension when we weren't given
+  // an explicit mime (the required-doc rows don't carry one). Anything
+  // else lands in the PDF link-card branch, which is the right default
+  // for unknown uploads — never tries to <img> a non-image.
+  if (!resolvedMime && resolvedName) {
+    const ext = resolvedName.toLowerCase().split(".").pop();
+    if (ext === "jpg" || ext === "jpeg") resolvedMime = "image/jpeg";
+    else if (ext === "png") resolvedMime = "image/png";
+    else if (ext === "pdf") resolvedMime = "application/pdf";
+  }
+  const url = studentId
+    ? `/api/students/${studentId}/files/${resolvedId}`
+    : `/api/students/me/files/${resolvedId}`;
+  const type = resolvedMime || "";
+  const name = resolvedName || "uploaded file";
+  if (type.startsWith("image/")) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 block max-w-sm border border-stone-200 bg-white"
+        title="Open full size"
+      >
+        <img
+          src={url}
+          alt={name}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className="block max-h-60 w-full object-contain"
+          style={{ imageOrientation: "from-image" }}
+        />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 inline-flex max-w-sm items-center gap-3 border border-stone-200 bg-white px-3 py-2 transition hover:border-stone-900 hover:bg-stone-50"
+      title="Open in a new tab"
+    >
+      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-stone-300 bg-stone-50 text-[9px] font-semibold uppercase tracking-wider text-stone-700">
+        PDF
+      </span>
+      <span className="min-w-0 truncate text-sm text-black">{name}</span>
+      <span className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-stone-700">
+        Open ↗
+      </span>
+    </a>
   );
 }
 
