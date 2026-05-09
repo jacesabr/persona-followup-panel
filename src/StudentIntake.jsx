@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, forwardRef } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,10 +9,13 @@ import {
   Check,
   Zap,
   Loader2,
+  LogOut,
   RotateCcw,
   Upload,
   Plus,
   X,
+  MessageSquare,
+  Send,
 } from "lucide-react";
 import {
   fileMeta,
@@ -28,7 +31,14 @@ import {
   transitionPhase,
 } from "./intakeFiles.js";
 import StudentDashboard from "./StudentDashboard.jsx";
-import { CHAPTERS, validateIntakeRequired, isFieldVisible } from "../lib/intakeSchema.js";
+import { api } from "./api.js";
+import {
+  CHAPTERS,
+  INTAKE_CHAPTERS,
+  PANEL_CHAPTERS,
+  validateIntakeRequired,
+  isFieldVisible,
+} from "../lib/intakeSchema.js";
 
 // ============================================================
 // Schema lives in ../lib/intakeSchema.js so the server can validate
@@ -37,7 +47,10 @@ import { CHAPTERS, validateIntakeRequired, isFieldVisible } from "../lib/intakeS
 // ============================================================
 export { CHAPTERS };
 
-const ALL_PAGES = CHAPTERS.flatMap((c) =>
+// The linear intake form only walks the chapters not flagged
+// `panelTab` — those (Profile documents, Your story, Where you want
+// to go) are filled in later from the dashboard as tabs.
+const ALL_PAGES = INTAKE_CHAPTERS.flatMap((c) =>
   c.pages.map((p) => ({ ...p, chapterId: c.id, chapterTitle: c.title }))
 );
 const PAGES_BY_ID = Object.fromEntries(ALL_PAGES.map((p) => [p.id, p]));
@@ -723,7 +736,21 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   // transitionPhase will 409 if the server already moved past 'intake'
   // (another tab finished first) — we surface that as a generic
   // "couldn't continue"; refreshing rehydrates the correct phase.
-  const finishIntake = useCallback(async () => {
+  // Tracks an in-flight phase transition so the thank-you screen can
+  // disable its buttons and show a spinner while the save + transition
+  // round-trip is mid-flight.
+  const [finishing, setFinishing] = useState(false);
+
+  // Persist the final draft, flip the server-side phase to 'done', and
+  // return ok/false so the caller can pick its own follow-up (proceed
+  // into the dashboard vs. sign out). Two server calls (save-then-
+  // transition) on purpose: the phase endpoint doesn't take data, so
+  // the debounced save has to land first or the resume generator would
+  // see a stale snapshot. transitionPhase will 409 if the server
+  // already moved past 'intake' (another tab finished first) — we
+  // surface that as a generic "couldn't continue"; refreshing
+  // rehydrates the correct phase.
+  const completeIntake = useCallback(async () => {
     // Defence-in-depth: the page-by-page advance gate already prevents
     // skipping required fields, but a stale draft (saved before a flag
     // changed in the schema, or restored from another tab mid-edit)
@@ -744,23 +771,39 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
       alert(
         `Some required fields are still empty — fill them before continuing:\n\n${labels}${more}`
       );
-      return;
+      return false;
     }
-    await persist({ intakeComplete: false });
+    setFinishing(true);
     try {
+      await persist({ intakeComplete: false });
       await transitionPhase("done");
-      // Resume is auto-fired by the server in the same transaction; show
-      // the generating-state dashboard until polling flips it to done.
+      return true;
+    } catch (e) {
+      console.error("[completeIntake] phase transition failed:", e);
+      alert(e?.message || "Couldn't continue — refresh and try again.");
+      return false;
+    } finally {
+      setFinishing(false);
+    }
+  }, [persist]);
+
+  // "Proceed to your panel" — finishes intake and lets the existing
+  // phase=generating render path swap StudentIntake for StudentDashboard.
+  const handleProceedToPanel = useCallback(async () => {
+    if (await completeIntake()) {
       setPhase("generating");
       onComplete?.(answersRef.current);
-    } catch (e) {
-      // Silent failure on PHASE_CONFLICT: refresh once the user
-      // notices nothing happened and the server's hydration will
-      // jump them to the right place.
-      console.error("[finishIntake] phase transition failed:", e);
-      alert(e?.message || "Couldn't continue — refresh and try again.");
     }
-  }, [persist, onComplete]);
+  }, [completeIntake, onComplete]);
+
+  // "Logout" — same persist + phase flip, then sign out. Skips the
+  // generating-state dashboard since the parent will clear the session
+  // and unmount this component.
+  const handleLogoutAfterIntake = useCallback(async () => {
+    if (await completeIntake()) {
+      onExit?.();
+    }
+  }, [completeIntake, onExit]);
 
   // Server-driven phase machine. Single source of truth for which
   // screen the student sees:
@@ -787,25 +830,30 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
       if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
       e.preventDefault();
       if (isWelcome) setStep(0);
-      else if (isClosing) finishIntake();
+      else if (isClosing) handleProceedToPanel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isWelcome, isClosing, finishIntake]);
+  }, [isWelcome, isClosing, handleProceedToPanel]);
 
   if (hydration !== "ready") {
     return <HydrationGate state={hydration} />;
   }
 
-  // Post-intake phase: StudentDashboard renders the auto-generated
-  // resume and polls while it's still in flight.
+  // Post-intake phase: PanelTabs wraps the existing StudentDashboard
+  // (Overview tab) and exposes the panelTab chapters (Profile docs,
+  // Your story, Where you want to go) as additional tabs that keep
+  // editing answers via the same setAnswer/flushSave flow.
   if (phase === "generating" || phase === "done") {
-    // Both phases render the same dashboard — it polls until the
-    // auto-fired resume's status becomes terminal, then shows the
-    // markdown. The server's GET /me/record may bump phase from
-    // "done" to "generating" if the resume hasn't completed yet.
     return (
-      <StudentDashboard studentName={studentName} onExit={onExit} />
+      <PanelTabs
+        studentName={studentName}
+        onExit={onExit}
+        answers={answers}
+        onChange={setAnswer}
+        onBlur={flushSave}
+        saveState={saveState}
+      />
     );
   }
 
@@ -833,14 +881,11 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
             />
           )}
           {isClosing && (
-            <Closing
-              onDone={finishIntake}
-              onBack={() => setStep(total - 1)}
-              answers={answers}
-              onEditPage={(pageId) => {
-                const idx = orderedPages.findIndex((p) => p.id === pageId);
-                if (idx >= 0) jumpTo(idx);
-              }}
+            <ThankYouScreen
+              name={studentName}
+              onProceed={handleProceedToPanel}
+              onLogout={handleLogoutAfterIntake}
+              busy={finishing}
             />
           )}
         </div>
@@ -1008,257 +1053,178 @@ function Welcome({ name, onStart }) {
   );
 }
 
-// Walk every field in the schema (including repeater sub-fields) and
-// pull out the file slots that the student successfully uploaded. The
-// closing review needs this twice: once to render previews under each
-// page, and once to render the flat "all documents" gallery that
-// downstream AI/transcription tooling will pick from.
-function collectUploadedFiles(answers) {
-  const out = [];
-  for (const chapter of CHAPTERS) {
-    for (const page of chapter.pages) {
-      for (const field of page.fields) {
-        const v = answers[field.id];
-        if (field.type === "file") {
-          if (isFileUploaded(v)) {
-            out.push({
-              key: field.id,
-              label: field.label,
-              chapterTitle: chapter.title,
-              pageId: page.id,
-              file: v,
-            });
-          }
-        } else if (field.type === "repeater" && Array.isArray(v)) {
-          v.forEach((row, rowIdx) => {
-            if (!row || typeof row !== "object") return;
-            for (const sub of field.itemFields || []) {
-              if (sub.type !== "file") continue;
-              const cell = row[sub.id];
-              if (isFileUploaded(cell)) {
-                out.push({
-                  key: `${field.id}-${rowIdx}-${sub.id}`,
-                  label: `${field.label} #${rowIdx + 1} — ${sub.label}`,
-                  chapterTitle: chapter.title,
-                  pageId: page.id,
-                  file: cell,
-                });
-              }
-            }
-          });
-        }
-      }
-    }
-  }
-  return out;
-}
-
-// Project a single field into 0..N text rows for the per-page summary.
-// Files are intentionally omitted here — they're rendered as previews
-// in their own block under the page summary, plus once more in the
-// flat docs gallery at the bottom. Empty values produce no rows so a
-// fully-skipped optional page collapses cleanly.
-function fieldSummaryRows(field, value) {
-  if (field.type === "file") return [];
-  if (field.type === "repeater") {
-    if (!Array.isArray(value)) return [];
-    const rows = [];
-    value.forEach((row, idx) => {
-      if (!row || typeof row !== "object") return;
-      const cells = (field.itemFields || [])
-        .map((sub) => {
-          if (sub.type === "file") return null;
-          const cv = row[sub.id];
-          if (typeof cv === "boolean") return cv ? sub.label : null;
-          if (cv === "" || cv == null) return null;
-          return `${sub.label}: ${cv}`;
-        })
-        .filter(Boolean);
-      if (cells.length === 0) return;
-      rows.push({
-        label: `${field.label} #${idx + 1}`,
-        value: cells.join(" · "),
-      });
-    });
-    return rows;
-  }
-  if (field.type === "checkbox") {
-    if (!value) return [];
-    return [{ label: field.label, value: "Yes" }];
-  }
-  if (value === "" || value == null) return [];
-  return [{ label: field.label, value: String(value) }];
-}
-
-// One page's worth of the summary: text rows for the typed-in fields,
-// then any uploaded files for that page rendered with their inline
-// preview so the student can verify the doc is the right one without
-// scrolling down to the gallery.
-function PageSummary({ page, answers, files, onEditPage }) {
-  const rows = page.fields.flatMap((f) => fieldSummaryRows(f, answers[f.id]));
-  if (rows.length === 0 && files.length === 0) return null;
+// Closing screen after the last intake page (p_activities). The
+// remaining intake chapters (Profile docs, Your story, Where you want
+// to go) are filled in later as tabs in StudentDashboard, so this
+// screen only confirms registration and offers two exits: continue
+// straight into the dashboard, or sign out and resume later.
+function ThankYouScreen({ name, onProceed, onLogout, busy }) {
+  const first = (name || "").split(/\s+/)[0] || "there";
   return (
-    <div className="border-t border-stone-900/10 pt-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h4 className="font-serif text-xl text-black">{page.title}</h4>
+    <div className="animate-fadeUp py-16">
+      <p className="text-[10px] uppercase tracking-[0.3em] text-black">All done</p>
+      <h2 className="mt-2 font-serif text-5xl leading-[1.05]">
+        Thanks for registering with Persona, {first}.
+      </h2>
+      <p className="mt-6 max-w-xl text-base leading-relaxed text-black">
+        Your education counsellor will contact you shortly with next steps. In
+        the meantime you can continue to your panel and start filling in the
+        rest of your profile (LORs, internships, your story, target programs)
+        whenever you're ready.
+      </p>
+
+      <div className="mt-12 flex flex-wrap items-center gap-4">
         <button
-          onClick={() => onEditPage?.(page.id)}
-          className="text-[10px] uppercase tracking-[0.2em] text-black hover:text-black"
+          onClick={onProceed}
+          disabled={busy}
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          edit
+          Proceed to your panel <ArrowRight className="h-4 w-4" />
         </button>
+        <button
+          onClick={onLogout}
+          disabled={busy}
+          className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Logout
+        </button>
+        {busy && (
+          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-black">
+            <Loader2 className="h-3 w-3 animate-spin" /> Wrapping up…
+          </span>
+        )}
       </div>
-      {rows.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {rows.map((row, i) => (
-            <div
-              key={i}
-              className="flex flex-col gap-0.5 sm:grid sm:grid-cols-[180px_1fr] sm:gap-4"
-            >
-              <span className="text-[11px] uppercase tracking-wider text-black">
-                {row.label}
-              </span>
-              <span className="whitespace-pre-wrap break-words text-sm text-black">
-                {row.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      {files.length > 0 && (
-        <div className="mt-4 space-y-3">
-          {files.map((entry) => (
-            <div key={entry.key} className="border border-stone-900/10 bg-white/60 p-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="text-[11px] uppercase tracking-wider text-black">
-                  {entry.label}
-                </p>
-                <p className="text-[10px] text-black">
-                  {humanSize(entry.file.size)}
-                </p>
-              </div>
-              <p className="mt-1 truncate text-sm text-black">{entry.file.name}</p>
-              <FilePreview slot={entry.file} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-function Closing({ onDone, onBack, answers, onEditPage }) {
-  const allFiles = useMemo(() => collectUploadedFiles(answers || {}), [answers]);
-  const filesByPage = useMemo(() => {
-    const m = {};
-    for (const f of allFiles) {
-      if (!m[f.pageId]) m[f.pageId] = [];
-      m[f.pageId].push(f);
-    }
-    return m;
-  }, [allFiles]);
+// ============================================================
+// PanelTabs — post-intake landing screen
+//
+// After the student finishes the linear intake (chapters 1–7) they
+// land here. Tab 1 ("Overview") wraps the existing read-only
+// StudentDashboard. The remaining tabs cover the panelTab chapters
+// (Profile documents, Your story, Where you want to go) and reuse
+// PageCard so the form rendering stays identical to intake — same
+// repeaters, file slots, info cards. setAnswer / flushSave still
+// belong to the parent StudentIntake so each edit flows through the
+// same persist debouncer that handled intake autosaves.
+// ============================================================
+function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  // Bumping this remounts StudentDashboard whenever the user re-opens
+  // the Overview tab so any rows the lazy seeder dropped into
+  // intake_required_docs / intake_applications during a panel-tab
+  // edit are reflected on the next visit. Cheaper than wiring a
+  // refetch handle out of the dashboard.
+  const [overviewKey, setOverviewKey] = useState(0);
+
+  const switchTo = (id) => {
+    if (id === activeTab) return;
+    if (id === "overview") setOverviewKey((k) => k + 1);
+    setActiveTab(id);
+  };
+
+  // Status tab sits between Overview and the schema-driven panel
+  // chapters. It's the single place students manage their school
+  // applications: pick country/uni/program, submit for review, and
+  // comment on each row's requirements/needs. No archive/delete from
+  // the student side — once submitted, the row is staff's to triage.
+  const tabs = [
+    { id: "overview", label: "Overview" },
+    { id: "status", label: "Application status" },
+    ...PANEL_CHAPTERS.map((c) => ({ id: c.id, label: c.title })),
+  ];
+  const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
 
   return (
-    <div className="animate-fadeUp py-12">
-      <p className="text-[10px] uppercase tracking-[0.3em] text-black">Almost there</p>
-      <h2 className="mt-2 font-serif text-5xl leading-[1.05]">Review your profile.</h2>
-      <p className="mt-6 max-w-xl text-base leading-relaxed text-black">
-        A final check before we generate your resume. Tap{" "}
-        <span className="">edit</span> on any section to fix something —
-        we'll bring you right back here.
-      </p>
-
-      <div className="mt-12 space-y-12">
-        {CHAPTERS.map((chapter) => {
-          const visiblePages = chapter.pages.filter((page) => {
-            const rowCount = page.fields.flatMap((f) =>
-              fieldSummaryRows(f, (answers || {})[f.id])
-            ).length;
-            const fileCount = (filesByPage[page.id] || []).length;
-            return rowCount > 0 || fileCount > 0;
-          });
-          if (visiblePages.length === 0) return null;
-          return (
-            <div key={chapter.id}>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-black">
-                ▸ {chapter.title}
-              </p>
-              <div className="mt-3 space-y-6">
-                {visiblePages.map((page) => (
-                  <PageSummary
-                    key={page.id}
-                    page={page}
-                    answers={answers || {}}
-                    files={filesByPage[page.id] || []}
-                    onEditPage={onEditPage}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-16 border-t border-stone-900/15 pt-10">
-        <p className="text-[10px] uppercase tracking-[0.3em] text-black">
-          Documents · {allFiles.length}
-        </p>
-        <h3 className="mt-2 font-serif text-3xl text-black">
-          Every file you uploaded
-        </h3>
-        <p className="mt-3 max-w-xl text-sm  text-black">
-          One place to scan everything you sent us. Open any preview to verify
-          the contents are right.
-        </p>
-        {allFiles.length === 0 ? (
-          <p className="mt-6 text-sm  text-black">
-            No documents uploaded.
-          </p>
-        ) : (
-          <ul className="mt-6 space-y-4">
-            {allFiles.map((entry) => (
-              <li
-                key={entry.key}
-                className="border border-stone-900/15 bg-white/40 p-4"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-black">
-                    {entry.chapterTitle} · {entry.label}
-                  </p>
-                  <p className="text-[10px] text-black">
-                    {humanSize(entry.file.size)}
-                  </p>
-                </div>
-                <p className="mt-1 truncate text-sm text-black">
-                  {entry.file.name}
-                </p>
-                <FilePreview slot={entry.file} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="mt-12 border-t border-stone-900/15 pt-10">
-        <p className="max-w-xl text-base leading-relaxed text-black">
-          We'll generate a 300-word summary of your profile from everything
-          above. Takes about a minute. You'll land on your dashboard once it's
-          ready — your counsellor sees everything from there too.
-        </p>
-        <div className="mt-8 flex flex-wrap items-center gap-4">
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
-          </button>
-          <button
-            onClick={onDone}
-            className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800"
-          >
-            Submit & generate resume <ArrowRight className="h-4 w-4" />
-          </button>
+    <div
+      className="min-h-screen w-full font-serif text-black"
+      style={{ backgroundColor: "#f4f0e6" }}
+    >
+      <header className="sticky top-0 z-10 border-b border-stone-900/10 bg-[#f4f0e6]/90 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm text-black">the</span>
+            <span className="text-lg font-semibold tracking-tight">Persona</span>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-black">
+              · {studentName || "student"}
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <SaveIndicator state={saveState} />
+            <button
+              type="button"
+              onClick={onExit}
+              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-black hover:text-black"
+            >
+              <LogOut className="h-3 w-3" /> Sign out
+            </button>
+          </div>
         </div>
+        <nav className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto px-6">
+          {tabs.map((t) => {
+            const isActive = t.id === activeTab;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => switchTo(t.id)}
+                className={`whitespace-nowrap border-b-2 px-3 py-2 text-[11px] uppercase tracking-[0.2em] transition ${
+                  isActive
+                    ? "border-stone-900 text-black"
+                    : "border-transparent text-black/60 hover:text-black"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-6 pb-16 pt-8">
+        {activeTab === "overview" && (
+          <StudentDashboard
+            key={overviewKey}
+            studentName={studentName}
+            onExit={onExit}
+            embedded
+          />
+        )}
+        {activeTab === "status" && <StudentApplicationsStatusTab />}
+        {activeChapter && (
+          <PanelChapterEditor
+            chapter={activeChapter}
+            answers={answers}
+            onChange={onChange}
+            onBlur={onBlur}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function PanelChapterEditor({ chapter, answers, onChange, onBlur }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-black">
+        ▸ {chapter.title}
+      </p>
+      <div className="mt-4 space-y-10 divide-y divide-stone-900/10">
+        {chapter.pages.map((page) => (
+          <PageCard
+            key={page.id}
+            page={{ ...page, chapterId: chapter.id, chapterTitle: chapter.title }}
+            answers={answers}
+            onChange={onChange}
+            onBlur={onBlur}
+            stepLabel=""
+            isChapterStart={false}
+            hideNav
+          />
+        ))}
       </div>
     </div>
   );
@@ -1267,7 +1233,21 @@ function Closing({ onDone, onBack, answers, onEditPage }) {
 // ============================================================
 // Page card — renders all fields on a page with autosave
 // ============================================================
-function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapterStart, stepLabel }) {
+function PageCard({
+  page,
+  answers,
+  onChange,
+  onBlur,
+  onAdvance,
+  onBack,
+  isChapterStart,
+  stepLabel,
+  // Panel-tab mode: same form rendering, no advance/back footer. The
+  // dashboard reuses this component to let students keep editing the
+  // post-intake chapters (LORs, story, target programs) after they've
+  // already moved past phase=done.
+  hideNav = false,
+}) {
   const firstFieldRef = useRef(null);
   useEffect(() => {
     firstFieldRef.current?.focus();
@@ -1434,7 +1414,7 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
         </div>
       )}
 
-      <div className="mt-10 flex items-center gap-4">
+      {!hideNav && <div className="mt-10 flex items-center gap-4">
         <button
           onClick={onBack}
           className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
@@ -1449,7 +1429,7 @@ function PageCard({ page, answers, onChange, onBlur, onAdvance, onBack, isChapte
           {advanceLabel}
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -2371,4 +2351,385 @@ function FieldGlyph({ field }) {
     );
   }
   return <div className="h-px w-full flex-1 bg-stone-300" />;
+}
+
+// ============================================================
+// StudentApplicationsStatusTab — student-side view of every
+// application they've submitted, plus a form to add new ones.
+//
+//   - "Add a new application" form sends `pending=true` rows to the
+//     staff Applications panel for review.
+//   - Each row exposes status, deadline, requirements, and an inline
+//     two-way comment thread (student ↔ assigned counsellor ↔ admin).
+//   - No archive / no delete on the student side: once submitted, the
+//     row is the staff's to triage. This is a deliberate constraint —
+//     students retract by asking their counsellor.
+// ============================================================
+const STATUS_TAB_META = {
+  active:    { label: "Active",                swatch: "#00FF00", tone: "#1c1917" },
+  submitted: { label: "Application submitted", swatch: "#93C47D", tone: "#1c1917" },
+  offer:     { label: "Offer received",        swatch: "#6AA84F", tone: "#ffffff" },
+  ongoing:   { label: "Ongoing",               swatch: "#F5F5F0", tone: "#1c1917", border: "#d6d3d1" },
+  on_hold:   { label: "On hold",               swatch: "#FF9900", tone: "#1c1917" },
+  cancelled: { label: "Cancelled",             swatch: "#FF0000", tone: "#ffffff" },
+};
+
+function fmtStatusDate(d) {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  catch { return d; }
+}
+
+function fmtCommentTime(d) {
+  if (!d) return "";
+  try { return new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
+  catch { return d; }
+}
+
+function StudentApplicationsStatusTab() {
+  const [apps, setApps] = useState(null);
+  const [error, setError] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api.listMyApplications();
+      setApps(list);
+      setError(null);
+    } catch (e) {
+      setError(e?.message || "Couldn't load your applications.");
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-black">▸ Application status</p>
+      <h2 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">Your school applications</h2>
+      <p className="mt-3 text-sm text-stone-800">
+        Add a new university here and your counsellor will pick it up in
+        their pending-review queue. Use the comments under each row to
+        flag requirements or anything you need help with.
+      </p>
+
+      {error && (
+        <p className="mt-4 inline-flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4" /> {error}
+        </p>
+      )}
+
+      <div className="mt-6">
+        {!creating && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f]"
+          >
+            <Plus className="h-4 w-4" /> Add a new application
+          </button>
+        )}
+        {creating && (
+          <NewApplicationForm
+            onCancel={() => setCreating(false)}
+            onCreated={async () => {
+              setCreating(false);
+              await refresh();
+            }}
+          />
+        )}
+      </div>
+
+      <div className="mt-8 space-y-4">
+        {apps === null ? (
+          <div className="flex items-center gap-2 border border-stone-900/15 bg-white px-4 py-3 text-sm text-stone-800">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : apps.length === 0 ? (
+          <p className="border border-stone-900/15 bg-white px-4 py-4 text-sm text-stone-800">
+            No applications yet. Click <span className="font-semibold">Add a new application</span> above to submit your first one for review.
+          </p>
+        ) : (
+          apps.map((app) => <StudentAppCard key={app.id} app={app} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewApplicationForm({ onCancel, onCreated }) {
+  const [country, setCountry] = useState("");
+  const [university, setUniversity] = useState("");
+  const [program, setProgram] = useState("");
+  const [requirements, setRequirements] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    if (!university.trim()) {
+      setErr("University is required.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.createMyApplication({
+        country: country.trim() || null,
+        university: university.trim(),
+        program: program.trim() || null,
+        requirements: requirements.trim() || null,
+      });
+      onCreated();
+    } catch (e) {
+      setErr(e?.message || "Couldn't submit.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="border border-stone-900/15 bg-white p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
+        New application
+      </p>
+      <p className="mt-1 text-sm text-stone-800">
+        Your counsellor will see this in their pending-review queue once you submit.
+      </p>
+
+      {err && (
+        <p className="mt-3 inline-flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4" /> {err}
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-semibold text-black">University</span>
+          <input
+            type="text"
+            value={university}
+            onChange={(e) => setUniversity(e.target.value)}
+            placeholder="e.g. University of Toronto"
+            autoFocus
+            className="mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-semibold text-black">Country</span>
+          <input
+            type="text"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            placeholder="e.g. Canada"
+            className="mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none"
+          />
+        </label>
+        <label className="block md:col-span-2">
+          <span className="text-sm font-semibold text-black">Program</span>
+          <input
+            type="text"
+            value={program}
+            onChange={(e) => setProgram(e.target.value)}
+            placeholder="e.g. BSc Computer Science"
+            className="mt-1 w-full border border-stone-300 bg-white px-3 py-2 text-base focus:border-[#cc785c] focus:outline-none"
+          />
+        </label>
+        <label className="block md:col-span-2">
+          <span className="text-sm font-semibold text-black">Anything specific you know about?</span>
+          <textarea
+            rows={3}
+            value={requirements}
+            onChange={(e) => setRequirements(e.target.value)}
+            placeholder="SOP, portfolio, scholarship interview — note anything you've already heard about."
+            className="mt-1 w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none"
+          />
+        </label>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={busy}
+          className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Submit for review
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="border border-stone-300 bg-white px-4 py-2 text-sm uppercase tracking-[0.18em] text-black hover:border-stone-700 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function StudentAppCard({ app }) {
+  const meta = STATUS_TAB_META[app.status] || { label: app.status || "—", swatch: "#E7E5E4", tone: "#1c1917" };
+  const isPending = app.pending;
+  const [showThread, setShowThread] = useState(false);
+
+  return (
+    <div className="border border-stone-900/15 bg-white">
+      {/* Header — status + uni info. flex-wrap so long names break to a
+          new line instead of getting truncated. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 px-4 py-3">
+        <span
+          className="shrink-0 rounded-sm px-2 py-0.5 text-xs font-semibold"
+          style={{
+            background: meta.swatch,
+            color: meta.tone,
+            border: meta.border ? `1px solid ${meta.border}` : undefined,
+          }}
+        >
+          {isPending ? "Awaiting review" : meta.label}
+        </span>
+        <span className="text-base font-semibold text-black break-words">
+          {app.university}
+        </span>
+        {app.program && (
+          <span className="text-sm text-stone-800 break-words">{app.program}</span>
+        )}
+        {app.country && (
+          <span className="text-sm text-stone-800 break-words">{app.country}</span>
+        )}
+        {app.deadline && !isPending && (
+          <span className="ml-auto shrink-0 text-sm text-stone-800">
+            Deadline: <span className="font-semibold text-black">{fmtStatusDate(app.deadline)}</span>
+          </span>
+        )}
+      </div>
+
+      {app.requirements && (
+        <div className="border-t border-stone-200 bg-[#faf9f5] px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
+            Requirements
+          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-800">
+            {app.requirements}
+          </p>
+        </div>
+      )}
+
+      <div className="border-t border-stone-200 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setShowThread((v) => !v)}
+          className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-black hover:text-[#cc785c]"
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          {showThread ? "Hide comments" : "Comments & needs"}
+        </button>
+        {showThread && <ApplicationCommentThread appId={app.id} />}
+      </div>
+    </div>
+  );
+}
+
+function ApplicationCommentThread({ appId }) {
+  const [comments, setComments] = useState(null);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await api.listMyApplicationComments(appId);
+      setComments(list);
+      setErr(null);
+    } catch (e) {
+      setErr(e?.message || "Couldn't load comments.");
+    }
+  }, [appId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.addMyApplicationComment(appId, body.trim());
+      setBody("");
+      await load();
+    } catch (e) {
+      setErr(e?.message || "Couldn't post.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-3">
+      {err && (
+        <p className="inline-flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4" /> {err}
+        </p>
+      )}
+      {comments === null ? (
+        <p className="inline-flex items-center gap-2 text-sm text-stone-800">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading comments…
+        </p>
+      ) : comments.length === 0 ? (
+        <p className="text-sm text-stone-800">
+          No comments yet. Use the box below to flag a requirement or ask your counsellor a question.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {comments.map((c) => <CommentBubble key={c.id} comment={c} />)}
+        </ul>
+      )}
+
+      <form onSubmit={submit} className="space-y-2">
+        <textarea
+          rows={3}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Anything you've heard about — requirements, deadlines, scholarships, questions for your counsellor."
+          className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none"
+        />
+        <div className="flex items-center justify-end">
+          <button
+            type="submit"
+            disabled={busy || !body.trim()}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            Post
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function CommentBubble({ comment }) {
+  const fromStudent = comment.author_kind === "student";
+  // Tone the bubble by author so the thread reads at a glance: student
+  // posts left-aligned, staff/admin right-aligned with a tinted bg.
+  const bg = fromStudent ? "bg-stone-50" : "bg-[#cc785c]/10";
+  const align = fromStudent ? "" : "ml-auto";
+  const roleLabel = comment.author_kind === "student"
+    ? "You"
+    : comment.author_kind === "admin"
+    ? `${comment.author_name || "Admin"} (admin)`
+    : `${comment.author_name || "Counsellor"}`;
+  return (
+    <li className={`max-w-[90%] border border-stone-200 ${bg} px-3 py-2 ${align}`}>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-xs font-semibold text-black">{roleLabel}</span>
+        <span className="text-[11px] text-stone-700">{fmtCommentTime(comment.created_at)}</span>
+      </div>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-800">
+        {comment.body}
+      </p>
+    </li>
+  );
 }

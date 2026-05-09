@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus, ArrowUpDown, ExternalLink, ClipboardList } from "lucide-react";
+import { Loader2, Archive, Search, AlertCircle, ChevronDown, Check, X, Plus, ArrowUpDown, ExternalLink, ClipboardList, MessageSquare, Send } from "lucide-react";
 import { api } from "./api.js";
 import ArchivedSection from "./ArchivedSection.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
@@ -383,18 +383,18 @@ function PendingHeader() {
 function PendingRow({ row, onReview }) {
   return (
     <div
-      className="grid items-center gap-2 border-b border-[#cc785c]/20 px-3 py-2 text-[13px] text-black last:border-b-0 hover:bg-[#cc785c]/5"
+      className="grid items-start gap-2 border-b border-[#cc785c]/20 px-3 py-2 text-[13px] text-black last:border-b-0 hover:bg-[#cc785c]/5"
       style={{ gridTemplateColumns: "1.4fr 0.7fr 1.4fr 1.2fr 1fr 7rem" }}
     >
-      <span className="min-w-0 truncate">
+      <span className="min-w-0 break-words">
         <span className="font-semibold">{row.student_name || row.student_username}</span>
         {row.student_name && (
           <span className="ml-1 text-[11px] font-normal text-black">@{row.student_username}</span>
         )}
       </span>
-      <span className="truncate text-[12px] text-black">{row.country || "—"}</span>
-      <span className="truncate">{row.university}</span>
-      <span className="truncate text-[12px] text-black">{row.program || "—"}</span>
+      <span className="break-words text-[12px] text-black">{row.country || "—"}</span>
+      <span className="break-words">{row.university}</span>
+      <span className="break-words text-[12px] text-black">{row.program || "—"}</span>
       <span className="text-[11px] tabular-nums text-black">{fmtDate(row.created_at)}</span>
       <button
         onClick={onReview}
@@ -418,10 +418,10 @@ function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
         <StatusDropdown value={row.status} onChange={(v) => onPatch({ status: v })} />
       </div>
       <StudentCell row={row} />
-      <span className="truncate text-sm text-black pt-1">{row.counsellor_name || <span className=" text-black">—</span>}</span>
-      <span className="truncate text-sm text-black pt-1">{row.country || "—"}</span>
-      <span className="truncate font-medium pt-1">{row.university}</span>
-      <span className="truncate text-sm text-black pt-1">{row.program || "—"}</span>
+      <span className="break-words text-sm text-black pt-1">{row.counsellor_name || <span className=" text-black">—</span>}</span>
+      <span className="break-words text-sm text-black pt-1">{row.country || "—"}</span>
+      <span className="break-words font-medium pt-1">{row.university}</span>
+      <span className="break-words text-sm text-black pt-1">{row.program || "—"}</span>
       <div onClick={(e) => e.stopPropagation()} className="pt-1">
         <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
       </div>
@@ -440,17 +440,20 @@ function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
   );
 }
 
+// Student name + the "Unlinked" badge if the row has no intake account.
+// Wraps inline so long names + the badge break to the next line rather
+// than getting truncated.
 function StudentCell({ row }) {
   const linked = !!row.student_id;
   return (
-    <span className="min-w-0 flex items-center gap-1.5 truncate">
-      <span className="text-sm font-bold truncate text-black">
+    <span className="flex flex-wrap items-baseline gap-1.5">
+      <span className="text-sm font-bold text-black break-words">
         {row.student_name || row.student_username || "—"}
       </span>
       {!linked && (
         <span
           title="Unlinked: this application has no intake account yet"
-          className="shrink-0 border border-stone-400 bg-stone-100 px-1 py-px text-[10px] font-semibold uppercase tracking-[0.1em] text-black"
+          className="border border-stone-400 bg-stone-100 px-1 py-px text-[10px] font-semibold uppercase tracking-[0.1em] text-black"
         >
           Unlinked
         </span>
@@ -469,8 +472,8 @@ function StatusDropdown({ value, onChange }) {
         className={`inline-flex w-full items-center justify-between gap-1 border border-stone-400 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`}
         style={{ backgroundColor: meta.swatch }}
       >
-        <span className="truncate">{meta.label}</span>
-        <ChevronDown className="h-3 w-3" />
+        <span className="break-words text-left">{meta.label}</span>
+        <ChevronDown className="h-3 w-3 shrink-0" />
       </button>
       {open && (
         <>
@@ -548,21 +551,21 @@ function DeadlineCell({ value, onChange }) {
 function ArchivedRow({ row, onUnarchive }) {
   const meta = metaFor(row.status);
   return (
-    <div className="flex items-center justify-between gap-3 text-[12px]">
-      <span className="min-w-0 flex-1 truncate">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[12px]">
+      <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span
-          className={`mr-2 inline-block px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`}
+          className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${meta.tone}`}
           style={{ backgroundColor: meta.swatch, border: "1px solid #57534e" }}
         >
           {meta.label}
         </span>
-        <span className="font-semibold text-black">{row.student_name || row.student_username}</span>
-        <span className="ml-2 text-black">· {row.university}</span>
-        {row.program && <span className="ml-2 text-black">· {row.program}</span>}
+        <span className="font-semibold text-black break-words">{row.student_name || row.student_username}</span>
+        <span className="text-black break-words">· {row.university}</span>
+        {row.program && <span className="text-black break-words">· {row.program}</span>}
       </span>
       <button
         onClick={onUnarchive}
-        className="text-[10px] uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f]"
+        className="shrink-0 text-[10px] uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f]"
       >
         Unarchive
       </button>
@@ -787,6 +790,13 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
               placeholder="Any notes about this application…"
               className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none" />
           </div>
+        </div>
+
+        {/* Comments thread — two-way (student ↔ counsellor ↔ admin).
+            Lives between the edit fields and the footer so the staff
+            user can read what the student flagged before saving notes. */}
+        <div className="border-t border-stone-300 px-5 py-5">
+          <StaffCommentThread appId={row.id} />
         </div>
 
         {/* Footer */}
@@ -1228,6 +1238,12 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
           </div>
         </div>
 
+        {/* Comments thread — surfaces anything the student flagged on
+            their Status tab before the counsellor pushes the row live. */}
+        <div className="border-t border-stone-300 px-5 py-5">
+          <StaffCommentThread appId={row.id} />
+        </div>
+
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-stone-300 px-5 py-4">
           <button onClick={onClose} disabled={busy}
@@ -1241,5 +1257,126 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// StaffCommentThread — staff side of the per-application thread.
+// Same wire shape + endpoint as the student side; just hits the
+// staff route which scopes by visibility (assigned counsellor + admin).
+// ============================================================
+function fmtCommentTime(d) {
+  if (!d) return "";
+  try { return new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
+  catch { return d; }
+}
+
+function StaffCommentThread({ appId }) {
+  const [comments, setComments] = useState(null);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await api.listApplicationComments(appId);
+      setComments(list);
+      setErr(null);
+    } catch (e) {
+      setErr(e?.message || "Couldn't load comments.");
+    }
+  }, [appId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.addApplicationComment(appId, body.trim());
+      setBody("");
+      await load();
+    } catch (e) {
+      setErr(e?.message || "Couldn't post.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <p className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.12em] text-black">
+        <MessageSquare className="h-4 w-4" /> Comments
+      </p>
+      <p className="mt-1 text-sm text-stone-800">
+        Two-way thread with the student. Append-only — posts can't be edited or deleted.
+      </p>
+
+      {err && (
+        <p className="mt-3 inline-flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4" /> {err}
+        </p>
+      )}
+
+      <div className="mt-3">
+        {comments === null ? (
+          <p className="inline-flex items-center gap-2 text-sm text-stone-800">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading comments…
+          </p>
+        ) : comments.length === 0 ? (
+          <p className="text-sm text-stone-800">
+            No comments yet. Use the box below to reply to the student.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {comments.map((c) => <StaffCommentBubble key={c.id} comment={c} />)}
+          </ul>
+        )}
+      </div>
+
+      <form onSubmit={submit} className="mt-3 space-y-2">
+        <textarea
+          rows={3}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Reply to the student about requirements, deadlines, next steps."
+          className="w-full border border-stone-300 bg-white px-3 py-2 font-serif text-base leading-relaxed focus:border-[#cc785c] focus:outline-none"
+        />
+        <div className="flex items-center justify-end">
+          <button
+            type="submit"
+            disabled={busy || !body.trim()}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            Post
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function StaffCommentBubble({ comment }) {
+  const fromStudent = comment.author_kind === "student";
+  const bg = fromStudent ? "bg-[#cc785c]/10" : "bg-stone-50";
+  const align = fromStudent ? "" : "ml-auto";
+  const roleLabel = comment.author_kind === "student"
+    ? `${comment.author_name || "Student"} (student)`
+    : comment.author_kind === "admin"
+    ? `${comment.author_name || "Admin"} (admin)`
+    : `${comment.author_name || "Counsellor"}`;
+  return (
+    <li className={`max-w-[90%] border border-stone-200 ${bg} px-3 py-2 ${align}`}>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-xs font-semibold text-black">{roleLabel}</span>
+        <span className="text-[11px] text-stone-700">{fmtCommentTime(comment.created_at)}</span>
+      </div>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-800">
+        {comment.body}
+      </p>
+    </li>
   );
 }

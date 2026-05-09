@@ -31,7 +31,7 @@ import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
 
-export default function StudentDashboard({ studentName, onExit, staffPreview = null }) {
+export default function StudentDashboard({ studentName, onExit, staffPreview = null, embedded = false }) {
   const isStaffPreview = !!staffPreview;
 
   const [files, setFiles] = useState(() =>
@@ -120,9 +120,19 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
     || studentName
     || "student";
 
+  // Embedded mode: rendered inside PanelTabsView (the post-intake tabs
+  // wrapper). The wrapper supplies its own brand/sign-out/tabs header,
+  // so we skip ours here and drop the page background.
   return (
-    <div className="min-h-screen w-full font-serif text-black" style={{ backgroundColor: "#f4f0e6" }}>
-      {!isStaffPreview && (
+    <div
+      className={
+        embedded
+          ? "w-full font-serif text-black"
+          : "min-h-screen w-full font-serif text-black"
+      }
+      style={embedded ? undefined : { backgroundColor: "#f4f0e6" }}
+    >
+      {!isStaffPreview && !embedded && (
         <header className="border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between">
             <div className="flex items-baseline gap-2">
@@ -143,7 +153,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         </header>
       )}
 
-      <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : "max-w-3xl px-6 py-12"}`}>
+      <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : embedded ? "max-w-3xl px-0 py-2" : "max-w-3xl px-6 py-12"}`}>
         {!isStaffPreview && (
           <h1 className="font-serif text-3xl">{headerName}</h1>
         )}
@@ -284,7 +294,7 @@ function ApplicationStatusRow({ app }) {
   const meta = APP_STATUS_META[app.status] || { label: app.status || "—", swatch: "#E7E5E4", tone: "#1c1917" };
   const isPending = app.pending;
   return (
-    <div className="flex items-center gap-3 border border-stone-900/10 bg-white px-4 py-3">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border border-stone-900/10 bg-white px-4 py-3">
       {/* Status swatch */}
       <span
         className="shrink-0 rounded-sm px-2 py-0.5 text-xs font-medium"
@@ -297,20 +307,19 @@ function ApplicationStatusRow({ app }) {
         {isPending ? "Awaiting review" : meta.label}
       </span>
 
-      {/* School info */}
-      <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-black truncate">{app.university}</span>
-        {app.program && (
-          <span className="ml-2 text-xs text-black truncate">{app.program}</span>
-        )}
-        {app.country && (
-          <span className="ml-2 text-xs text-black">{app.country}</span>
-        )}
-      </div>
+      {/* School info — wraps inline; long names break to a new line
+          rather than getting cut off. */}
+      <span className="text-sm font-medium text-black break-words">{app.university}</span>
+      {app.program && (
+        <span className="text-xs text-black break-words">{app.program}</span>
+      )}
+      {app.country && (
+        <span className="text-xs text-black">{app.country}</span>
+      )}
 
       {/* Deadline */}
       {app.deadline && !isPending && (
-        <span className="shrink-0 text-xs text-black">
+        <span className="ml-auto shrink-0 text-xs text-black">
           Deadline: {fmtAppDate(app.deadline)}
         </span>
       )}

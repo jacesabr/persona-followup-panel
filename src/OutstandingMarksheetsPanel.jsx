@@ -152,9 +152,8 @@ export default function OutstandingMarksheetsPanel({ role = "admin", onViewStude
         </div>
       </div>
 
-      <p className="mb-3 text-[11px] italic text-stone-500">
+      <p className="mb-3 text-sm text-stone-800">
         Auto-reminder cadence: every 3 days while any grade is outstanding.
-        <span className="ml-1 text-stone-400">(Reminder delivery wires up later.)</span>
       </p>
 
       {error && (
@@ -177,7 +176,7 @@ export default function OutstandingMarksheetsPanel({ role = "admin", onViewStude
         </div>
 
         {outstanding.length === 0 && (
-          <div className="px-3 py-6 text-center text-xs italic text-stone-500">
+          <div className="px-3 py-6 text-center text-sm text-stone-800">
             No outstanding marksheets — every student has submitted.
           </div>
         )}

@@ -41,8 +41,16 @@ router.get("/", requireStaff, async (req, res, next) => {
          LEFT JOIN counsellors c ON c.id = a.counsellor_id`;
     let where = "";
     if (req.user.kind === "counsellor") {
-      where = ` WHERE (COALESCE(a.counsellor_id, s.counsellor_id) = $1
-                       OR (a.counsellor_id IS NULL AND a.student_id IS NULL))`;
+      // Visible to a counsellor when:
+      //   - the application is explicitly assigned to them (a.counsellor_id), OR
+      //   - the linked student is assigned to them (s.counsellor_id), OR
+      //   - the row is shared inventory: no app-level owner AND no student
+      //     owner (covers both legacy unlinked free-text rows AND fresh
+      //     student-submitted pending apps where admin hasn't assigned a
+      //     counsellor to the student yet).
+      where = ` WHERE (a.counsellor_id = $1
+                       OR (a.counsellor_id IS NULL AND s.counsellor_id = $1)
+                       OR (a.counsellor_id IS NULL AND s.counsellor_id IS NULL))`;
     }
     const { rows } = await pool.query(
       `SELECT a.id, a.student_id, a.country, a.university, a.program,
@@ -154,12 +162,14 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
 });
 
 // GET /api/applications/me — student reads their own non-archived
-// applications (read-only; status + deadline visible, notes hidden).
+// applications. Status tab on the dashboard renders this; the student
+// sees status + deadline + requirements but not staff-only `notes`.
 router.get("/me", requireStudent, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT a.id, a.country, a.university, a.program,
-              a.deadline, a.status, a.pending, a.created_at, a.updated_at
+              a.deadline, a.requirements, a.status, a.pending,
+              a.created_at, a.updated_at
          FROM intake_applications a
         WHERE a.student_id = $1
           AND a.archived  = FALSE
@@ -167,6 +177,47 @@ router.get("/me", requireStudent, async (req, res, next) => {
       [req.user.studentId]
     );
     res.json(rows.map((r) => ({ ...r, id: String(r.id) })));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/applications/me — student creates an application against
+// their own account. Always lands in `pending=true` so it shows up in
+// the staff "pending review" queue. Student-side has no archive/delete
+// path by design — once submitted, the row is the staff's to triage.
+router.post("/me", requireStudent, express.json(), async (req, res, next) => {
+  try {
+    const { country, university, program, requirements } = req.body || {};
+    if (!isString(university) || !university.trim()) {
+      return res.status(400).json({ error: "university is required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO intake_applications
+         (student_id, country, university, program, requirements, status, pending)
+       VALUES ($1, $2, $3, $4, $5, 'active', TRUE)
+       RETURNING id, country, university, program, deadline, requirements,
+                 status, pending, created_at, updated_at`,
+      [
+        req.user.studentId,
+        isString(country) && country.trim() ? country.trim() : null,
+        university.trim(),
+        isString(program) && program.trim() ? program.trim() : null,
+        isString(requirements) && requirements.trim() ? requirements.trim() : null,
+      ]
+    );
+    const row = rows[0];
+    audit(req, {
+      table: "intake_applications",
+      id: String(row.id),
+      action: "student_create",
+      diff: {
+        student_id: req.user.studentId,
+        university: row.university,
+        program: row.program,
+      },
+    });
+    res.status(201).json({ ...row, id: String(row.id) });
   } catch (e) {
     next(e);
   }
@@ -199,7 +250,11 @@ function reject404(res) { return res.status(404).json({ error: "not found" }); }
 function isVisibleTo(row, user) {
   if (user.kind !== "counsellor") return true;
   if (row.app_counsellor_id) return row.app_counsellor_id === user.counsellorId;
-  if (!row.student_id) return true;
+  // No app-level assignment: scope by student. Unassigned students
+  // (s.counsellor_id IS NULL) AND linked-student rows are shared
+  // inventory until admin assigns the student — same model as the
+  // listing query above.
+  if (!row.student_counsellor_id) return true;
   return row.student_counsellor_id === user.counsellorId;
 }
 
@@ -401,6 +456,163 @@ router.post("/:id/unarchive", requireStaff, async (req, res, next) => {
       action: "unarchive",
     });
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ============================================================
+// Application comments — append-only thread per (student × school).
+// Two-way: student, assigned counsellor, and admin all read + write.
+// Same access rules as the parent application: staff scope mirrors
+// list-visibility; student scope is "rows on my own student_id".
+// ============================================================
+const MAX_COMMENT_BODY = 4000;
+
+function shapeComment(r) {
+  return {
+    id: String(r.id),
+    application_id: String(r.application_id),
+    author_kind: r.author_kind,
+    author_counsellor_id: r.author_counsellor_id,
+    author_admin_username: r.author_admin_username,
+    author_student_id: r.author_student_id,
+    author_name: r.author_name,
+    body: r.body,
+    created_at: r.created_at,
+  };
+}
+
+// Joined SELECT used by both staff and student GETs so the wire shape
+// matches regardless of who's asking. counsellors.name and
+// intake_students.display_name resolve to a friendly display name; admin
+// authors fall back to author_admin_username.
+const COMMENT_SELECT = `
+  SELECT ac.id, ac.application_id, ac.author_kind,
+         ac.author_counsellor_id, ac.author_admin_username, ac.author_student_id,
+         COALESCE(c.name, st.display_name, st.username, ac.author_admin_username) AS author_name,
+         ac.body, ac.created_at
+    FROM intake_application_comments ac
+    LEFT JOIN counsellors    c  ON c.id = ac.author_counsellor_id
+    LEFT JOIN intake_students st ON st.student_id = ac.author_student_id`;
+
+router.get("/:id/comments", requireStaff, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) return reject404(res);
+    if (!isVisibleTo(own, req.user)) return reject404(res);
+    const { rows } = await pool.query(
+      `${COMMENT_SELECT} WHERE ac.application_id = $1 ORDER BY ac.created_at ASC`,
+      [Number(req.params.id)]
+    );
+    res.json(rows.map(shapeComment));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/:id/comments", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) return reject404(res);
+    if (!isVisibleTo(own, req.user)) return reject404(res);
+    const body = isString(req.body?.body) ? req.body.body.trim() : "";
+    if (!body) return res.status(400).json({ error: "body is required" });
+    if (body.length > MAX_COMMENT_BODY) {
+      return res.status(400).json({ error: `body too long (max ${MAX_COMMENT_BODY})` });
+    }
+    const isAdmin = req.user.kind === "admin";
+    const insert = await pool.query(
+      `INSERT INTO intake_application_comments
+         (application_id, author_kind, author_counsellor_id, author_admin_username, body)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [
+        Number(req.params.id),
+        isAdmin ? "admin" : "counsellor",
+        isAdmin ? null : req.user.counsellorId,
+        isAdmin ? (req.user.adminUsername || null) : null,
+        body,
+      ]
+    );
+    const { rows } = await pool.query(
+      `${COMMENT_SELECT} WHERE ac.id = $1`,
+      [insert.rows[0].id]
+    );
+    audit(req, {
+      table: "intake_application_comments",
+      id: String(insert.rows[0].id),
+      action: "create",
+      diff: { application_id: Number(req.params.id) },
+    });
+    res.status(201).json(shapeComment(rows[0]));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Student equivalents — only operate on rows the student owns.
+async function loadStudentApp(client, appId, studentId) {
+  const { rows } = await client.query(
+    `SELECT id FROM intake_applications WHERE id = $1 AND student_id = $2`,
+    [appId, studentId]
+  );
+  return rows[0] || null;
+}
+
+router.get("/me/:id/comments", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const app = await loadStudentApp(pool, Number(req.params.id), req.user.studentId);
+    if (!app) return reject404(res);
+    const { rows } = await pool.query(
+      `${COMMENT_SELECT} WHERE ac.application_id = $1 ORDER BY ac.created_at ASC`,
+      [Number(req.params.id)]
+    );
+    res.json(rows.map(shapeComment));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/me/:id/comments", requireStudent, express.json(), async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const app = await loadStudentApp(pool, Number(req.params.id), req.user.studentId);
+    if (!app) return reject404(res);
+    const body = isString(req.body?.body) ? req.body.body.trim() : "";
+    if (!body) return res.status(400).json({ error: "body is required" });
+    if (body.length > MAX_COMMENT_BODY) {
+      return res.status(400).json({ error: `body too long (max ${MAX_COMMENT_BODY})` });
+    }
+    const insert = await pool.query(
+      `INSERT INTO intake_application_comments
+         (application_id, author_kind, author_student_id, body)
+       VALUES ($1, 'student', $2, $3)
+       RETURNING id`,
+      [Number(req.params.id), req.user.studentId, body]
+    );
+    const { rows } = await pool.query(
+      `${COMMENT_SELECT} WHERE ac.id = $1`,
+      [insert.rows[0].id]
+    );
+    audit(req, {
+      table: "intake_application_comments",
+      id: String(insert.rows[0].id),
+      action: "student_create",
+      diff: { application_id: Number(req.params.id) },
+    });
+    res.status(201).json(shapeComment(rows[0]));
   } catch (e) {
     next(e);
   }

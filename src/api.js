@@ -2,9 +2,13 @@
 // In production, frontend and API share an origin (Express serves dist/), so /api works.
 // In dev, vite.config.js proxies /api → :3000.
 
-// Global handler invoked when a protected route returns 401, i.e. the
-// server says the cookie is no longer good. App.jsx registers a
-// listener that wipes session state and falls back to the login screen.
+// Global handler invoked when a protected route returns 401 (cookie no
+// longer good) OR a role-mismatch 403 (cookie is valid but for a
+// different role than the UI expects — happens when another tab logs
+// in as a different role and overwrites the shared persona_session
+// cookie). App.jsx registers a listener that re-bootstraps from
+// /api/auth/me so the UI re-routes to the role the cookie now holds,
+// or falls back to login if the cookie is gone.
 //
 // /api/auth/login, /api/auth/me, and /api/auth/logout are excluded —
 // each handles its own 401 in-place (wrong creds, bootstrap probe,
@@ -16,6 +20,11 @@ const AUTH_EXEMPT_PATHS = new Set([
   "/api/auth/logout",
   "/api/auth/me",
 ]);
+// 403 bodies emitted by requireStaff / requireAdmin / requireStudent.
+// These three indicate a role mismatch (the cookie is valid, just for a
+// role that doesn't match this route) — the signal we use to trigger a
+// session re-bootstrap.
+const ROLE_MISMATCH_ERRORS = new Set(["staff only", "admin only", "student only"]);
 
 export function setUnauthorizedHandler(fn) {
   onUnauthorized = typeof fn === "function" ? fn : () => {};
@@ -42,12 +51,14 @@ async function request(method, path, body) {
     }
     const err = new Error(detail.error || `HTTP ${res.status}`);
     err.status = res.status;
-    // Session-expiry: any protected endpoint returning 401 means our
-    // cookie no longer maps to a live session. Fire the global handler
-    // so App.jsx can clear local state instead of leaving the user with
-    // a half-broken UI plus an opaque error banner.
-    if (res.status === 401 && !AUTH_EXEMPT_PATHS.has(path)) {
-      onUnauthorized();
+    // 401 = cookie no longer maps to a live session. 403 with one of
+    // ROLE_MISMATCH_ERRORS = cookie is valid but for a different role
+    // (typically because another tab overwrote the shared cookie). Both
+    // mean the UI's notion of who's logged in is stale — fire the
+    // handler so App.jsx re-bootstraps from /api/auth/me and re-routes.
+    if (!AUTH_EXEMPT_PATHS.has(path)) {
+      if (res.status === 401) onUnauthorized();
+      else if (res.status === 403 && ROLE_MISMATCH_ERRORS.has(detail.error)) onUnauthorized();
     }
     throw err;
   }
@@ -215,6 +226,21 @@ export const api = {
   // hides the row from the active list, surfaces it under "Archived".
   // Student: read own non-archived applications (status + deadline, no notes).
   listMyApplications: () => request("GET", "/api/applications/me"),
+  // Student: create a new application against own account. Always lands
+  // pending=true so the staff Applications panel surfaces it under
+  // "Pending review" for triage. No archive/delete by design — once
+  // submitted, the row is the staff's to triage.
+  createMyApplication: (data) => request("POST", "/api/applications/me", data),
+  // Per-application comment thread. Two-way: student, assigned
+  // counsellor, and admin all read + write. Append-only — no edit/delete.
+  listApplicationComments: (id) =>
+    request("GET", `/api/applications/${id}/comments`),
+  addApplicationComment: (id, body) =>
+    request("POST", `/api/applications/${id}/comments`, { body }),
+  listMyApplicationComments: (id) =>
+    request("GET", `/api/applications/me/${id}/comments`),
+  addMyApplicationComment: (id, body) =>
+    request("POST", `/api/applications/me/${id}/comments`, { body }),
   archiveStudentIelts: (studentId) =>
     request("POST", `/api/students/${studentId}/ielts-archive`),
   unarchiveStudentIelts: (studentId) =>

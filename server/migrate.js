@@ -480,6 +480,28 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
 ALTER TABLE intake_applications ADD COLUMN IF NOT EXISTS counsellor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_intake_applications_counsellor ON intake_applications(counsellor_id);
 
+-- Per-application comment thread. Used by the Status tab on the
+-- student dashboard so a student can pin requirements/needs against
+-- one specific (university, program) row, and by the staff Applications
+-- panel so the assigned counsellor + admin can reply in the same place.
+-- Append-only by design (mirrors task_comments).
+--   author_kind:    'student' | 'counsellor' | 'admin'
+--   author_*_id:    nullable per role; the kind disambiguates which one is set
+--   author_admin_username: which named admin posted (e.g. 'adminsuhas')
+--                          when kind='admin'; NULL otherwise.
+CREATE TABLE IF NOT EXISTS intake_application_comments (
+  id BIGSERIAL PRIMARY KEY,
+  application_id BIGINT NOT NULL REFERENCES intake_applications(id) ON DELETE CASCADE,
+  author_kind TEXT NOT NULL CHECK (author_kind IN ('student', 'counsellor', 'admin')),
+  author_counsellor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL,
+  author_student_id TEXT REFERENCES intake_students(student_id) ON DELETE SET NULL,
+  author_admin_username TEXT,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_application_comments_app
+  ON intake_application_comments(application_id, created_at);
+
 -- Counsellor supervision chain (one level deep). Himani.supervisor_id =
 -- Simran.id lets Simran view and assign tasks to Himani; Simran has NULL.
 -- ON DELETE SET NULL so removing a supervisor doesn't cascade to their supervised counsellors.

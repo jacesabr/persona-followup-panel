@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, LogOut, User, Lock } from "lucide-react";
 import SimplePanel from "./SimplePanel.jsx";
 import AdminPanel from "./AdminPanel.jsx";
@@ -6,6 +6,13 @@ import StudentIntake from "./StudentIntake.jsx";
 import { api, setUnauthorizedHandler } from "./api.js";
 import { formatInIst } from "../lib/time.js";
 import VersionBanner from "./VersionBanner.jsx";
+import useAutoRefresh from "./useAutoRefresh.js";
+
+// Cross-tab auth notification. When one tab logs in/out the shared
+// persona_session cookie changes; other tabs would otherwise keep
+// rendering UI for a now-stale role until they hit a 401/403 or refocus.
+// Posting on the channel lets them re-bootstrap immediately.
+const AUTH_CHANNEL = "persona_auth";
 
 // Impersonation is admin-only UI state — purely a view switch, no
 // security boundary (admin's session cookie is what authorizes the
@@ -36,6 +43,24 @@ function loadImpersonating() {
   return { counsellorId: raw.counsellorId };
 }
 
+// Identity check for session objects. Used by the periodic refresh so a
+// no-op /api/auth/me poll doesn't churn child effects keyed on
+// [session]. Compares the fields that drive routing + identity, not
+// the whole object (display names etc. change without affecting which
+// panel renders).
+function sessionsEquivalent(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (a === "loading" || b === "loading") return false;
+  return (
+    a.role === b.role &&
+    (a.counsellorId ?? null) === (b.counsellorId ?? null) &&
+    (a.studentId ?? null) === (b.studentId ?? null) &&
+    (a.adminUsernameRaw ?? "") === (b.adminUsernameRaw ?? "") &&
+    (a.displayName ?? "") === (b.displayName ?? "")
+  );
+}
+
 export default function App() {
   // session is null until /api/auth/me resolves. The server's httpOnly
   // cookie is the source of truth — we never trust localStorage for who
@@ -53,61 +78,99 @@ export default function App() {
   };
   const [counsellors, setCounsellors] = useState([]);
 
-  // Global 401 handler — fires when any protected /api/* call returns
-  // 401, which means our cookie no longer maps to a live session
-  // (expired, server-deleted, or rotated). Wipe local state so the
-  // user lands on the login form instead of staring at an error banner
-  // attached to a half-broken panel.
-  //
-  // Registered exactly once at App mount; api.js stores a single
-  // callback so re-registering would just overwrite, but we set this
-  // up in its own effect to make the lifetime obvious. /api/auth/login,
-  // /me, /logout are exempt inside api.js itself (they handle 401
-  // in-place — wrong creds, bootstrap probe, already-cleared session).
-  useEffect(() => {
-    setUnauthorizedHandler(() => {
-      saveKey(IMPERSONATE_KEY, null);
+  // Lazily-created BroadcastChannel for cross-tab login/logout pings.
+  // Same instance handles incoming messages and outgoing posts (a tab
+  // doesn't receive its own posts, which is exactly what we want — the
+  // posting tab updates state directly, peers update via this channel).
+  const authChannelRef = useRef(null);
+
+  // Re-fetch /api/auth/me and update local session state. Idempotent —
+  // safe to call from initial bootstrap, focus/poll backstop, the 401/
+  // 403 unauthorized handler, and cross-tab BroadcastChannel messages.
+  // Clears impersonation if the new session isn't admin (impersonation
+  // is admin-only and goes stale instantly when the cookie's role
+  // flips).
+  const refreshSession = useCallback(async () => {
+    let me;
+    try {
+      me = await api.me();
+    } catch {
       setSession(null);
+      saveKey(IMPERSONATE_KEY, null);
       setImpersonatingRaw(null);
-    });
-    return () => setUnauthorizedHandler(null);
+      return;
+    }
+    let next = null;
+    if (me.user_kind === "admin") {
+      next = {
+        role: "admin",
+        displayName: me.username || "Admin",
+        adminUsernameRaw: me.usernameRaw || "",
+        adminMirrors: me.mirrors || [],
+      };
+    } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
+      next = {
+        role: "counsellor",
+        counsellorId: me.counsellor.id,
+        displayName: me.counsellor.name || "Counsellor",
+      };
+    } else if (me.user_kind === "student" && me.student?.student_id) {
+      next = {
+        role: "student",
+        studentId: me.student.student_id,
+        studentName: me.student.display_name || me.student.username,
+        displayName: me.student.display_name || me.student.username,
+      };
+    }
+    setSession((prev) => (sessionsEquivalent(prev, next) ? prev : next));
+    if (!next || next.role !== "admin") {
+      saveKey(IMPERSONATE_KEY, null);
+      setImpersonatingRaw(null);
+    }
   }, []);
 
-  // First-paint bootstrap: ask the server who we are. 401 → not logged
-  // in, show login. Any other error also falls back to login (the user
-  // can retry; better than rendering a broken page).
+  // Global 401/role-mismatch-403 handler — api.js fires this when a
+  // protected request reveals the cookie's role is stale (expired,
+  // overwritten by another tab, etc.). Re-bootstrap so the UI re-routes
+  // to whatever the cookie actually represents now (or to login if
+  // gone). Without this, a tab whose cookie was overwritten by another
+  // tab's login would keep rendering the original role's UI and
+  // surfacing opaque "staff only" / "admin only" banners.
   useEffect(() => {
-    let cancelled = false;
-    api.me()
-      .then((me) => {
-        if (cancelled) return;
-        if (me.user_kind === "admin") {
-          setSession({
-            role: "admin",
-            displayName: me.username || "Admin",
-            adminUsernameRaw: me.usernameRaw || "",
-            adminMirrors: me.mirrors || [],
-          });
-        } else if (me.user_kind === "counsellor" && me.counsellor?.id) {
-          setSession({ role: "counsellor", counsellorId: me.counsellor.id, displayName: me.counsellor.name || "Counsellor" });
-        } else if (me.user_kind === "student" && me.student?.student_id) {
-          setSession({
-            role: "student",
-            studentId: me.student.student_id,
-            studentName: me.student.display_name || me.student.username,
-            displayName: me.student.display_name || me.student.username,
-          });
-        } else {
-          setSession(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setSession(null);
-      });
-    return () => {
-      cancelled = true;
+    setUnauthorizedHandler(refreshSession);
+    return () => setUnauthorizedHandler(null);
+  }, [refreshSession]);
+
+  // First-paint bootstrap.
+  useEffect(() => {
+    refreshSession();
+  }, [refreshSession]);
+
+  // Backstop poll: re-check session on tab focus, visibility change,
+  // and a slow interval. Catches role flips even when the user hasn't
+  // triggered an API call yet (e.g. they refocus an admin tab whose
+  // cookie was overwritten by a student login in another tab).
+  useAutoRefresh(refreshSession, { intervalMs: 60_000 });
+
+  // Cross-tab notification: when this tab logs in or out, peers re-
+  // bootstrap immediately instead of waiting for their next poll/
+  // request to discover the cookie changed.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const ch = new BroadcastChannel(AUTH_CHANNEL);
+    ch.onmessage = (ev) => {
+      if (ev?.data?.type === "auth-changed") refreshSession();
     };
-  }, []);
+    authChannelRef.current = ch;
+    return () => {
+      ch.close();
+      authChannelRef.current = null;
+    };
+  }, [refreshSession]);
+
+  const broadcastAuthChange = () => {
+    authChannelRef.current?.postMessage({ type: "auth-changed" });
+  };
 
   // Refresh the counsellor roster only for staff sessions — the admin's
   // impersonation banner reads the counsellor name from this list. Students
@@ -143,6 +206,7 @@ export default function App() {
           studentName: out.student.display_name || out.student.username,
         });
       }
+      broadcastAuthChange();
       return { ok: true };
     } catch (e) {
       if (e && e.status === 401) return { ok: false, kind: "auth" };
@@ -163,6 +227,7 @@ export default function App() {
     saveKey(IMPERSONATE_KEY, null);
     setSession(null);
     setImpersonatingRaw(null);
+    broadcastAuthChange();
   };
 
   if (session === "loading") {
