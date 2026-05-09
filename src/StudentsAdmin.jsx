@@ -22,23 +22,20 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+  // Clicking a row opens the full-screen modal; we no longer expand
+  // detail in-place. State is the student_id of the row whose modal
+  // is open, or null when nothing is open.
+  const [modalStudentId, setModalStudentId] = useState(null);
 
   // Cross-tab handoff: the IELTS panel passes a student_id when its
-  // "View" button is clicked. We expand that row on the next render and
-  // tell the parent we've consumed it (so a later refocus doesn't keep
-  // re-expanding the same row). Scroll into view so the row is visible
-  // even when the roster is long.
+  // "View" button is clicked. Open the modal for that student; the
+  // scroll-into-view used to be needed when this expanded inline,
+  // but the modal sits over the page so the row position doesn't
+  // matter anymore.
   useEffect(() => {
     if (!autoExpandStudentId) return;
-    setExpandedId(autoExpandStudentId);
+    setModalStudentId(autoExpandStudentId);
     onAutoExpandConsumed?.();
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-student-row="${autoExpandStudentId}"]`);
-      if (el && typeof el.scrollIntoView === "function") {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
   }, [autoExpandStudentId, onAutoExpandConsumed]);
   // Roster filter — case-insensitive substring match across the visible
   // metadata columns. Cheap client-side filter; server pagination is a
@@ -99,8 +96,6 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
     <div>
       <CreateStudentForm role={role} counsellors={counsellors} onCreated={onCreated} />
 
-      {role === "admin" && <ImportExamplesButton />}
-
       <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
           Students {students.length > 0 && (
@@ -156,8 +151,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
             key={s.student_id}
             row={s}
             role={role}
-            expanded={expandedId === s.student_id}
-            onToggle={() => setExpandedId((p) => (p === s.student_id ? null : s.student_id))}
+            onOpen={() => setModalStudentId(s.student_id)}
             onResetPassword={(account) => setCredentialsModal(account)}
             onViewAs={(detail) => setViewAsStudent(detail)}
           />
@@ -175,6 +169,14 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
         <ViewAsStudentModal
           detail={viewAsStudent}
           onClose={() => setViewAsStudent(null)}
+        />
+      )}
+
+      {modalStudentId && (
+        <StudentDetailModal
+          studentId={modalStudentId}
+          role={role}
+          onClose={() => setModalStudentId(null)}
         />
       )}
     </div>
@@ -518,116 +520,11 @@ function ProgressLabel({ row }) {
   return <span className={TONE_CLASSES[tone] || ""}>{label}</span>;
 }
 
-// Admin-only: re-import the resume style corpus from disk into
-// intake_examples. Surfaced here because resume generation hard-fails
-// when the table is empty (fresh DB, post-deploy, or after the
-// example file was swapped on disk). One-click recovery instead of
-// SSHing to the server to run npm run import-examples.
-function ImportExamplesButton() {
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
-  const [err, setErr] = useState(null);
-
-  const onClick = async () => {
-    setBusy(true);
-    setErr(null);
-    setResult(null);
-    try {
-      const r = await api.importExamples();
-      setResult(r);
-    } catch (e) {
-      setErr(e?.message || "Import failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mt-6 border border-stone-300 bg-white px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-black">
-            Resume style corpus
-          </p>
-          <p className="mt-0.5 text-xs text-black">
-            Re-imports <span className="font-mono">resume/example_resume/</span> into the database. Run after replacing the example file or on a fresh deploy.
-          </p>
-        </div>
-        <button
-          onClick={onClick}
-          disabled={busy}
-          className="inline-flex shrink-0 items-center gap-1 border border-stone-700 bg-stone-900 px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-white transition hover:bg-stone-700 disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {busy ? "Importing…" : "Re-import corpus"}
-        </button>
-      </div>
-      {err && (
-        <p className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
-          <AlertCircle className="h-3 w-3" /> {err}
-        </p>
-      )}
-      {result && (
-        <ul className="mt-2 space-y-0.5 text-[11px] text-black">
-          {result.results.map((r, i) => (
-            <li key={i} className="font-mono">
-              <span className={
-                r.action === "inserted" ? "text-emerald-700"
-                : r.action === "updated" ? "text-black"
-                : r.action === "deactivated" ? "text-amber-700"
-                : "text-red-700"
-              }>{r.action}</span>
-              {" "}{r.label || r.file}
-              {r.word_count ? <span className="ml-1 text-black">· {r.word_count}w</span> : null}
-              {r.reason ? <span className="ml-1 text-red-700">— {r.reason}</span> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 // ============================================================
 // StudentRow — collapsed roster row + expandable detail view.
 // ============================================================
-function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }) {
-  const [detail, setDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+function StudentRow({ row, role, onOpen, onResetPassword, onViewAs }) {
   const [viewAsBusy, setViewAsBusy] = useState(false);
-
-  const refreshDetail = useCallback(async () => {
-    try {
-      const d = await api.getStudent(row.student_id);
-      setDetail(d);
-    } catch (e) {
-      setDetail({ error: e.message });
-    }
-  }, [row.student_id]);
-
-  useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
-    setDetailLoading(true);
-    api.getStudent(row.student_id)
-      .then((d) => { if (!cancelled) setDetail(d); })
-      .catch((e) => { if (!cancelled) setDetail({ error: e.message }); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [expanded, row.student_id]);
-
-  // Auto-poll the detail while any resume is mid-generation. Lets the
-  // counsellor's view update in place after they hit the staff-side
-  // Regenerate button without having to manually re-expand the row.
-  useEffect(() => {
-    if (!expanded || !detail || detail.error) return;
-    const inflight = (detail.resumes || []).some(
-      (r) => r.status === "pending" || r.status === "running"
-    );
-    if (!inflight) return;
-    const t = setInterval(refreshDetail, 4000);
-    return () => clearInterval(t);
-  }, [expanded, detail, refreshDetail]);
 
   const resetPassword = async (e) => {
     e.stopPropagation();
@@ -645,10 +542,7 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
     if (viewAsBusy) return;
     setViewAsBusy(true);
     try {
-      // Reuse the already-loaded detail when the row is expanded so a
-      // counsellor double-checking a student doesn't pay a second
-      // round-trip to the same endpoint.
-      const d = (detail && !detail.error) ? detail : await api.getStudent(row.student_id);
+      const d = await api.getStudent(row.student_id);
       onViewAs(d);
     } catch (err) {
       alert(`Couldn't open student view: ${err?.message || "unknown error"}`);
@@ -660,14 +554,9 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
   return (
     <div data-student-row={row.student_id} className="border border-stone-300 bg-white">
       <button
-        onClick={onToggle}
+        onClick={onOpen}
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-black" />
-        ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-black" />
-        )}
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-black">
             {row.display_name || row.username}
@@ -685,8 +574,6 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
             {row.lead_name && <> {" · "} from lead: <span className="text-black">{row.lead_name}</span></>}
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
-          {/* Plain-text login credential. Operator opted in — see
-              migrate.js password_plain column comment. */}
           {row.password_plain && (
             <p className="mt-1 text-[11px] text-black">
               pw:{" "}
@@ -717,11 +604,97 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
           </button>
         </span>
       </button>
+    </div>
+  );
+}
 
-      {expanded && (
-        <div className="border-t border-stone-200 bg-stone-50 p-4">
-          {detailLoading && (
-            <p className="text-xs  text-black">Loading…</p>
+// ============================================================
+// StudentDetailModal — full-window overlay rendered when a roster
+// row is clicked. Loads the staff detail payload, then renders the
+// existing paginated StudentDetail (intake pages → AI resumes →
+// required docs → uploaded files) inside the modal. The modal owns
+// the body-scroll lock + Esc-to-close + click-outside-to-close
+// affordances; section pagination stays inside StudentDetail's
+// own sticky header where it already lives.
+// ============================================================
+function StudentDetailModal({ studentId, role, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const refreshDetail = useCallback(async () => {
+    try {
+      const d = await api.getStudent(studentId);
+      setDetail(d);
+    } catch (e) {
+      setDetail({ error: e.message });
+    }
+  }, [studentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getStudent(studentId)
+      .then((d) => { if (!cancelled) setDetail(d); })
+      .catch((e) => { if (!cancelled) setDetail({ error: e.message }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  // Auto-poll while any resume is mid-generation, same behaviour as
+  // the old inline-expanded flow had.
+  useEffect(() => {
+    if (!detail || detail.error) return;
+    const inflight = (detail.resumes || []).some(
+      (r) => r.status === "pending" || r.status === "running"
+    );
+    if (!inflight) return;
+    const t = setInterval(refreshDetail, 4000);
+    return () => clearInterval(t);
+  }, [detail, refreshDetail]);
+
+  // Esc closes; lock body scroll while open.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  const headerName =
+    detail?.student?.display_name || detail?.student?.username || "Loading…";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="m-0 flex min-h-screen w-full max-w-6xl flex-col border-x border-stone-300 bg-[#f4f0e6] shadow-2xl sm:my-4 sm:min-h-[calc(100vh-2rem)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-600">
+              Student detail
+            </p>
+            <p className="truncate font-serif text-lg text-black">{headerName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
+          >
+            <X className="h-3.5 w-3.5" /> Close
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
+          {loading && (
+            <p className="text-xs text-black">Loading…</p>
           )}
           {detail?.error && (
             <p className="text-xs text-red-700">{detail.error}</p>
@@ -730,7 +703,7 @@ function StudentRow({ row, role, expanded, onToggle, onResetPassword, onViewAs }
             <StudentDetail detail={detail} role={role} onRefresh={refreshDetail} />
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
