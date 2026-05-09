@@ -1044,12 +1044,56 @@ function Welcome({ name, onStart }) {
       <div className="mt-10 flex items-center gap-4">
         <button
           onClick={onStart}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800"
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-white transition hover:bg-stone-800"
         >
           Let's start <ArrowRight className="h-4 w-4" />
         </button>
-        <span className="text-xs  text-black">press Enter ↵</span>
+        <span className="text-xs text-black">press Enter ↵</span>
       </div>
+
+      <SmartAutofillTrialCard />
+    </div>
+  );
+}
+
+// Disabled-stub teaser for the bulk-document smart auto-fill flow.
+// The intent is: student drops every document they have (Aadhar,
+// marksheets, passport scan, IELTS result, etc.) into one box; we
+// run them through Gemini, transcribe each, and pre-fill the form
+// fields we can. The wiring to Gemini isn't built yet, so the card
+// renders as a teaser with no working file input.
+function SmartAutofillTrialCard() {
+  return (
+    <div className="mt-12 border border-dashed border-stone-400 bg-white/40 px-6 py-5">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
+          Smart auto-fill · trial
+        </p>
+        <p className="text-[11px] uppercase tracking-[0.2em] text-stone-700">
+          Currently unavailable — we're testing this
+        </p>
+      </div>
+      <p className="mt-3 text-base leading-relaxed text-black">
+        Drop every document you'll be using in this application — Aadhar,
+        passport, 10th/11th/12th marksheets, IELTS / SAT results, transcripts,
+        certificates, anything — into the box below. We'll read each one,
+        transcribe the contents, and pre-fill as many form fields as we can so
+        you don't have to type from your scans.
+      </p>
+      <div
+        aria-disabled
+        className="mt-4 flex cursor-not-allowed flex-col items-center justify-center gap-2 border border-dashed border-stone-300 bg-stone-50 px-6 py-10 text-center opacity-60"
+      >
+        <Upload className="h-6 w-6 text-stone-500" />
+        <p className="text-sm text-stone-700">
+          Drop files here — or click to choose
+        </p>
+        <p className="text-xs text-stone-500">JPG · PNG · PDF · max 25 MB each</p>
+      </div>
+      <p className="mt-3 text-sm text-stone-700">
+        For now, please walk through the form below — your counsellor will help
+        if anything is unclear.
+      </p>
     </div>
   );
 }
@@ -1078,7 +1122,7 @@ function ThankYouScreen({ name, onProceed, onLogout, busy }) {
         <button
           onClick={onProceed}
           disabled={busy}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-black transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Proceed to your panel <ArrowRight className="h-4 w-4" />
         </button>
@@ -1438,7 +1482,7 @@ function PageCard({
         <button
           onClick={onAdvance}
           disabled={!canAdvance}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
         >
           {advanceLabel}
           <ArrowRight className="h-3.5 w-3.5" />
@@ -1469,7 +1513,7 @@ function FieldRow({ field, value, onChange, onBlur, inputRef, wide }) {
 
 const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBlur }, ref) {
   const lineCls =
-    "mt-1.5 w-full border-b border-stone-900/30 bg-transparent py-1.5 font-serif text-base text-black outline-none transition focus:border-stone-900 placeholder:text-black";
+    "mt-1.5 w-full border-b border-stone-900/30 bg-transparent py-1.5 font-serif text-base text-black outline-none transition focus:border-stone-900 placeholder:text-stone-400";
 
   if (field.type === "textarea") {
     return (
@@ -1480,7 +1524,7 @@ const FieldInput = forwardRef(function FieldInput({ field, value, onChange, onBl
         onBlur={onBlur}
         placeholder={field.placeholder}
         rows={4}
-        className="mt-1.5 w-full resize-none border border-stone-900/30 bg-white/40 p-3 font-serif text-sm text-black outline-none transition focus:border-stone-900 placeholder:text-black"
+        className="mt-1.5 w-full resize-none border border-stone-900/30 bg-white/40 p-3 font-serif text-sm text-black outline-none transition focus:border-stone-900 placeholder:text-stone-400"
       />
     );
   }
@@ -2051,7 +2095,7 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
           onChange={(e) => handleChange(e.target.value)}
           onBlur={onBlur}
           placeholder={subfield.placeholder}
-          className="bg-transparent text-sm outline-none placeholder: placeholder:text-black"
+          className="bg-transparent text-sm outline-none placeholder:text-stone-400"
         />
         <span
           className={`mt-0.5 self-end text-[10px] tabular-nums ${
@@ -2071,7 +2115,7 @@ function RepeaterCell({ subfield, value, onChange, onBlur, rootRef }) {
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       placeholder={subfield.placeholder}
-      className="bg-[#f4f0e6] px-2 py-2 text-sm outline-none placeholder: placeholder:text-black"
+      className="bg-[#f4f0e6] px-2 py-2 text-sm outline-none placeholder:text-stone-400"
     />
   );
 }
