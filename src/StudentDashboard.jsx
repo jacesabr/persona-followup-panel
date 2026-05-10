@@ -406,17 +406,17 @@ function collectUrgentItems({ requiredDocs, applications }) {
 function UrgentItemsStrip({ items }) {
   return (
     <section className="mt-6 border border-amber-300 bg-amber-50 px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.2em] text-amber-900">Action needed</p>
+      <p className="text-sm font-bold uppercase tracking-[0.2em] text-amber-900">Action needed</p>
       <ul className="mt-2 space-y-1.5">
         {items.map((it) => (
           <li
             key={it.key}
             className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-black"
           >
-            <span className={`inline-flex shrink-0 items-center border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${it.tone}`}>
+            <span className={`inline-flex shrink-0 items-center border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] ${it.tone}`}>
               {it.urgency}
             </span>
-            <span className="break-words">{it.label}</span>
+            <span className="break-words"><strong>{it.label}</strong></span>
           </li>
         ))}
       </ul>
@@ -545,11 +545,11 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[10px] uppercase tracking-[0.2em] text-black">{kindLabel}</span>
         <span className="text-sm text-black">{summary}</span>
-        <span className={`ml-auto inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${pill.tone}`}>
+        <span className={`ml-auto inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] ${pill.tone}`}>
           {pill.label}
         </span>
         {dayBadge && (
-          <span className={`inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${dayBadge.tone}`}>
+          <span className={`inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] ${dayBadge.tone}`}>
             <Clock className="h-3 w-3" /> {dayBadge.label}
           </span>
         )}

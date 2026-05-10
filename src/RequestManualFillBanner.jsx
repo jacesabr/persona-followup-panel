@@ -146,22 +146,22 @@ export default function RequestManualFillBanner({
   // Pending request → queued block
   if (status && status !== "idle" && !status.processed_at) {
     return (
-      <div className={`flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 ${className}`}>
-        <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className={`flex items-start gap-3 border-2 border-orange-600 bg-orange-50 px-4 py-3 text-base text-orange-900 ${className}`}>
+        <Clock className="mt-0.5 h-5 w-5 shrink-0" />
         <div>
-          <p className="font-semibold">Request queued.</p>
+          <p className="text-lg font-bold">Request queued.</p>
           <p>
-            Dev has been notified to run the automation script from
-            Claude Code. This banner flips to <strong>complete</strong> automatically
-            once the run lands.
+            <strong>Dev has been notified</strong> to run the automation
+            script from <strong>Claude Code</strong>. This banner flips
+            to <strong>complete</strong> automatically once the run lands.
           </p>
           <a
             href={buildMailtoUrl({ studentId, displayName: studentDisplayName, counsellorName })}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-xs text-amber-900 underline underline-offset-4 hover:text-amber-700"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-900 underline underline-offset-4 hover:text-orange-700"
           >
-            <Send className="h-3 w-3" /> Re-send notification email
+            <Send className="h-3.5 w-3.5" /> Re-send notification email
           </a>
         </div>
       </div>
