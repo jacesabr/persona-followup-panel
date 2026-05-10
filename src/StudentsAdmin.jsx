@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, RefreshCw, Eye, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Eye, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
-import ResumeTemplate from "./ResumeTemplate.jsx";
+import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
 import StudentDashboard, {
@@ -825,20 +825,6 @@ function StudentDetailModal({ studentId, role, onClose }) {
 // ============================================================
 function StudentDetail({ detail, role, onRefresh }) {
   const { student, files, resumes } = detail;
-  const [regen, setRegen] = useState({}); // { [resumeId]: { busy, err } }
-  const handleRegen = useCallback(async (resumeId) => {
-    if (!confirm("Regenerate this resume against the student's current data? Takes 30–60 seconds.")) return;
-    setRegen((p) => ({ ...p, [resumeId]: { busy: true, err: null } }));
-    try {
-      await api.staffRegenerateResume(student.student_id, resumeId);
-      // Refresh once now; the polling effect on the parent picks up
-      // the now-pending status and continues to refresh until terminal.
-      if (onRefresh) await onRefresh();
-      setRegen((p) => ({ ...p, [resumeId]: { busy: false, err: null } }));
-    } catch (e) {
-      setRegen((p) => ({ ...p, [resumeId]: { busy: false, err: e?.message || "Regenerate failed." } }));
-    }
-  }, [student.student_id, onRefresh]);
 
   // Flat step sequence. Each chapter page becomes its own step (only
   // pages that have at least one answered field — `groupAnswersBySchema`
@@ -866,10 +852,11 @@ function StudentDetail({ detail, role, onRefresh }) {
   //      b. Pages with exactly one uploaded file → ONE combined slide
   //         showing the form fields, the document, and the AI analysis
   //         together (the typed context sits next to the scan).
-  //      c. Pages with multiple uploaded files → a "page" review slide
-  //         showing the form fields once, then ONE "doc-only" slide per
-  //         file (PDF + AI analysis only). Avoids re-rendering the whole
-  //         activities list for every proof PDF.
+  //      c. Pages with multiple uploaded files → a "review" summary
+  //         slide showing the form fields once (file-slot rows hidden
+  //         — the per-doc slides cover the files), then ONE "doc-only"
+  //         slide per file (PDF + AI analysis only). Avoids
+  //         re-rendering the whole activities list for every proof PDF.
   //   2. Resumes step.
   //   3. Required documents step.
   const steps = useMemo(() => {
@@ -899,13 +886,16 @@ function StudentDetail({ detail, role, onRefresh }) {
           });
           return;
         }
-        // Multi-doc page: review first, then one slide per document.
+        // Multi-doc page: summary first (form fields with file rows
+        // hidden, since the per-doc slides that follow render every
+        // file with its AI analysis), then one slide per document.
         out.push({
-          kind: "page",
+          kind: "review",
           chapterTitle: chapter.title,
           page,
+          fileCount: pageFiles.length,
           eyebrow: chapter.title,
-          title: `${page.title} · review`,
+          title: `${page.title} · summary`,
         });
         pageFiles.forEach((file, i) => {
           out.push({
@@ -1021,6 +1011,20 @@ function StudentDetail({ detail, role, onRefresh }) {
           <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
         </div>
       )}
+      {step?.kind === "review" && (
+        <div className="space-y-4">
+          <div className="border border-stone-300 bg-stone-50 px-4 py-3 text-sm text-stone-800">
+            This is the summary. The next {step.fileCount} {step.fileCount === 1 ? "slide" : "slides"} show each document with its AI analysis.
+          </div>
+          <ChapterSummaryBlock
+            chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
+            studentId={student.student_id}
+            headless
+            hideFiles
+            autofilledKeys={autofilledKeys}
+          />
+        </div>
+      )}
       {step?.kind === "doc-only" && (
         <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
       )}
@@ -1033,8 +1037,6 @@ function StudentDetail({ detail, role, onRefresh }) {
         <ResumesStep
           resumes={resumes}
           student={student}
-          regen={regen}
-          onRegen={handleRegen}
         />
       )}
       {step?.kind === "ai-suggestions" && (
@@ -1048,14 +1050,20 @@ function StudentDetail({ detail, role, onRefresh }) {
 }
 
 // ============================================================
-// ResumesStep — extracted from the old Section so the paginated
-// detail view can drop it in as one step. Pure presentation;
-// regenerate handler comes from the parent so it can refresh detail.
+// ResumesStep — read-only review surface for the staff slide flow.
+// Renders the student's resume(s) using <ResumePdfPicker>, the same
+// component the student sees on their dashboard, in compact mode so
+// the three style buttons sit as a pill row above the live PDF
+// preview. The header carries the word-count + status + stale signal
+// so the reviewer can spot a freshly-edited intake against an old
+// resume at a glance. Legacy markdown-only resumes fall through to
+// <ResumeMarkdown> — those are pre-v2 rows that won't get a picker.
 // ============================================================
-function ResumesStep({ resumes, student, regen, onRegen }) {
+function ResumesStep({ resumes, student }) {
   if (!resumes || resumes.length === 0) {
     return <p className="text-black">No resumes generated yet.</p>;
   }
+  const studentName = student?.display_name || student?.username || "";
   return (
     <div className="space-y-3">
       {resumes.map((r) => {
@@ -1079,58 +1087,27 @@ function ResumesStep({ resumes, student, regen, onRegen }) {
                   </span>
                 )}
               </span>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] uppercase tracking-[0.15em] text-black">
-                  {snapshot?.actual_words && snapshot?.target_words
-                    ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
-                        {snapshot.actual_words}w / {snapshot.target_words}w target
-                      </span>
-                    : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
-                  {" · "}
-                  <span className={
-                    r.status === "succeeded" ? "text-emerald-700"
-                    : r.status === "failed" ? "text-red-700"
-                    : "text-amber-700"
-                  }>{r.status}</span>
-                </span>
-                {(r.status === "succeeded" || r.status === "failed") && (
-                  <button
-                    type="button"
-                    onClick={() => onRegen(r.id)}
-                    disabled={regen[r.id]?.busy}
-                    className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:text-black disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${regen[r.id]?.busy ? "animate-spin" : ""}`} />
-                    {regen[r.id]?.busy ? "Starting…" : "Regenerate"}
-                  </button>
-                )}
-              </div>
+              <span className="text-[10px] uppercase tracking-[0.15em] text-black">
+                {snapshot?.actual_words && snapshot?.target_words
+                  ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
+                      {snapshot.actual_words}w / {snapshot.target_words}w target
+                    </span>
+                  : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
+                {" · "}
+                <span className={
+                  r.status === "succeeded" ? "text-emerald-700"
+                  : r.status === "failed" ? "text-red-700"
+                  : "text-amber-700"
+                }>{r.status}</span>
+              </span>
             </header>
-            {regen[r.id]?.err && (
-              <p className="border-b border-stone-100 bg-red-50 px-3 py-1.5 text-[10px] text-red-700">
-                {regen[r.id].err}
-              </p>
-            )}
             {snapshot?.length_warning && (
               <p className="border-b border-stone-100 bg-amber-50 px-3 py-1.5 text-[10px] text-amber-800">
                 ⚠ {snapshot.length_warning}
               </p>
             )}
             {r.content_json ? (
-              <div className="max-h-[600px] overflow-auto bg-white">
-                <div className="flex justify-end px-3 pt-3 print:hidden">
-                  <a
-                    href={`/api/students/${student.student_id}/resumes/${r.id}/print`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
-                  >
-                    <Download className="h-3 w-3" />
-                    Download PDF
-                  </a>
-                </div>
-                <ResumeTemplate payload={r.content_json} />
-              </div>
+              <ResumePdfPicker payload={r.content_json} studentName={studentName} compact />
             ) : r.content_md ? (
               <div className="max-h-[600px] overflow-auto bg-white px-4 py-3">
                 <ResumeMarkdown>{r.content_md}</ResumeMarkdown>

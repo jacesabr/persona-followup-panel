@@ -745,10 +745,17 @@ get a request:
 4. Verify in the staff panel by opening the student modal and walking
    the slide-by-slide review (Prev / Next at the top). The slide
    sequence is:
-   - **One slide per page (or per uploaded doc when a page has files)**:
-     left half is the typed answers, right half is the document image
-     plus its AI analysis. Fields you autofilled show a small
-     `AI AUTOFILLED` chip next to their label.
+   - **Page slides**, one per intake page that has at least one
+     answered field. Three shapes depending on uploads:
+     - *No uploads*: single slide with the typed form fields.
+     - *One upload*: single combined slide — form fields on top,
+       document + AI analysis below.
+     - *Multiple uploads*: a `· summary` slide first (form fields
+       only, with file-slot rows hidden because the per-doc slides
+       carry the actual file content), then one `· document N/M`
+       slide per file showing just the PDF + AI analysis.
+     Fields you autofilled show a small `AI AUTOFILLED` chip next
+     to their label on the page / summary slide.
    - **AI-generated resumes** — preview cards. The PDF picker lets
      you flip between the three styles; all three render the same
      `content_json` payload.

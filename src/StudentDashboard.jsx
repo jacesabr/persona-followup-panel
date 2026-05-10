@@ -962,7 +962,7 @@ function ChapterBlock({ chapter }) {
 // student-facing dashboard leaves it undefined so the badge is
 // hidden.
 // ============================================================
-export function ChapterSummaryBlock({ chapter, studentId, headless = false, hideFilePreviews = false, autofilledKeys }) {
+export function ChapterSummaryBlock({ chapter, studentId, headless = false, hideFilePreviews = false, hideFiles = false, autofilledKeys }) {
   return (
     <div className="border border-stone-200 bg-white">
       {!headless && (
@@ -972,15 +972,27 @@ export function ChapterSummaryBlock({ chapter, studentId, headless = false, hide
       )}
       <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} hideFilePreviews={hideFilePreviews} autofilledKeys={autofilledKeys} />
+          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} hideFilePreviews={hideFilePreviews} hideFiles={hideFiles} autofilledKeys={autofilledKeys} />
         ))}
       </div>
     </div>
   );
 }
 
-function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews = false, autofilledKeys }) {
-  const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
+// True when a value is an uploaded-file slot (object with a `status`
+// key). Used to skip these rows on summary slides whose follow-up
+// per-doc slides already render the file + AI analysis.
+function isFileSlot(v) {
+  return v && typeof v === "object" && !Array.isArray(v) && "status" in v;
+}
+
+function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews = false, hideFiles = false, autofilledKeys }) {
+  const fields = page.fields.filter((f) => {
+    if (f.type === "info") return false;
+    if (!isAnswered(f.value)) return false;
+    if (hideFiles && isFileSlot(f.value)) return false;
+    return true;
+  });
   if (fields.length === 0) return null;
   return (
     <div className="px-6 py-5">
@@ -991,14 +1003,15 @@ function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews 
       )}
       <dl className={`${hidePageTitle ? "" : "mt-3 "}grid gap-x-8 gap-y-3 sm:grid-cols-[180px_1fr]`}>
         {fields.map((f) => (
-          <SummaryFieldRow key={f.id} field={f} studentId={studentId} hideFilePreviews={hideFilePreviews} autofilledKeys={autofilledKeys} />
+          <SummaryFieldRow key={f.id} field={f} studentId={studentId} hideFilePreviews={hideFilePreviews} hideFiles={hideFiles} autofilledKeys={autofilledKeys} />
         ))}
       </dl>
     </div>
   );
 }
 
-function SummaryFieldRow({ field, studentId, hideFilePreviews = false, autofilledKeys }) {
+function SummaryFieldRow({ field, studentId, hideFilePreviews = false, hideFiles = false, autofilledKeys }) {
+  if (hideFiles && isFileSlot(field.value)) return null;
   const isAutofilled = autofilledKeys && autofilledKeys.has(field.id);
   return (
     <>
@@ -1011,13 +1024,13 @@ function SummaryFieldRow({ field, studentId, hideFilePreviews = false, autofille
         )}
       </dt>
       <dd className="text-base text-black">
-        <SummaryFieldValue value={field.value} field={field} studentId={studentId} hideFilePreviews={hideFilePreviews} />
+        <SummaryFieldValue value={field.value} field={field} studentId={studentId} hideFilePreviews={hideFilePreviews} hideFiles={hideFiles} />
       </dd>
     </>
   );
 }
 
-function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false }) {
+function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false, hideFiles = false }) {
   if (value == null || value === "") {
     return <span className="text-stone-400">—</span>;
   }
@@ -1030,7 +1043,7 @@ function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false }
   // slide-by-slide review we suppress the preview because the next
   // slide (ExtractionStep) renders the same file alongside its AI
   // analysis — drawing it here too is a duplicate.
-  if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
+  if (isFileSlot(value)) {
     return (
       <div>
         <span className="inline-flex items-baseline gap-1.5">
@@ -1057,7 +1070,7 @@ function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false }
       <ol className="list-decimal space-y-3 pl-5 marker:text-stone-500">
         {value.map((row, i) => (
           <li key={i}>
-            <RepeaterRowSummary row={row} itemFields={itemFields} studentId={studentId} hideFilePreviews={hideFilePreviews} />
+            <RepeaterRowSummary row={row} itemFields={itemFields} studentId={studentId} hideFilePreviews={hideFilePreviews} hideFiles={hideFiles} />
           </li>
         ))}
       </ol>
@@ -1073,19 +1086,20 @@ function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false }
   return <span>{String(value)}</span>;
 }
 
-function RepeaterRowSummary({ row, itemFields, studentId, hideFilePreviews = false }) {
+function RepeaterRowSummary({ row, itemFields, studentId, hideFilePreviews = false, hideFiles = false }) {
   if (!row || typeof row !== "object") return <span>{String(row)}</span>;
   const subs = itemFields.length > 0
     ? itemFields
     : Object.keys(row).map((k) => ({ id: k, label: k }));
   const filled = subs
     .map((sub) => ({ sub, val: row[sub.id] }))
-    .filter(({ val }) => isAnswered(val));
+    .filter(({ val }) => isAnswered(val))
+    .filter(({ val }) => !(hideFiles && isFileSlot(val)));
   if (filled.length === 0) return <span className="text-stone-400">(empty)</span>;
   return (
     <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-[140px_1fr]">
       {filled.map(({ sub, val }) => (
-        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} studentId={studentId} hideFilePreviews={hideFilePreviews} />
+        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} studentId={studentId} hideFilePreviews={hideFilePreviews} hideFiles={hideFiles} />
       ))}
     </dl>
   );
