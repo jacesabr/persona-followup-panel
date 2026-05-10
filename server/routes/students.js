@@ -1472,7 +1472,7 @@ router.post("/:student_id/resumes/:id/regenerate", requireStaff, async (req, res
 });
 
 // POST /api/students/admin/import-examples — admin-only one-shot
-// to sync resume/example_resume/ on disk into the intake_examples
+// to sync automation/resume_corpus/example_resume/ on disk into the intake_examples
 // table. Useful because external Render Postgres connections are
 // flaky for long batches; running this server-side keeps everything
 // inside Render's private network.
@@ -1480,7 +1480,7 @@ router.post("/admin/import-examples", requireAdmin, async (req, res, next) => {
   try {
     // Resolve the corpus dir relative to this file at runtime.
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const corpusDir = path.resolve(here, "..", "..", "resume", "example_resume");
+    const corpusDir = path.resolve(here, "..", "..", "automation", "resume_corpus", "example_resume");
     const result = await runImportFromCorpusDir(corpusDir);
     audit(req, {
       table: "intake_examples",

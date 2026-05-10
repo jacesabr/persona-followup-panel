@@ -58,7 +58,7 @@ export function LiveClock() {
   return (
     <div className="text-right leading-tight">
       <p className="text-[11px] uppercase tracking-[0.2em] text-black">
-        Ludhiana time
+        IST
       </p>
       <p className="text-xs font-semibold tabular-nums text-black">
         {formatInIst(now.toISOString(), {

@@ -1,5 +1,5 @@
 // RequiredDocsPanel — staff workspace for LOR / Internship / SOP drafts.
-// Tab: "Student Document To Process" (admin + counsellor)
+// Tab: "Required Documents" (admin + counsellor)
 // Layout: accordion list — one collapsible row per document across all students.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -467,11 +467,11 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
             <span className="text-black">Recommender</span>
-            <span className="text-black">{doc.recipient_name || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.recipient_name || "—"}</span>
             <span className="text-black">Position / Subject</span>
-            <span className="text-black">{doc.recipient_role || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.recipient_role || "—"}</span>
             <span className="text-black">Student's reason</span>
-            <span className="text-black">{doc.reason_brief   || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.reason_brief   || "—"}</span>
           </div>
         </div>
       )}
@@ -484,11 +484,11 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
             <span className="text-black">Company</span>
-            <span className="text-black">{doc.company_name    || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.company_name    || "—"}</span>
             <span className="text-black">Website</span>
-            <span className="text-black">{doc.company_website || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.company_website || "—"}</span>
             <span className="text-black">What they did</span>
-            <span className="text-black">{doc.activity_brief  || <em className="text-black">—</em>}</span>
+            <span className="text-black">{doc.activity_brief  || "—"}</span>
           </div>
         </div>
       )}

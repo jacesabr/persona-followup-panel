@@ -34,7 +34,11 @@ Hard rules:
 - Section choices: Education, Experience, Research, Activities, Awards, Projects, Skills, Publications, Other.
 - relevance: 100 = headline-worthy (top award, top score), 70-90 = strong supporting, 40-70 = nice-to-have, <40 = filler.
 
-source_id format: "intake:<field_id>" for any intake-form fact (e.g. "intake:marks10pct"). Use the actual field id from the inputs. The generator MUST be able to look these up.`;
+SOURCES YOU MAY CITE:
+- "intake:<field_id>" for any typed intake-form value (e.g. "intake:marks10pct"). Use the actual field id from the inputs.
+- "file:<file_id>" for any fact lifted from an uploaded document's ai_description / ai_extracted (e.g. "file:24" for IELTS sub-scores or per-subject marks visible on the file). Prefer file: source ids over intake: when the file carries richer detail than the typed answer (per-subject marksheet rows, IELTS Listening/Reading/Writing/Speaking band split, transcript course names, certificate dates).
+
+Per-document detail BEATS aggregates. Where a marksheet shows STEM avg 94, Humanities avg 78, prefer two facts ("STEM avg 94 across PCM", "Humanities avg 78") over the single typed marks10pct=88. Where IELTS sub-scores are visible, emit them ("Listening 8.5", "Reading 7.0") in addition to the overall band.`;
 
 const SCHEMA = {
   type: Type.OBJECT,
@@ -88,13 +92,23 @@ const SCHEMA = {
   propertyOrdering: ["thesis", "section_order", "section_ratios", "facts", "headline_strengths"],
 };
 
-export async function buildPlan({ studentRecord }) {
+export async function buildPlan({ studentRecord, fileSummaries = [] }) {
   // Compose the input bundle the model sees. The student's intake
   // answers carry both the typed personal info and the doc-derived
   // values (marks %, passport #, test scores) the student transcribed
-  // alongside each upload.
+  // alongside each upload. fileSummaries carry the long-form per-doc
+  // markdown (verbatim transcription, per-subject marks tables, IELTS
+  // sub-scores, certificate dates) so the ledger can extract granular
+  // facts the typed answers collapse into aggregates.
   const inputBundle = {
     intake_answers: studentRecord?.data?.answers || {},
+    file_summaries: (fileSummaries || []).map((f) => ({
+      file_id: f.id,
+      original_name: f.original_name,
+      mime_type: f.mime_type,
+      ai_description: f.ai_description || null,
+      ai_extracted: f.ai_extracted || null,
+    })),
   };
 
   const { data: plan, model, elapsedMs, usage } = await generateStructured({

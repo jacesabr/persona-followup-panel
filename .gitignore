@@ -5,3 +5,6 @@ dist
 .DS_Store
 *.log
 backups
+tmp
+uploads
+.claude

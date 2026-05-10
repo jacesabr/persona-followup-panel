@@ -159,6 +159,15 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
   // so the rendered layout mirrors the order of the intake form.
   const grouped = useMemo(() => groupAnswersBySchema(answers || {}), [answers]);
 
+  // Compact urgency strip: surface required-doc rows in their deadline
+  // window (Day 3+ of 5) and application deadlines within 14 days. The
+  // student would otherwise have to scroll past the full intake recap to
+  // discover what's actually time-sensitive.
+  const urgentItems = useMemo(
+    () => collectUrgentItems({ requiredDocs, applications: myApplications }),
+    [requiredDocs, myApplications]
+  );
+
   // Field-id → field metadata, so the docs list can show a friendly
   // title (e.g. "Aadhar card scan" instead of "aadharFile") next to
   // the original filename.
@@ -211,6 +220,10 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
           <p className="mt-6 inline-flex items-center gap-2 text-xs text-red-700">
             <AlertTriangle className="h-3 w-3" /> {error}
           </p>
+        )}
+
+        {!section && urgentItems.length > 0 && (
+          <UrgentItemsStrip items={urgentItems} />
         )}
 
         {(!section || section === "summary") && (
@@ -339,6 +352,77 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
 // ============================================================
 // Sub-components
 // ============================================================
+
+// Compact strip surfacing the items the student should act on TODAY:
+// - LOR / internship rows that are Day 3+ of the 5-business-day window
+// - Application deadlines within 14 days
+// Returns the items sorted by urgency (urgent first, then days remaining).
+function collectUrgentItems({ requiredDocs, applications }) {
+  const items = [];
+  for (const d of requiredDocs || []) {
+    if (d.kind === "sop") continue;
+    if (d.final_file_id) continue;
+    if (!d.requested_at || !d.deadline_at) continue;
+    const badge = computeDayBadge(d.requested_at, d.deadline_at);
+    if (!badge) continue;
+    if (!badge.label.startsWith("Day 3") && !badge.label.startsWith("Day 4") && !badge.label.startsWith("Day 5")) continue;
+    const label = d.kind === "lor"
+      ? `LOR ${d.seq} — ${d.recipient_name || "recommender"}`
+      : `Internship ${d.seq} — ${d.company_name || "company"}`;
+    items.push({
+      key: `doc_${d.id}`,
+      label,
+      urgency: badge.label,
+      tone: badge.tone,
+      sortKey: badge.label.startsWith("Day 5") ? 0 : badge.label.startsWith("Day 4") ? 1 : 2,
+    });
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  for (const a of applications || []) {
+    if (!a.deadline) continue;
+    if (a.pending) continue;
+    if (a.status === "submitted" || a.status === "offer" || a.status === "cancelled") continue;
+    const due = new Date(a.deadline);
+    if (Number.isNaN(due.getTime())) continue;
+    due.setHours(0, 0, 0, 0);
+    const days = Math.round((due - today) / 86400000);
+    if (days > 14 || days < 0) continue;
+    items.push({
+      key: `app_${a.id}`,
+      label: `${a.university}${a.program ? ` · ${a.program}` : ""}`,
+      urgency: days === 0 ? "Due today" : days === 1 ? "Due tomorrow" : `Due in ${days} days`,
+      tone: days <= 3
+        ? "bg-red-50 text-red-800 border-red-300"
+        : days <= 7
+        ? "bg-amber-50 text-amber-800 border-amber-300"
+        : "bg-stone-100 text-black border-stone-300",
+      sortKey: days,
+    });
+  }
+  items.sort((a, b) => a.sortKey - b.sortKey);
+  return items;
+}
+
+function UrgentItemsStrip({ items }) {
+  return (
+    <section className="mt-6 border border-amber-300 bg-amber-50 px-4 py-3">
+      <p className="text-xs uppercase tracking-[0.2em] text-amber-900">Action needed</p>
+      <ul className="mt-2 space-y-1.5">
+        {items.map((it) => (
+          <li
+            key={it.key}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-black"
+          >
+            <span className={`inline-flex shrink-0 items-center border px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] ${it.tone}`}>
+              {it.urgency}
+            </span>
+            <span className="break-words">{it.label}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 // ============================================================
 // ApplicationStatusRow — read-only card for one application.

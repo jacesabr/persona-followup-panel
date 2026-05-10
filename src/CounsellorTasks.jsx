@@ -1373,7 +1373,7 @@ function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit
         <textarea
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
-          placeholder="Add a note for this task…"
+          placeholder="Add a comment… (Ctrl/Cmd + Enter to post)"
           rows={2}
           className="flex-1 resize-none border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
           onKeyDown={(e) => {

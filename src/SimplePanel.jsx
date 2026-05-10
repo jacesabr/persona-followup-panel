@@ -120,7 +120,7 @@ export default function SimplePanel({
             onClick={() => setTab("applications")}
           />
           <FolderTab
-            label="Student Document To Process"
+            label="Required Documents"
             active={tab === "documents"}
             onClick={() => setTab("documents")}
           />

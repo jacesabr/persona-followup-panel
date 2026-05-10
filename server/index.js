@@ -66,7 +66,7 @@ async function failOrphanedAsyncJobs() {
 
 // Boot-time corpus seed. Resume generation hard-fails when
 // intake_examples is empty (fresh DB, post-deploy on a wiped instance,
-// or a Render Postgres reset). Auto-import from resume/example_resume/
+// or a Render Postgres reset). Auto-import from automation/resume_corpus/example_resume/
 // when the table has no active row so a deploy is self-healing — no
 // admin click required for the common case. Only runs when empty so
 // existing rows are never disturbed by a restart. Failures are logged
@@ -76,7 +76,7 @@ async function seedCorpusIfEmpty() {
   try {
     if (await corpusHasExample()) return;
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const corpusDir = path.resolve(here, "..", "resume", "example_resume");
+    const corpusDir = path.resolve(here, "..", "automation", "resume_corpus", "example_resume");
     const { results } = await runImportFromCorpusDir(corpusDir);
     const inserted = results.filter((r) => r.action === "inserted").length;
     const errors = results.filter((r) => r.action === "error");

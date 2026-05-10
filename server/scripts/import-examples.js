@@ -1,6 +1,6 @@
 // Import the resume style corpus from disk into intake_examples.
 //
-// Reads every file in resume/example_resume/ that's a .md, .txt, or
+// Reads every file in automation/resume_corpus/example_resume/ that's a .md, .txt, or
 // .docx (PDFs would need a parser too — defer until needed; convert
 // to markdown manually for now). For each file, looks for a sidecar
 // <basename>.meta.yaml; if absent, infers reasonable defaults.
@@ -23,7 +23,7 @@ import mammoth from "mammoth";
 import pool from "../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CORPUS_DIR = path.resolve(__dirname, "..", "..", "resume", "example_resume");
+const CORPUS_DIR = path.resolve(__dirname, "..", "..", "automation", "resume_corpus", "example_resume");
 
 const SUPPORTED_EXTS = new Set([".md", ".markdown", ".txt", ".docx"]);
 

@@ -425,8 +425,13 @@ function ActiveRow({ row, gridCols, onPatch, onArchive, onClick }) {
       <div onClick={(e) => e.stopPropagation()} className="pt-1">
         <DeadlineCell value={row.deadline} onChange={(v) => onPatch({ deadline: v })} />
       </div>
-      {/* Full note — no truncation */}
-      <span className="break-words text-sm text-black pt-1 leading-snug">
+      {/* Notes — clamp to 2 lines so long notes don't blow up row
+          height; full text is on the hover title and inside the modal. */}
+      <span
+        className="break-words text-sm text-black pt-1 leading-snug overflow-hidden"
+        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
+        title={row.notes || ""}
+      >
         {row.notes || <span className=" text-black">—</span>}
       </span>
       <button

@@ -33,14 +33,31 @@ const DEFAULT_SECTION_RATIOS = {
 };
 
 async function loadStudentBundle(studentId) {
-  const sRes = await pool.query(
-    `SELECT student_id, display_name, data, intake_complete
-       FROM intake_students WHERE student_id = $1`,
-    [studentId]
-  );
+  const [sRes, fRes] = await Promise.all([
+    pool.query(
+      `SELECT student_id, display_name, data, intake_complete
+         FROM intake_students WHERE student_id = $1`,
+      [studentId]
+    ),
+    // File extractions: ai_description (long-form markdown — verbatim,
+    // structured fields, numeric summary, conclusions) + ai_extracted
+    // (JSON of mappable scalars). Threaded into the plan input bundle
+    // so the ledger can cite per-subject marks, IELTS sub-scores, and
+    // other granular detail that the typed intake answers collapse to
+    // aggregates.
+    pool.query(
+      `SELECT id, original_name, mime_type, ai_description, ai_extracted
+         FROM intake_files
+        WHERE student_id = $1
+          AND superseded_at IS NULL
+          AND (ai_description IS NOT NULL OR ai_extracted IS NOT NULL)
+        ORDER BY id`,
+      [studentId]
+    ),
+  ]);
   const student = sRes.rows[0];
   if (!student) throw new Error(`student not found: ${studentId}`);
-  return { student };
+  return { student, fileSummaries: fRes.rows };
 }
 
 function computeSectionBudgets({ ratios, totalWords }) {
@@ -76,11 +93,12 @@ export async function executeResume({ resumeId, spec }) {
     );
     const studentId = studentRow.rows[0]?.student_id;
     if (!studentId) throw new Error("resume row missing");
-    const { student } = await loadStudentBundle(studentId);
+    const { student, fileSummaries } = await loadStudentBundle(studentId);
 
     // 2. Plan call — one per resume.
     const planRes = await buildPlan({
       studentRecord: { data: student.data || {} },
+      fileSummaries,
     });
     const { plan, factsById, usage: planUsage } = planRes;
 
@@ -119,6 +137,7 @@ export async function executeResume({ resumeId, spec }) {
           wordBudget: sectionBudgets[sectionName],
           claims,
           examples,
+          fileSummaries,
         });
         const { passed, rejected, warnings } = validateSectionBullets({
           bullets: sec.body.bullets,

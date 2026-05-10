@@ -261,6 +261,30 @@ Don't dispatch yet.
 
 ### 3c. Author resume + SOP + LORs + internships (in your head)
 
+**Use the per-document detail you wrote in Section 3b.** The
+`ai_description` blocks you just composed contain per-subject marks
+rows, IELTS Listening/Reading/Writing/Speaking sub-bands, certificate
+names, transcript course detail, and recommender annotations. The
+typed intake answers collapse those into aggregates (`marks10pct=88`,
+`ielts_score=7.5`). The resume / SOP / LOR drafts MUST thread the
+granular figures wherever they support a bullet:
+
+- Resume *standardized_tests* entry should list the four IELTS sub-
+  bands when visible on the file, not just the overall.
+- Resume *education* entries should call out top-3 subjects by raw
+  marks, STEM vs Humanities split, or any honors / distinctions
+  visible on the marksheet — the typed `marks12pct` does not carry
+  any of that.
+- SOP body paragraphs that argue "I am strong in quantitative
+  reasoning" must back it with the specific marksheet figures
+  ("Mathematics 96/100, Physics 94/100"), not the aggregate.
+- LOR drafts referencing a recommender's class should cite the
+  course / project name verbatim from the marksheet or transcript.
+
+If a piece of granular detail conflicts with the typed intake answer,
+trust the document and flag the conflict in `summary_notes`. Never
+invent a number that is not in either source.
+
 #### Resume (JSON preferred, markdown fallback)
 
 The frontend renders a structured `<ResumeTemplate>` from

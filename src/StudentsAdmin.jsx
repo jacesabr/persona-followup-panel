@@ -522,7 +522,7 @@ function CredentialsModal({ account, onClose }) {
 
         <p className="mb-4 text-xs text-amber-800">
           ⚠ The password is shown <strong>once</strong>. Send it now — if you close
-          this modal you'll need to use <em>Reset pw</em> to generate a new one.
+          this modal you'll need to use <strong>Reset pw</strong> to generate a new one.
         </p>
 
         <CredField label="Username" value={account.username} onCopy={() => copy(account.username, "username")} copied={copied === "username"} />

@@ -124,12 +124,30 @@ export async function generateSection({
   wordBudget,
   claims,            // [{ id, claim, source_id, relevance }]
   examples,          // [{ label, full_text, voice_notes, ... }]
+  fileSummaries = [],// [{ id, original_name, ai_description, ai_extracted }]
 }) {
+  // Surface the file extractions any cited claims point at, so the
+  // model can lift exact phrasing (per-subject marks rows, IELTS
+  // sub-bands, certificate names) without inventing precision the
+  // claim summary collapsed away. Each file is keyed by its file_id so
+  // the model can match on `file:<id>` source_ids in the claims.
+  const fileEvidenceBlock = (fileSummaries || []).length === 0
+    ? ""
+    : `<FILE_EVIDENCE>\nThese are the long-form descriptions of every uploaded document. When a claim cites file:<id>, you may quote exact figures and labels from the matching block below. Never invent values not present here.\n\n` +
+        fileSummaries
+          .map((f) =>
+            `--- file:${f.id} — ${f.original_name || "(unnamed)"} ---\n` +
+            (f.ai_description || "(no description)")
+          )
+          .join("\n\n") +
+        `\n</FILE_EVIDENCE>`;
+
   const promptParts = [
     `<THESIS>\n${thesis || "—"}\n</THESIS>`,
     `<SECTION>${section}</SECTION>`,
     `<WORD_BUDGET>~${wordBudget} words</WORD_BUDGET>`,
     `<CLAIM_LEDGER>\n${JSON.stringify(claims, null, 2)}\n</CLAIM_LEDGER>`,
+    fileEvidenceBlock,
     `<STYLE_EXAMPLES>\n${examples
       .map(
         (e, i) =>
@@ -139,7 +157,7 @@ export async function generateSection({
       )
       .join("\n\n")}\n</STYLE_EXAMPLES>`,
     `Write the ${section} section now. Cite every bullet to one or more <CLAIM_LEDGER> ids in the source_ids array.`,
-  ];
+  ].filter(Boolean);
 
   const { data: body, model, elapsedMs, usage } = await generateStructured({
     purpose: "section",
