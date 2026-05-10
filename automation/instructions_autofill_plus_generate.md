@@ -457,6 +457,15 @@ no-em-dash / no-semicolon / no-filler rules. Specific to named
 programs and countries when the student supplied them in
 `answers.paths_list` and `answers.targetCountry`.
 
+**Voice continuity.** The SOP's opening sentence and the resume's
+`lede` field should mirror the framing of the student-snapshot
+paragraph at the top of every file's `ai_description` (Section 3b).
+Same identity, same stream, same target country, same anchoring
+direction fact. The rest of the SOP / resume body deepens that
+framing with the layered specifics from each file's analysis
+paragraph. This keeps voice consistent across every artifact a
+counsellor or admissions reader will see together.
+
 #### LOR drafts
 
 For each `kind='lor'` row in `required_docs` whose `staff_draft` is
