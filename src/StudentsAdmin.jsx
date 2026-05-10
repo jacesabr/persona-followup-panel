@@ -851,38 +851,46 @@ function StudentDetail({ detail, role, onRefresh }) {
   const fieldIndex = useMemo(() => buildFieldIndex(), []);
 
   // Each step is one focused slide. The flow is:
-  //   1. Each chapter's pages, in order. Page slide = typed answers
-  //      + any embedded file thumbnails (via MiniFilePreview).
-  //   2. Right after each page slide that contains files, one focused
-  //      "AI extraction" slide per file (the markdown extraction
-  //      block, no doc image — the reader just saw the doc on the
-  //      previous slide). This avoids cramming long extractions onto
-  //      the same slide as the form values.
-  //   3. Resumes step.
-  //   4. Required documents step.
-  // A late "all uploads" loop is intentionally NOT added — the per-page
-  // extraction slides cover every file once already, in context.
+  //   1. For each chapter's pages, in order:
+  //      a. Pages with NO uploaded files → a single "page" slide
+  //         showing the form fields (typed answers).
+  //      b. Pages with one or more uploaded files → ONE slide per file,
+  //         each combining the page's form fields, the document, and
+  //         the AI analysis. No separate "fields-only" slide for these
+  //         pages — the form fields ride along on every doc slide so
+  //         the reader always has typed-in context next to the image
+  //         (e.g. the typed Aadhar number sits beside the Aadhar scan).
+  //         When a page has multiple docs, slide titles include
+  //         " · document N/M" so the reader knows there's more to come.
+  //   2. Resumes step.
+  //   3. Required documents step.
   const steps = useMemo(() => {
     const out = [];
     const allFiles = files || [];
     grouped.forEach((chapter) => {
       chapter.pages.forEach((page) => {
-        out.push({
-          kind: "page",
-          chapterTitle: chapter.title,
-          page,
-          eyebrow: chapter.title,
-          title: page.title,
-        });
         const pageFiles = filesForPage(page, allFiles);
-        pageFiles.forEach((file) => {
+        if (pageFiles.length === 0) {
           out.push({
-            kind: "extraction",
+            kind: "page",
+            chapterTitle: chapter.title,
+            page,
+            eyebrow: chapter.title,
+            title: page.title,
+          });
+          return;
+        }
+        pageFiles.forEach((file, i) => {
+          const counter = pageFiles.length > 1
+            ? ` · document ${i + 1}/${pageFiles.length}`
+            : "";
+          out.push({
+            kind: "page-with-doc",
             chapterTitle: chapter.title,
             page,
             file,
-            eyebrow: `${chapter.title} · ${page.title}`,
-            title: `${page.title} · AI analysis`,
+            eyebrow: chapter.title,
+            title: `${page.title}${counter}`,
           });
         });
       });
@@ -973,8 +981,18 @@ function StudentDetail({ detail, role, onRefresh }) {
           chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
           studentId={student.student_id}
           headless
-          hideFilePreviews
         />
+      )}
+      {step?.kind === "page-with-doc" && (
+        <div className="space-y-6">
+          <ChapterSummaryBlock
+            chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
+            studentId={student.student_id}
+            headless
+            hideFilePreviews
+          />
+          <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
+        </div>
       )}
       {step?.kind === "empty" && (
         <p className="border border-stone-200 bg-white px-4 py-3 text-black">
@@ -991,9 +1009,6 @@ function StudentDetail({ detail, role, onRefresh }) {
       )}
       {step?.kind === "required" && (
         <RequiredDocsStaff studentId={student.student_id} role={role} />
-      )}
-      {step?.kind === "extraction" && (
-        <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
       )}
     </div>
   );
