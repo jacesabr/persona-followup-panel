@@ -1230,21 +1230,7 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
             AI extraction
           </p>
-          <div
-            className="prose prose-sm max-w-none text-stone-900
-                       prose-headings:text-black prose-headings:font-semibold
-                       prose-h3:mt-4 prose-h3:mb-2 prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-[0.15em]
-                       prose-p:my-2
-                       prose-table:my-3 prose-th:bg-stone-100 prose-th:text-left prose-th:font-semibold
-                       prose-th:border prose-th:border-stone-300 prose-th:px-2 prose-th:py-1
-                       prose-td:border prose-td:border-stone-300 prose-td:px-2 prose-td:py-1
-                       prose-ul:my-2 prose-li:my-0.5
-                       prose-strong:text-black"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {file.ai_description}
-            </ReactMarkdown>
-          </div>
+          <AiDescriptionRenderer markdown={file.ai_description} />
         </div>
       )}
       <div className="bg-stone-50">
@@ -1400,6 +1386,144 @@ export function buildFieldIndex() {
     }
   }
   return idx;
+}
+
+// Returns the active file rows belonging to one schema page, in
+// the order the page lists them. Used by the staff slideshow to
+// follow each "page" slide with one focused AI-extraction slide
+// per file, instead of dumping every extraction at the end.
+//
+// Direct file fields match by exact `field_id === f.id`. Repeater
+// uploads (e.g. activities_list) land with `field_id` like
+// "activities_list[3].proof" so we match the container by prefix
+// and the sub-field by suffix.
+export function filesForPage(page, files) {
+  if (!page || !Array.isArray(files)) return [];
+  const seen = new Set();
+  const out = [];
+  const push = (fr) => {
+    if (fr && !seen.has(fr.id)) {
+      seen.add(fr.id);
+      out.push(fr);
+    }
+  };
+  for (const f of page.fields || []) {
+    const direct = files.filter(
+      (fr) => !fr.superseded_at && fr.field_id === f.id
+    );
+    direct.forEach(push);
+    if (Array.isArray(f.itemFields)) {
+      for (const sub of f.itemFields) {
+        const repeated = files.filter(
+          (fr) =>
+            !fr.superseded_at &&
+            fr.field_id &&
+            fr.field_id.startsWith(f.id + "[") &&
+            fr.field_id.endsWith("." + sub.id)
+        );
+        repeated.forEach(push);
+      }
+    }
+  }
+  return out;
+}
+
+// AiDescriptionRenderer — renders the per-file AI extraction markdown
+// (intake_files.ai_description) with the long Verbatim transcription
+// section collapsed inside a <details> by default. Identification,
+// Fields, Summary, and Conclusions stay visible because they are the
+// scannable parts; Verbatim is the wall of text the user typically
+// only opens when reconciling a discrepancy.
+//
+// Splitting strategy: the runbook
+// (automation/instructions_autofill_plus_generate.md, Section 3b)
+// guarantees the heading is exactly "### Verbatim". We slice from
+// that heading to the next "### " heading (or end of string) and
+// render the slice inside a closed <details>. If the heading isn't
+// present (legacy file pre-dating the long-form spec), we render the
+// whole markdown unchanged.
+const PROSE_CLASSES = `prose prose-sm max-w-none text-stone-900
+  prose-headings:text-black prose-headings:font-semibold
+  prose-h3:mt-4 prose-h3:mb-2 prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-[0.15em]
+  prose-p:my-2
+  prose-table:my-3 prose-th:bg-stone-100 prose-th:text-left prose-th:font-semibold
+  prose-th:border prose-th:border-stone-300 prose-th:px-2 prose-th:py-1
+  prose-td:border prose-td:border-stone-300 prose-td:px-2 prose-td:py-1
+  prose-ul:my-2 prose-li:my-0.5
+  prose-strong:text-black`;
+
+function splitVerbatim(markdown) {
+  if (!markdown) return { before: "", verbatim: "", after: "" };
+  const re = /^###\s+verbatim\s*$/im;
+  const m = re.exec(markdown);
+  if (!m) return { before: markdown, verbatim: "", after: "" };
+  const startVerbatim = m.index;
+  const afterHeading = startVerbatim + m[0].length;
+  // Find the next "### " heading after the Verbatim heading.
+  const tail = markdown.slice(afterHeading);
+  const next = /^###\s+/m.exec(tail);
+  const endVerbatim = next ? afterHeading + next.index : markdown.length;
+  return {
+    before: markdown.slice(0, startVerbatim).trimEnd(),
+    verbatim: markdown.slice(afterHeading, endVerbatim).trim(),
+    after: markdown.slice(endVerbatim).trimStart(),
+  };
+}
+
+function AiDescriptionRenderer({ markdown }) {
+  const { before, verbatim, after } = splitVerbatim(markdown);
+  return (
+    <div className={PROSE_CLASSES}>
+      {before && (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{before}</ReactMarkdown>
+      )}
+      {verbatim && (
+        <details className="mt-4 border border-stone-200 bg-stone-50/60">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-stone-800 hover:bg-stone-100">
+            Verbatim transcription
+          </summary>
+          <div className={`${PROSE_CLASSES} px-3 pb-3`}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{verbatim}</ReactMarkdown>
+          </div>
+        </details>
+      )}
+      {after && (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{after}</ReactMarkdown>
+      )}
+    </div>
+  );
+}
+
+// ExtractionStep — one slide showing only the AI extraction prose
+// for a single file. Designed to be the slide *after* a page slide
+// that has the file inline, so the reader sees the typed answers
+// and the document on slide N, then the long-form extraction on
+// slide N+1, instead of either being crammed onto the same slide.
+export function ExtractionStep({ file, fieldIndex }) {
+  const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
+  const title = meta?.label || prettifyFieldId(file.field_id);
+  const hasExtraction = !!file.ai_description && file.ai_description.trim().length > 0;
+  return (
+    <div className="border border-stone-900/15 bg-white">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
+        <p className="text-base font-medium text-black">{title}</p>
+        <p className="text-sm text-stone-800">AI extraction</p>
+        <p className="ml-auto text-sm text-stone-800">
+          {file.original_name}
+        </p>
+      </div>
+      <div className="px-4 py-5">
+        {hasExtraction ? (
+          <AiDescriptionRenderer markdown={file.ai_description} />
+        ) : (
+          <p className="text-sm text-stone-800">
+            No AI extraction yet for this file. Run the autofill +
+            generate pipeline to populate it.
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Repeater uploads land with a field_id like
