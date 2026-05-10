@@ -625,6 +625,17 @@ Only include keys that map to known intake fields (see registry
 above). The dispatch endpoint enforces no-overwrite; safe to send
 keys that may already be set — they'll be skipped server-side.
 
+**Provenance — what the staff side sees.** Every key the dispatch
+actually writes (i.e. wasn't already set) is appended to
+`data.autofilled_keys` (deduped union with prior runs). On the staff
+slide-by-slide review (Students tab → student modal), each AI-written
+intake field shows an `AI AUTOFILLED` chip next to its label so the
+counsellor can tell at a glance what came from the document vs what
+the student typed. **Implication for you:** be conservative about
+which keys you send — only send a key when the document genuinely
+supports the value, since wrongly autofilled keys will be visibly
+attributed to the AI for the rest of the student's lifecycle.
+
 ### 3d. Dispatch (atomic write)
 
 ```bash
@@ -731,15 +742,48 @@ get a request:
    `intake_phase='done'` / `ai_eligible_via_pre_upload=TRUE` student
    that's not yet been processed).
 3. Watch the run inline. The final summary block lands at the end.
-4. Verify in the staff panel: the affected students show new resumes,
-   SOP drafts, LOR drafts; their files have `ai_description` /
-   `ai_extracted` populated; their `manual_ai_requests` row(s) flip to
-   `processed_at = NOW()` and the counsellor banner shows "complete".
+4. Verify in the staff panel by opening the student modal and walking
+   the slide-by-slide review (Prev / Next at the top). The slide
+   sequence is:
+   - **One slide per page (or per uploaded doc when a page has files)**:
+     left half is the typed answers, right half is the document image
+     plus its AI analysis. Fields you autofilled show a small
+     `AI AUTOFILLED` chip next to their label.
+   - **AI-generated resumes** — preview cards. The PDF picker lets
+     you flip between the three styles; all three render the same
+     `content_json` payload.
+   - **AI suggestions** (NEW) — read-only preview of the
+     `lor_suggestions` rows you sent (cards titled with recipient +
+     reason, eyebrow "Pending student review") and the AI-drafted
+     SOP (full text, eyebrow "Awaiting admin approval"). Empty state
+     when nothing applies.
+   - **Required documents** — staff workflow surface where the
+     counsellor edits LOR / Internship `staff_draft`s and admin
+     approves the SOP. This is where the suggestions accepted by
+     the student land for actual drafting + sending.
+
+   Confirm: every student you processed has populated `ai_description`
+   / `ai_extracted` on their files, a resume row, an SOP draft, LOR
+   drafts on every accepted recipient, and any LOR suggestions you
+   sent showing on the AI-suggestions slide. Their
+   `manual_ai_requests` row(s) flip to `processed_at = NOW()` and the
+   counsellor banner shows "complete".
 
 If the run fails partway, the unresolved students stay in the queue —
-re-run the script. The dispatch endpoint is idempotent: file
-descriptions overwrite (re-runs improve), answers no-overwrite, drafts
-no-overwrite unless `force=true`.
+re-run the script. The dispatch endpoint is idempotent:
+- **File descriptions** overwrite — re-runs are how you improve them.
+- **Autofill answers** are no-overwrite per key (already-set values
+  are skipped server-side).
+- **Resume** UPSERTs — re-runs overwrite the latest finished resume in
+  place rather than stacking new rows. Older duplicate finished rows
+  are deleted in the same transaction. There is no longer a "may be
+  stale" fan-out to clean up by hand. Pending / running rows are not
+  touched, so an in-flight generation isn't yanked out from under
+  itself.
+- **LOR suggestions** dedupe on lowercased `recipient_name` — sending
+  the same name twice is safe; the second one is a no-op.
+- **SOP / LOR / Internship `staff_draft`** is no-overwrite unless the
+  request body sets `force=true`.
 
 If you want to run a single specific student manually (skip the queue
 gate), set `ai_artifacts_generated_at = NULL` for that student first,
@@ -852,11 +896,21 @@ Tables the agent reads:
 
 Tables the agent writes (via the `/dispatch` endpoint, all atomic):
 - `intake_files.ai_description`, `ai_extracted`
-- `intake_students.data.answers` (no-overwrite merge), `ai_artifacts_generated_at`
-- `intake_resumes` — INSERT one row per run
-- `intake_required_docs.staff_draft` (no-overwrite unless `force=true`)
+- `intake_students.data.answers` (no-overwrite merge), `data.autofilled_keys`
+  (deduped union — provenance set the staff slide review reads to badge
+  AI-written fields), `ai_artifacts_generated_at`
+- `intake_resumes` — **UPSERT** (one row per student). Re-runs overwrite
+  the latest finished row in place; older duplicate finished rows are
+  deleted in the same transaction. Pending / running rows are left
+  alone. Stable id means `/api/students/<sid>/resumes/<rid>/print`
+  links survive re-runs.
+- `intake_required_docs` — server INSERTs new kind='lor' rows from
+  `lor_suggestions` (with `student_accepted_at = NULL`) and writes
+  `staff_draft` on existing rows (no-overwrite unless `force=true`).
 - `manual_ai_requests.processed_at`, `processed_by_admin_username`
 - `intake_audit_log` — one row per dispatch summarising what was written
+  (includes `written_keys` so an agent re-running this student can see
+  which fields the prior run autofilled)
 
 The Render web service is the only thing that talks to Postgres
 directly; the agent talks to the web service over HTTP.
