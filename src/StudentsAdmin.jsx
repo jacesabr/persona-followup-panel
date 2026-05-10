@@ -882,7 +882,7 @@ function StudentDetail({ detail, role, onRefresh }) {
             page,
             file,
             eyebrow: `${chapter.title} · ${page.title}`,
-            title: `AI extraction · ${file.original_name}`,
+            title: `${page.title} · AI analysis`,
           });
         });
       });

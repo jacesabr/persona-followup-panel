@@ -166,30 +166,38 @@ empty.
 
 **Section 1 — Narrative** (no heading; opens the document)
 
-Two layers, in this order. No other sub-headings.
+**Target: 3–5 sentences, 60–120 words. Hard cap: 150 words.**
+A counsellor should read the full narrative in 5-10 seconds and have
+the complete picture of what this document tells them. Do NOT write
+a Wikipedia article. Do NOT open with a generic student-bio sentence
+that repeats on every file — that adds zero per-file value and wastes
+the reader's first seconds.
 
-**First: a single paragraph framing the student.** ~40–60 words.
-Same opening shape on every file the student has, because every file
-benefits from the reader being grounded in who this person is before
-they look at the document.
+**Start directly with what the document is and its key facts.**
+Bold the one or two numbers or names that matter most. State one flag
+or cross-doc observation if it's genuinely important. That's it.
 
-The paragraph names the student, their school + city, their current
-class / year, their stream or programme of study, and one anchoring
-fact about their direction (target country, intended field) IF the
-intake answers carry it. Lift the student details from this file's
-visible content where present and from the broader student record
-otherwise. If a piece of identity is unknown, leave it out — do not
-guess.
+**Never use pipeline-meta language.** Do not write:
+- "maps to the intake form" / "can autofill"
+- "narrative value" / "the key narrative value here is"
+- "downstream artifacts" / "for the SOP/LOR composer"
+- "surfaces the father's name directly" / "establishes" / "anchors"
+Write as if briefing a human colleague, not narrating your own process.
 
-Example opener for a marksheet:
-> *"Pratham Aggarwal is a Class XI Non-Medical student at Guru Nanak
-> International Public School, Ludhiana, applying for CS undergrad
-> programmes in the UK and US."*
+Good example (Aadhaar):
+> *"Government-issued UIDAI identity letter, current as of December 2025.
+> Confirms **Pratham Aggarwal**, DOB **1 June 2008**, address **H NO-5
+> Orchid Vill, Barewal Road, Rajguru Nagar, Ludhiana 141012**, mobile
+> **9876212600**. C/O field names **Vikas Aggarwal** — father."*
 
-**Then: layered detail that shapes the narrative for outbound
-artifacts.** This is the part that does the real work — the resume,
-SOP, and LOR composers read this to ground their bullets. The amount
-of detail and the shape depend on what the document actually carries:
+Good example (marksheet):
+> *"CISCE/ICSE Class X, Sat Paul Mittal School — May 2024. **98.0%
+> (588/600)**, PASS. Four perfect 100s: English Literature, Mathematics,
+> Biology, History & Civics. STEM avg **99.5**, Humanities avg **98.0**.
+> Note: Maths contracts to 91.5 in Class XI — avoid 'consistently top
+> in Maths' framing."*
+
+The amount of detail depends on what the document carries:
 
 - **Academic documents** (marksheets, transcripts, scorecards):
   Headline number first (overall %, GPA, band), then strongest 2–3

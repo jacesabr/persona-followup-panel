@@ -1147,9 +1147,6 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId, fieldId 
     return (
       <div className="mt-2 max-w-sm">
         <LightboxImage src={url} alt={name} maxHeightClass="max-h-60" />
-        {docSummary && (
-          <p className="mt-1 text-sm text-stone-800">{docSummary}</p>
-        )}
       </div>
     );
   }
@@ -1161,9 +1158,6 @@ function MiniFilePreview({ slot, fileId, fileName, mimeType, studentId, fieldId 
   return (
     <div className="mt-2 max-w-2xl">
       <InlinePdf url={url} fileName={name} maxHeight={560} />
-      {docSummary && (
-        <p className="mt-2 text-sm text-stone-800">{docSummary}</p>
-      )}
     </div>
   );
 }
@@ -1457,11 +1451,6 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           Open in new tab
         </a>
       </div>
-      {docSummary && (
-        <p className="border-b border-stone-200 px-4 py-3 text-sm text-stone-800">
-          <span className="text-stone-700">What this is. </span>{docSummary}
-        </p>
-      )}
       {file.ai_description && (
         <div className="border-b border-stone-200 bg-white px-4 py-4">
           <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
