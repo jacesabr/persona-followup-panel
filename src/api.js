@@ -233,6 +233,22 @@ export const api = {
   attachRequiredDocFinal: (id, fileId) =>
     request("POST", `/api/required-docs/me/${id}/attach-final`, { file_id: fileId }),
 
+  // Student: accept an AI-suggested LOR row (sets student_accepted_at).
+  // The row leaves the suggestion bucket and enters the regular
+  // drafting lifecycle the counsellor manages.
+  acceptLorSuggestion: (id) =>
+    request("POST", `/api/required-docs/me/${id}/accept-suggestion`),
+  // Student: delete an AI-suggested LOR row (only allowed on rows
+  // that haven't been accepted yet; accepted rows are the
+  // counsellor's responsibility to remove).
+  deleteLorSuggestion: (id) =>
+    request("DELETE", `/api/required-docs/me/${id}`),
+  // Student: add a new LOR row themselves (the "+" button under the
+  // suggestion list). Lands as already-accepted since the student
+  // explicitly added it.
+  createLorSelf: ({ recipient_name, recipient_role, reason_brief }) =>
+    request("POST", "/api/required-docs/me", { recipient_name, recipient_role, reason_brief }),
+
   // ----------------------------------------------------------------
   // Applications. Per-(student × school) tracking. Replaces the
   // operator's xlsx for the active workflow. Returns three buckets in

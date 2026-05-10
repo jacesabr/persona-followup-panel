@@ -302,6 +302,7 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
     const sop_draft = isString(body.sop_draft) ? body.sop_draft : null;
     const lor_drafts = Array.isArray(body.lor_drafts) ? body.lor_drafts : [];
     const internship_drafts = Array.isArray(body.internship_drafts) ? body.internship_drafts : [];
+    const lor_suggestions = Array.isArray(body.lor_suggestions) ? body.lor_suggestions : [];
 
     const client = await pool.connect();
     const summary = {
@@ -315,6 +316,8 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
       lors_skipped: 0,
       internships_set: 0,
       internships_skipped: 0,
+      lor_suggestions_inserted: 0,
+      lor_suggestions_skipped_duplicate: 0,
     };
     let resumeId = null;
 
@@ -462,6 +465,57 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
         if (!it) continue;
         if (await setDraft(it.doc_id, "internship", it.draft)) summary.internships_set++;
         else summary.internships_skipped++;
+      }
+
+      // ── 4b. LOR suggestions ──────────────────────────────────
+      // The routine proposes additional recommenders (drawn from
+      // activity / internship leaders in answers.*) as kind='lor'
+      // rows with student_accepted_at = NULL. The student then
+      // accepts via /api/required-docs/me/:id/accept-suggestion or
+      // deletes via DELETE /api/required-docs/me/:id from the
+      // dashboard.
+      //
+      // Dedupe to keep re-runs idempotent: skip a suggestion if a
+      // kind='lor' row with the same recipient_name (case- and
+      // whitespace-insensitive) already exists for this student.
+      // Same name = same person; we don't want a re-run to multiply
+      // suggestions for "Mr Rajiv Mehta" into N copies.
+      if (lor_suggestions.length > 0) {
+        const existingNamesRes = await client.query(
+          `SELECT lower(trim(recipient_name)) AS n
+             FROM intake_required_docs
+            WHERE student_id = $1 AND kind = 'lor' AND recipient_name IS NOT NULL`,
+          [studentId]
+        );
+        const existingNames = new Set(existingNamesRes.rows.map((r) => r.n).filter(Boolean));
+        const seqRes = await client.query(
+          `SELECT COALESCE(MAX(seq), 0) AS max_seq
+             FROM intake_required_docs
+            WHERE student_id = $1 AND kind = 'lor'`,
+          [studentId]
+        );
+        let nextSeq = (seqRes.rows[0].max_seq || 0) + 1;
+        for (const sug of lor_suggestions) {
+          if (!sug || typeof sug !== "object") continue;
+          const name = isString(sug.recipient_name) ? sug.recipient_name.trim() : "";
+          const role = isString(sug.recipient_role) ? sug.recipient_role.trim() : "";
+          const reason = isString(sug.reason_brief) ? sug.reason_brief.trim() : "";
+          if (!name && !role && !reason) continue;
+          const key = name.toLowerCase();
+          if (key && existingNames.has(key)) {
+            summary.lor_suggestions_skipped_duplicate++;
+            continue;
+          }
+          await client.query(
+            `INSERT INTO intake_required_docs
+               (student_id, kind, seq, recipient_name, recipient_role, reason_brief, student_accepted_at)
+             VALUES ($1, 'lor', $2, $3, $4, $5, NULL)`,
+            [studentId, nextSeq, name || null, role || null, reason || null]
+          );
+          if (key) existingNames.add(key);
+          nextSeq++;
+          summary.lor_suggestions_inserted++;
+        }
       }
 
       // ── 5. Mark complete (only if not already marked) ────────

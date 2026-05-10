@@ -595,6 +595,33 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
   ON intake_required_docs(deadline_at)
   WHERE requested_at IS NOT NULL AND final_file_id IS NULL;
 
+-- AI-suggested LOR rows. The automation routine writes proposed
+-- recommenders (with recipient_name / recipient_role / reason_brief
+-- populated from activity / internship leaders in answers.*) as
+-- kind='lor' rows with student_accepted_at = NULL. The student then
+-- accepts (sets student_accepted_at = NOW()) or deletes via the UI.
+-- Once accepted, the row enters the existing draft → request →
+-- received lifecycle unchanged.
+--
+-- Backfill: every existing kind='lor' row was implicitly accepted
+-- at creation time (the student typed the recipient details into
+-- the intake form), so backfill student_accepted_at = created_at on
+-- those rows. The COALESCE keeps idempotency: re-running the
+-- migration on a row that's already populated leaves it alone.
+ALTER TABLE intake_required_docs
+  ADD COLUMN IF NOT EXISTS student_accepted_at TIMESTAMPTZ;
+UPDATE intake_required_docs
+   SET student_accepted_at = created_at
+ WHERE kind = 'lor'
+   AND student_accepted_at IS NULL
+   AND created_at IS NOT NULL;
+-- Index for the student-side query that filters suggestions vs
+-- accepted rows. Partial index keeps it tiny — only rows that are
+-- still suggestions match.
+CREATE INDEX IF NOT EXISTS idx_required_docs_suggestions
+  ON intake_required_docs(student_id, kind)
+  WHERE student_accepted_at IS NULL AND kind = 'lor';
+
 -- Direct counsellor assignment on applications (separate from student.counsellor_id).
 -- Lets staff own an application even when the student has no account yet.
 ALTER TABLE intake_applications ADD COLUMN IF NOT EXISTS counsellor_id TEXT REFERENCES counsellors(id) ON DELETE SET NULL;

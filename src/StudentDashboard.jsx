@@ -307,17 +307,31 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             <p className="mt-1 text-sm text-stone-800">
               Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
-            <div className="mt-4 space-y-3">
-              {requiredDocs.map((d) => (
-                <RequiredDocRow
-                  key={d.id}
-                  doc={d}
-                  isStaffPreview={isStaffPreview}
-                  onAfterUpload={load}
-                  studentId={isStaffPreview ? studentId : null}
-                />
-              ))}
-            </div>
+            <RequiredDocsBlock
+              docs={requiredDocs}
+              isStaffPreview={isStaffPreview}
+              studentId={isStaffPreview ? studentId : null}
+              onAfterChange={load}
+            />
+          </section>
+        )}
+
+        {/* Show the LOR suggestions block even when the student has no
+            other required-docs yet, so a freshly auto-filled student
+            sees the proposed recommenders immediately. */}
+        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && !isStaffPreview && (
+          <section className={section ? "" : "mt-10"}>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Letters of recommendation</h2>
+            <p className="mt-1 text-sm text-stone-800">
+              Add the people you'd like to ask for a recommendation. Your counsellor takes it from there.
+            </p>
+            <RequiredDocsBlock
+              docs={[]}
+              isStaffPreview={false}
+              studentId={null}
+              onAfterChange={load}
+              showAddCardWhenEmpty
+            />
           </section>
         )}
 
@@ -481,6 +495,229 @@ function ApplicationStatusRow({ app }) {
 }
 
 // ============================================================
+// RequiredDocsBlock — splits the doc list into AI-suggested LOR rows
+// (student_accepted_at IS NULL, kind='lor') and the regular accepted
+// flow. Suggestions render as cards with check / X actions; accepted
+// rows render as the existing RequiredDocRow. The "+ add another"
+// button always trails the LOR section so the student can manually
+// add a recommender at any time.
+//
+// In staff preview mode (counsellor / admin "view as student") the
+// suggestion cards are still visible, but the accept / X / + actions
+// are hidden — those are the student's own decisions to make.
+function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, showAddCardWhenEmpty = false }) {
+  const suggestions = (docs || []).filter(
+    (d) => d.kind === "lor" && !d.student_accepted_at
+  );
+  const accepted = (docs || []).filter(
+    (d) => !(d.kind === "lor" && !d.student_accepted_at)
+  );
+  const hasAnyLor = (docs || []).some((d) => d.kind === "lor");
+  const showAddCard = !isStaffPreview && (suggestions.length > 0 || hasAnyLor || showAddCardWhenEmpty);
+  return (
+    <div className="mt-4 space-y-3">
+      {suggestions.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-900">
+            Suggested recommenders
+          </p>
+          {suggestions.map((d) => (
+            <LorSuggestionCard
+              key={d.id}
+              doc={d}
+              isStaffPreview={isStaffPreview}
+              onAfterChange={onAfterChange}
+            />
+          ))}
+        </div>
+      )}
+      {showAddCard && <AddLorCard onAfterChange={onAfterChange} />}
+      {accepted.map((d) => (
+        <RequiredDocRow
+          key={d.id}
+          doc={d}
+          isStaffPreview={isStaffPreview}
+          onAfterUpload={onAfterChange}
+          studentId={studentId}
+        />
+      ))}
+    </div>
+  );
+}
+
+// LorSuggestionCard — one AI-suggested recommender. Filled with
+// recipient_name + recipient_role + reason_brief from the dispatch
+// payload. Student clicks the check to accept (the row enters the
+// regular drafting lifecycle) or X to delete (the row is removed).
+function LorSuggestionCard({ doc, isStaffPreview, onAfterChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const accept = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.acceptLorSuggestion(doc.id);
+      onAfterChange?.();
+    } catch (e) {
+      setErr(e.message || "Couldn't accept this suggestion.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.deleteLorSuggestion(doc.id);
+      onAfterChange?.();
+    } catch (e) {
+      setErr(e.message || "Couldn't remove this suggestion.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="border-2 border-orange-300 bg-orange-50/50 px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-base font-bold text-black">{doc.recipient_name || "(name pending)"}</span>
+        {doc.recipient_role && (
+          <span className="text-sm text-stone-800">{doc.recipient_role}</span>
+        )}
+      </div>
+      {doc.reason_brief && (
+        <p className="mt-1 text-sm text-stone-800">
+          <span className="text-stone-700">Why. </span>{doc.reason_brief}
+        </p>
+      )}
+      {!isStaffPreview && (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={accept}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-800 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+            Accept
+          </button>
+          <button
+            type="button"
+            onClick={remove}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-red-700 hover:text-red-700 disabled:opacity-50"
+          >
+            <AlertCircle className="h-3 w-3" />
+            Remove
+          </button>
+          {err && <span className="text-xs text-red-700">{err}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// AddLorCard — empty-shape card with a + button that expands an inline
+// form. Student types recipient details, hits Save, the row is created
+// as already-accepted (student_accepted_at = NOW()) and joins the
+// regular lifecycle. Mirrors the visual language of LorSuggestionCard
+// but in stone (neutral) tones since it's for manual entry, not AI
+// proposals.
+function AddLorCard({ onAfterChange }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const reset = () => { setName(""); setRole(""); setReason(""); setErr(null); };
+  const cancel = () => { reset(); setOpen(false); };
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.createLorSelf({
+        recipient_name: name.trim(),
+        recipient_role: role.trim(),
+        reason_brief: reason.trim(),
+      });
+      reset();
+      setOpen(false);
+      onAfterChange?.();
+    } catch (e) {
+      setErr(e.message || "Couldn't add this recommender.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-2 border-2 border-dashed border-stone-300 bg-white px-4 py-4 text-sm font-semibold text-stone-700 transition hover:border-stone-700 hover:text-black"
+      >
+        <span className="text-lg leading-none">+</span> Add another recommender
+      </button>
+    );
+  }
+  return (
+    <div className="border-2 border-stone-300 bg-white px-4 py-3">
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-black">
+        Add a recommender
+      </p>
+      <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Mr Rajiv Mehta"
+            className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Role / relation</span>
+          <input
+            type="text"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="e.g. Class XII Maths teacher"
+            className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+          />
+        </label>
+      </div>
+      <label className="mt-3 block">
+        <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Why this person (≤ 20 words)</span>
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. taught me Maths for 2 years; saw me build the classroom timetable tool"
+          className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+        />
+      </label>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || (!name.trim() && !role.trim() && !reason.trim())}
+          className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-stone-700"
+        >
+          Cancel
+        </button>
+        {err && <span className="text-xs text-red-700">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 // RequiredDocRow — one row per LOR / Internship / SOP item.
 //
 // Status state machine:

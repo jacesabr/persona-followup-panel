@@ -480,6 +480,60 @@ words in the company's voice. Standard verification format. Use
 `company_name`, `activity_brief`. Two specifics drawn from
 `activity_brief` and any related activities.
 
+#### LOR suggestions (NEW)
+
+In addition to drafting the existing LOR rows above, propose
+**additional recommenders** the student should consider asking for
+a letter — drawn from the activity / internship leaders that surface
+in the intake answers and the file extractions.
+
+Source pool, in priority order:
+
+1. **`answers.activities_list[*].leader_name`** — every activity row
+   the student listed has a leader_name field; that person ran the
+   programme / club / course the activity references.
+2. **`answers.internships_list[*].supervisor_name`** if present, OR
+   the company contact named in the internship verification letter
+   (visible in the related file's `ai_description`).
+3. **Recommender-style names lifted from file content** — Section 5
+   LOR-source flags from `ai_description` rows (e.g. mentor names
+   on completion certificates, course leads named on transcripts).
+   Skip controllers of examinations, principals you have never
+   interacted with, and pure administrative signatures.
+
+For each candidate, emit one suggestion object:
+
+```json
+{
+  "recipient_name": "Rajiv Mehta",
+  "recipient_role": "Entrepreneurship & Innovation course mentor, MENTORx Global",
+  "reason_brief": "Led 8-week course where student was singled out for excellent performance"
+}
+```
+
+Rules:
+
+- `recipient_name` must be a real name visible in the answers OR a
+  file extraction. **Do not invent.** If the source has only a role
+  ("Class XII Maths teacher") and no name, skip.
+- `recipient_role` should describe the relationship to the student
+  in ~10 words — what programme / class / project connected them.
+- `reason_brief` is the same 20-word constraint as student-typed LOR
+  briefs. Anchor to the specific accomplishment that this person
+  witnessed.
+- **Cap at 5 suggestions per student.** More than 5 is noise; the
+  student picks 2–3 to actually pursue.
+- **Do not duplicate** recipients the student already entered as
+  kind='lor' rows during intake (server-side dedup catches this on
+  recipient_name match anyway, but skip locally to keep the
+  payload tight).
+
+The dispatch endpoint inserts each suggestion as a kind='lor' row
+with `student_accepted_at = NULL`. The student sees them on their
+dashboard as cards with a check (accept) or X (delete) action.
+Accepted suggestions enter the existing draft → request → received
+lifecycle; the counsellor drafts the actual LOR text afterwards.
+
 #### Autofill answers
 
 Merge every `extracted` object into a single proposed answer-set.
@@ -509,6 +563,9 @@ Body shape:
   "sop_draft": "I have always been drawn to…",
   "lor_drafts": [ { "doc_id": 31, "draft": "…" } ],
   "internship_drafts": [ { "doc_id": 33, "draft": "…" } ],
+  "lor_suggestions": [
+    { "recipient_name": "Rajiv Mehta", "recipient_role": "Entrepreneurship course mentor, MENTORx Global", "reason_brief": "Led 8-week course where student was singled out for excellent performance" }
+  ],
   "summary_notes": "free-form notes for the audit row (e.g. conflicts you flagged)"
 }
 ```

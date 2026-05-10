@@ -93,6 +93,7 @@ router.get("/student/:student_id", requireStaff, async (req, res, next) => {
           r.seq`,
       [sid]
     );
+    // r.* already pulls student_accepted_at since the migration added it.
     res.json(rows.map((r) => ({ ...r, id: String(r.id), final_file_id: r.final_file_id ? String(r.final_file_id) : null })));
   } catch (e) {
     next(e);
@@ -333,6 +334,7 @@ router.get("/me", requireStudent, async (req, res, next) => {
                    THEN r.staff_draft ELSE NULL END AS staff_draft,
               r.marked_done_at, r.approved_by_admin_at,
               r.requested_at, r.deadline_at, r.final_file_id,
+              r.student_accepted_at,
               r.created_at, r.updated_at,
               f.original_name AS final_file_name, f.size AS final_file_size
          FROM intake_required_docs r
@@ -348,6 +350,123 @@ router.get("/me", requireStudent, async (req, res, next) => {
       id: String(r.id),
       final_file_id: r.final_file_id ? String(r.final_file_id) : null,
     })));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/required-docs/me/:id/accept-suggestion — student accepts
+// an AI-suggested LOR row. Sets student_accepted_at = NOW() so the
+// row leaves the suggestion bucket and enters the regular drafting
+// lifecycle. Refuses if the row isn't theirs, isn't kind='lor', or
+// is already accepted (no-op idempotent path returns ok=true).
+router.post("/me/:id/accept-suggestion", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
+    const { rows } = await pool.query(
+      `SELECT id, kind, student_accepted_at FROM intake_required_docs
+        WHERE id = $1 AND student_id = $2`,
+      [Number(req.params.id), req.user.studentId]
+    );
+    const doc = rows[0];
+    if (!doc) return res.status(404).json({ error: "not found" });
+    if (doc.kind !== "lor") {
+      return res.status(400).json({ error: "only LOR suggestions can be accepted" });
+    }
+    if (doc.student_accepted_at) {
+      return res.json({ ok: true, already_accepted: true });
+    }
+    await pool.query(
+      `UPDATE intake_required_docs
+          SET student_accepted_at = NOW(), updated_at = NOW()
+        WHERE id = $1`,
+      [Number(req.params.id)]
+    );
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "accept_lor_suggestion",
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/required-docs/me/:id — student rejects / removes a
+// kind='lor' row that is still a suggestion (student_accepted_at
+// IS NULL). Refuses to delete rows the student already accepted
+// (those go through the staff workflow and should be removed by
+// the counsellor instead) and refuses anything that isn't kind='lor'.
+router.delete("/me/:id", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
+    const { rows } = await pool.query(
+      `SELECT id, kind, student_accepted_at, requested_at, final_file_id
+         FROM intake_required_docs
+        WHERE id = $1 AND student_id = $2`,
+      [Number(req.params.id), req.user.studentId]
+    );
+    const doc = rows[0];
+    if (!doc) return res.status(404).json({ error: "not found" });
+    if (doc.kind !== "lor") {
+      return res.status(400).json({ error: "only LOR rows can be deleted by the student" });
+    }
+    if (doc.student_accepted_at) {
+      return res.status(409).json({ error: "row already accepted; ask your counsellor to remove it" });
+    }
+    await pool.query(
+      `DELETE FROM intake_required_docs WHERE id = $1`,
+      [Number(req.params.id)]
+    );
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "delete_lor_suggestion",
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/required-docs/me — student adds a new LOR row themselves
+// (the "+ add another" button beneath the suggestion list). Lands as
+// already-accepted (student_accepted_at = NOW()) since the student is
+// the one inserting it. Auto-allocates the next seq for kind='lor'.
+router.post("/me", requireStudent, express.json(), async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const recipient_name = isString(body.recipient_name) ? body.recipient_name.trim() : "";
+    const recipient_role = isString(body.recipient_role) ? body.recipient_role.trim() : "";
+    const reason_brief = isString(body.reason_brief) ? body.reason_brief.trim() : "";
+    if (!recipient_name && !recipient_role && !reason_brief) {
+      return res.status(400).json({ error: "at least one of recipient_name / recipient_role / reason_brief required" });
+    }
+    if (wordCount(reason_brief) > 20) {
+      return res.status(400).json({ error: "reason_brief exceeds 20 words" });
+    }
+    const seqRes = await pool.query(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq
+         FROM intake_required_docs
+        WHERE student_id = $1 AND kind = 'lor'`,
+      [req.user.studentId]
+    );
+    const nextSeq = seqRes.rows[0].next_seq;
+    const ins = await pool.query(
+      `INSERT INTO intake_required_docs
+         (student_id, kind, seq, recipient_name, recipient_role, reason_brief, student_accepted_at)
+       VALUES ($1, 'lor', $2, $3, $4, $5, NOW())
+       RETURNING id`,
+      [req.user.studentId, nextSeq, recipient_name || null, recipient_role || null, reason_brief || null]
+    );
+    audit(req, {
+      table: "intake_required_docs",
+      id: String(ins.rows[0].id),
+      action: "create_lor_self",
+      diff: { recipient_name, recipient_role, reason_brief },
+    });
+    res.json({ ok: true, id: String(ins.rows[0].id) });
   } catch (e) {
     next(e);
   }
