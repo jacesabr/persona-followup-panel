@@ -836,7 +836,21 @@ function StudentDetail({ detail, role, onRefresh }) {
 
   const fieldIndex = useMemo(() => buildFieldIndex(), []);
 
-  // Field-id set the AI autofill pass populated. Persisted on
+  // Slide builder helper: derive a human-readable document title from
+  // the file's original_name. Strips the extension and trailing
+  // duplicate-suffix patterns like " (1)" / " (1) (1)" so the slide
+  // title reads as "1/4: UCMAS Certificate of Graduation" instead of
+  // "1/4: UCMAS Certificate of Graduation (1) (1).pdf". Falls back to
+  // "(unnamed file)" if original_name is empty.
+  const docNameFor = useCallback((file) => {
+    const raw = (file && file.original_name) || "";
+    if (!raw) return "(unnamed file)";
+    return raw
+      .replace(/\.[A-Za-z0-9]{1,8}$/, "")
+      .replace(/(\s*\(\d+\))+\s*$/g, "")
+      .trim() || "(unnamed file)";
+  }, []);
+ Persisted on
   // dispatch (server/routes/admin-ai.js) into student.data.autofilled_keys.
   // Used by ChapterSummaryBlock to badge each AI-written field with
   // an "AI autofilled" eyebrow.
@@ -881,8 +895,8 @@ function StudentDetail({ detail, role, onRefresh }) {
             chapterTitle: chapter.title,
             page,
             file: pageFiles[0],
-            eyebrow: chapter.title,
-            title: page.title,
+            eyebrow: `${chapter.title} · ${page.title}`,
+            title: docNameFor(pageFiles[0]),
           });
           return;
         }
@@ -903,8 +917,8 @@ function StudentDetail({ detail, role, onRefresh }) {
             chapterTitle: chapter.title,
             page,
             file,
-            eyebrow: chapter.title,
-            title: `${page.title} · document ${i + 1}/${pageFiles.length}`,
+            eyebrow: `${chapter.title} · ${page.title}`,
+            title: `${i + 1}/${pageFiles.length}: ${docNameFor(file)}`,
           });
         });
       });
@@ -916,7 +930,7 @@ function StudentDetail({ detail, role, onRefresh }) {
     out.push({ kind: "ai-suggestions", eyebrow: "AI suggestions", title: "Suggested LORs & SOP" });
     out.push({ kind: "required", eyebrow: "Required documents", title: "LOR / Internship / SOP" });
     return out;
-  }, [grouped, resumes?.length, files]);
+  }, [grouped, resumes?.length, files, docNameFor]);
 
   const [stepIdx, setStepIdx] = useState(0);
   // Clamp if step list shrinks (e.g. resume row deleted).
@@ -1013,7 +1027,7 @@ function StudentDetail({ detail, role, onRefresh }) {
       )}
       {step?.kind === "review" && (
         <div className="space-y-4">
-          <div className="border border-stone-300 bg-stone-50 px-4 py-3 text-sm text-stone-800">
+          <div className="border-2 border-[#cc785c] bg-[#fdf4ef] px-5 py-4 text-lg font-bold text-[#cc785c]">
             This is the summary. The next {step.fileCount} {step.fileCount === 1 ? "slide" : "slides"} show each document with its AI analysis.
           </div>
           <ChapterSummaryBlock
@@ -1534,14 +1548,14 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
 
       {/* Student brief — read-only context for the counsellor. */}
       {doc.kind === "lor" && (
-        <p className="mt-1 text-[11px]  text-black">
-          Reason: {doc.reason_brief || "—"}
+        <p className="mt-2 text-base text-black">
+          <span className="font-semibold">Reason:</span> {doc.reason_brief || "—"}
         </p>
       )}
       {doc.kind === "internship" && (
-        <p className="mt-1 text-[11px]  text-black">
-          {doc.company_website ? `Website: ${doc.company_website} — ` : ""}
-          What they did: {doc.activity_brief || "—"}
+        <p className="mt-2 text-base text-black">
+          {doc.company_website ? <><span className="font-semibold">Website:</span> {doc.company_website} — </> : null}
+          <span className="font-semibold">What they did:</span> {doc.activity_brief || "—"}
         </p>
       )}
 

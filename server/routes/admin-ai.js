@@ -582,11 +582,21 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
             summary.lor_suggestions_skipped_duplicate++;
             continue;
           }
+          // Optional `draft` on the suggestion lets the agent ship a
+          // ready-to-print LOR alongside the recipient details. The
+          // counsellor sees the draft in the textarea on the
+          // Required-documents slide instead of a placeholder. Empty
+          // string and missing key both fall back to NULL so the
+          // existing "awaiting your draft" state still works for
+          // suggestions the agent didn't draft.
+          const suggestionDraft = isString(sug.draft) && sug.draft.trim()
+            ? sug.draft
+            : null;
           await client.query(
             `INSERT INTO intake_required_docs
-               (student_id, kind, seq, recipient_name, recipient_role, reason_brief, student_accepted_at)
-             VALUES ($1, 'lor', $2, $3, $4, $5, NULL)`,
-            [studentId, nextSeq, name || null, role || null, reason || null]
+               (student_id, kind, seq, recipient_name, recipient_role, reason_brief, staff_draft, student_accepted_at)
+             VALUES ($1, 'lor', $2, $3, $4, $5, $6, NULL)`,
+            [studentId, nextSeq, name || null, role || null, reason || null, suggestionDraft]
           );
           if (key) existingNames.add(key);
           nextSeq++;

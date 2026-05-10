@@ -638,13 +638,16 @@ Source pool, in priority order:
    Skip controllers of examinations, principals you have never
    interacted with, and pure administrative signatures.
 
-For each candidate, emit one suggestion object:
+For each candidate, emit one suggestion object — including a
+ready-to-print `draft` so the counsellor doesn't re-author from
+scratch when the student accepts:
 
 ```json
 {
   "recipient_name": "Rajiv Mehta",
   "recipient_role": "Entrepreneurship & Innovation course mentor, MENTORx Global",
-  "reason_brief": "Led 8-week course where student was singled out for excellent performance"
+  "reason_brief": "Led 8-week course where student was singled out for excellent performance",
+  "draft": "Date: [TODAY]\n\nTo Whom It May Concern:\n\nI am writing in support of Pratham Aggarwal's application…\n\n[two substance paragraphs grounded in the specific course / class / project that connected this recommender to the student, with at least one verbatim figure or quote from the student's file extractions]\n\nSincerely,\nRajiv Mehta\nEntrepreneurship & Innovation course mentor, MENTORx Global"
 }
 ```
 
@@ -658,6 +661,16 @@ Rules:
 - `reason_brief` is the same 20-word constraint as student-typed LOR
   briefs. Anchor to the specific accomplishment that this person
   witnessed.
+- **`draft` is now required.** 200–300 words in the recommender's
+  voice, same Stealth Mode rules as the other LOR drafts above.
+  Format: `Date: [TODAY]` header, two substance paragraphs grounded
+  in the specific course / class / project this recommender ran with
+  the student (with at least one verbatim figure or quote pulled from
+  the student's file extractions), one closing line, sign-off with
+  the recommender's name + role on separate lines. The dispatch
+  endpoint writes this to `staff_draft` on the inserted row so the
+  counsellor sees a pre-filled textarea on the Required-documents
+  slide instead of "Awaiting your draft."
 - **Cap at 5 suggestions per student.** More than 5 is noise; the
   student picks 2–3 to actually pursue.
 - **Do not duplicate** recipients the student already entered as
@@ -666,10 +679,12 @@ Rules:
   payload tight).
 
 The dispatch endpoint inserts each suggestion as a kind='lor' row
-with `student_accepted_at = NULL`. The student sees them on their
-dashboard as cards with a check (accept) or X (delete) action.
-Accepted suggestions enter the existing draft → request → received
-lifecycle; the counsellor drafts the actual LOR text afterwards.
+with `student_accepted_at = NULL` and the supplied `draft` written
+to `staff_draft`. The student sees the row on their dashboard as a
+card with a check (accept) or X (delete) action. Accepted
+suggestions enter the existing request → received lifecycle with
+the draft already in place; the counsellor only edits the
+boilerplate / final-touches before sending.
 
 #### Autofill answers
 
@@ -712,7 +727,12 @@ Body shape:
   "lor_drafts": [ { "doc_id": 31, "draft": "…" } ],
   "internship_drafts": [ { "doc_id": 33, "draft": "…" } ],
   "lor_suggestions": [
-    { "recipient_name": "Rajiv Mehta", "recipient_role": "Entrepreneurship course mentor, MENTORx Global", "reason_brief": "Led 8-week course where student was singled out for excellent performance" }
+    {
+      "recipient_name": "Rajiv Mehta",
+      "recipient_role": "Entrepreneurship course mentor, MENTORx Global",
+      "reason_brief": "Led 8-week course where student was singled out for excellent performance",
+      "draft": "Date: [TODAY]\n\nTo Whom It May Concern:\n\n[200–300 words in the recommender's voice…]\n\nSincerely,\nRajiv Mehta\nEntrepreneurship course mentor, MENTORx Global"
+    }
   ],
   "summary_notes": "free-form notes for the audit row (e.g. conflicts you flagged)"
 }

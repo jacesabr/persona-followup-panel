@@ -172,8 +172,24 @@ app.use(
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
+        // @react-pdf/renderer compiles its layout engine via WebAssembly
+        // at runtime (yoga-wasm-web). Browsers gate WebAssembly.instantiate
+        // behind script-src 'unsafe-eval' (the wasm-eval directive isn't
+        // shipped in Chromium yet). Without this, the PDF picker on the
+        // Resumes slide errors with "Compiling or instantiating WebAssembly
+        // module violates the following Content Security policy directive
+        // because 'unsafe-eval' is not an allowed source." 'wasm-unsafe-eval'
+        // is the narrower modern alternative and we list it first; the
+        // 'unsafe-eval' fallback covers older browsers that don't
+        // recognise the wasm-specific keyword.
+        "script-src": ["'self'", "'wasm-unsafe-eval'", "'unsafe-eval'"],
         "object-src": ["'self'"],
-        "frame-src": ["'self'"],
+        // <iframe> embeds need both:
+        //   - same-origin <object type=application/pdf> (Chrome routes
+        //     these through its built-in PDF viewer)
+        //   - blob: URLs from @react-pdf/renderer's <PDFViewer> (it
+        //     generates a blob and feeds it to an iframe for live preview)
+        "frame-src": ["'self'", "blob:"],
         // pdf.js spawns a Worker from a same-origin module asset
         // (configured via pdfjs.GlobalWorkerOptions.workerSrc in
         // src/viewer.js). worker-src in CSP3 falls back to script-src,
