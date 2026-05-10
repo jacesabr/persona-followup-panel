@@ -1744,8 +1744,17 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
           </a>
         )}
       </div>
+      <div className="px-4 py-5">
+        {hasExtraction ? (
+          <AiDescriptionRenderer markdown={file.ai_description} />
+        ) : (
+          <p className="text-sm text-stone-800">
+            No AI analysis yet for this file. Run the automation pipeline to populate it.
+          </p>
+        )}
+      </div>
       {href && isImg && (
-        <div className="border-b border-stone-200 bg-stone-50 p-4">
+        <div className="border-t border-stone-200 bg-stone-50 p-4">
           <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
             <PhotoView src={href}>
               <img src={href} alt={title} loading="lazy" decoding="async"
@@ -1757,19 +1766,10 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
         </div>
       )}
       {href && isPdf && (
-        <div className="border-b border-stone-200">
+        <div className="border-t border-stone-200">
           <InlinePdf url={href} fileName={file.original_name} maxHeight={500} />
         </div>
       )}
-      <div className="px-4 py-5">
-        {hasExtraction ? (
-          <AiDescriptionRenderer markdown={file.ai_description} />
-        ) : (
-          <p className="text-sm text-stone-800">
-            No AI analysis yet for this file. Run the automation pipeline to populate it.
-          </p>
-        )}
-      </div>
     </div>
   );
 }
