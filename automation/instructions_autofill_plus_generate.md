@@ -164,59 +164,54 @@ Compose `ai_description` as a markdown block with the five sections
 below in this order. Skip a section only when it would genuinely be
 empty.
 
-**Section 1 — Narrative & analysis** (two paragraphs, 150–300 words combined)
+**Section 1 — Narrative** (no heading; opens the document)
 
-This is the section a counsellor reads first, and it has to do real
-work. "Document identification" alone is not enough — a one-liner
-that the file is "Pratham's Class X marksheet" tells the reader
-nothing they couldn't see from the filename.
+Two layers, in this order. No other sub-headings.
 
-Open with one paragraph of identification: what the document is, who
-it is about, the issuing authority, the academic year / date, the
-page count, the language(s). Plain, no adjectives. ~50–80 words.
+**First: a single paragraph framing the student.** ~40–60 words.
+Same opening shape on every file the student has, because every file
+benefits from the reader being grounded in who this person is before
+they look at the document.
 
-Then a second paragraph of analysis that turns the raw data into a
-narrative the reader can absorb in one pass. The shape depends on
-the document:
+The paragraph names the student, their school + city, their current
+class / year, their stream or programme of study, and one anchoring
+fact about their direction (target country, intended field) IF the
+intake answers carry it. Lift the student details from this file's
+visible content where present and from the broader student record
+otherwise. If a piece of identity is unknown, leave it out — do not
+guess.
 
-- **Marksheets / transcripts / scorecards.** Lead with the headline
-  number (overall %, GPA, band score). Then pattern: which subjects
-  / sections the student is strongest in (top 2–3 by raw mark, with
-  the actual marks), which are weakest (with marks). If the document
-  spans multiple years / terms / sections, call out the trend (year-
-  on-year change, STEM-vs-Humanities split, listening-vs-writing
-  gap). If you have prior-year data on the same student in any other
-  file, compare ("Class XI Maths 84 vs Class X Maths 99 — drop of
-  15 points"). Anchor every claim to a visible number from the
-  source. Aim for a reader who has not opened the file to come away
-  knowing the story.
+Example opener for a marksheet:
+> *"Pratham Aggarwal is a Class XI Non-Medical student at Guru Nanak
+> International Public School, Ludhiana, applying for CS undergrad
+> programmes in the UK and US."*
 
-- **Identity documents (Aadhar, passport, PAN).** Lead with the
-  fields that downstream artifacts will care about: name spelling
-  variants, DOB, address, expiry. If any field disagrees with
-  `answers.*` flag the conflict in this paragraph and again in
-  Section 5. ~80–120 words is enough.
+**Then: layered detail that shapes the narrative for outbound
+artifacts.** This is the part that does the real work — the resume,
+SOP, and LOR composers read this to ground their bullets. The amount
+of detail and the shape depend on what the document actually carries:
 
-- **Certificates / award letters / completion proofs.** Lead with
-  what the certificate proves (programme name, issuing body,
-  duration). Then the meaningful detail: cohort size if visible,
-  rank / honours level, what the programme covered, how it
-  connects to the student's stated direction (CS, business,
-  research). Useful for SOP / LOR colour.
+- **Academic documents** (marksheets, transcripts, scorecards):
+  headline number first (overall %, GPA, band), then strongest 2–3
+  subjects with raw marks, weakest with raw marks, trend across
+  years if visible, comparison to other files on the same student
+  (e.g. "Class XI Maths 84 vs Class X Maths 99 — 15-point drop").
+  Anchor every claim to a number on the source.
+- **Identity documents** (Aadhar, passport, PAN): the fields
+  downstream cares about — name variants, DOB, address, expiry.
+  Flag conflicts with `answers.*` here AND in Section 5.
+- **Certificates / completion letters**: what was earned, issuing
+  body, programme content, cohort size or rank if visible, how it
+  connects to the student's stated direction.
+- **Recommendation letters / supporting prose**: the recommender's
+  specific claims summarised, plus the 1–2 strongest sentences
+  quoted verbatim so the SOP / LOR composer can lift them.
+- **Photos, signed declarations, single-purpose pages**: the opening
+  student paragraph is enough; skip the layered detail.
 
-- **Recommendation letters / supporting prose.** Summarise the
-  recommender's specific claims (which course, what grade, what
-  project) and pull the strongest 1–2 sentences as quotes. The
-  resume / SOP composer will lift these later — make them easy to
-  find.
-
-- **Photos / signed declarations / single-purpose pages.** Skip the
-  analysis paragraph; one identification paragraph is enough.
-
-The narrative is for humans (counsellors scanning the staff panel)
-AND for the resume / SOP / LOR composers downstream — they read
-this section to ground their own bullets. Sloppy narrative here
-produces sloppy artifacts everywhere.
+Total Section 1 length: 150–350 words depending on how much the
+document actually carries. A passport bio page is short; a Class XII
+predicted-marks transcript is long.
 
 **Section 2 — Verbatim transcription** (under a `### Verbatim`
 heading)
