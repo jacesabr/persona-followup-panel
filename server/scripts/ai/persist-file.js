@@ -2,11 +2,13 @@
 // to intake_files. Both fields are nullable; the script overwrites
 // whatever was there (so re-running picks up improved descriptions).
 //
-// Usage:
-//   node server/scripts/ai/persist-file.js <file_id> --description "<text>" --extracted '<json>'
-//   node server/scripts/ai/persist-file.js <file_id> --description "<text>"   # extracted optional
+// Usage (description from a file is preferred — long verbatim
+// transcriptions blow past ARG_MAX on some shells):
+//   node server/scripts/ai/persist-file.js <file_id> --description-file <path> --extracted '<json>'
+//   node server/scripts/ai/persist-file.js <file_id> --description "<text>" --extracted '<json>'  # legacy
 
 import "dotenv/config";
+import { readFileSync } from "node:fs";
 import pool from "../../db.js";
 
 function arg(name) {
@@ -16,11 +18,19 @@ function arg(name) {
 
 async function main() {
   const fileId = process.argv[2];
-  const description = arg("description");
+  const descriptionInline = arg("description");
+  const descriptionFile = arg("description-file");
   const extractedRaw = arg("extracted");
 
+  let description = null;
+  if (descriptionFile) {
+    description = readFileSync(descriptionFile, "utf8");
+  } else if (descriptionInline) {
+    description = descriptionInline;
+  }
+
   if (!fileId || !description) {
-    console.error("Usage: persist-file.js <file_id> --description <text> [--extracted <json>]");
+    console.error("Usage: persist-file.js <file_id> (--description-file <path> | --description <text>) [--extracted <json>]");
     process.exit(1);
   }
 

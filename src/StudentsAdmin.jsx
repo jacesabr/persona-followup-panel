@@ -742,6 +742,8 @@ function StudentDetail({ detail, role, onRefresh }) {
     return groupAnswersBySchema(answers);
   }, [student?.data]);
 
+  const fieldIndex = useMemo(() => buildFieldIndex(), []);
+
   const steps = useMemo(() => {
     const out = [];
     grouped.forEach((chapter) => {
@@ -759,9 +761,23 @@ function StudentDetail({ detail, role, onRefresh }) {
     }
     out.push({ kind: "resumes", title: `AI-generated resumes (${resumes?.length || 0})` });
     out.push({ kind: "required", title: "Required documents (LOR / Internship / SOP)" });
-    out.push({ kind: "uploads", title: `Uploaded documents (${files?.length || 0})` });
+    // Each uploaded file gets its own step. The doc previewer renders
+    // the verbatim + table + summary + conclusions block in full, which
+    // is too tall to share a step with anything else.
+    const uploads = files || [];
+    if (uploads.length === 0) {
+      out.push({ kind: "uploads-empty", title: "Uploaded documents (0)" });
+    } else {
+      uploads.forEach((file, i) => {
+        out.push({
+          kind: "upload",
+          file,
+          title: `Document ${i + 1} of ${uploads.length} · ${file.original_name}`,
+        });
+      });
+    }
     return out;
-  }, [grouped, resumes?.length, files?.length]);
+  }, [grouped, resumes?.length, files]);
 
   const [stepIdx, setStepIdx] = useState(0);
   // Clamp if step list shrinks (e.g. resume row deleted).
@@ -845,8 +861,17 @@ function StudentDetail({ detail, role, onRefresh }) {
       {step?.kind === "required" && (
         <RequiredDocsStaff studentId={student.student_id} role={role} />
       )}
-      {step?.kind === "uploads" && (
-        <UploadedDocsPreview files={files} studentId={student.student_id} />
+      {step?.kind === "upload" && (
+        <DocumentPreview
+          file={step.file}
+          fieldIndex={fieldIndex}
+          studentId={student.student_id}
+        />
+      )}
+      {step?.kind === "uploads-empty" && (
+        <p className="text-sm text-stone-800">
+          Student hasn't uploaded any documents yet.
+        </p>
       )}
     </div>
   );
@@ -982,25 +1007,6 @@ function humanRelative(iso) {
   return `${Math.round(mo / 12)}y ago`;
 }
 
-// UploadedDocsPreview — staff-side mirror of the student's "Your
-// documents" section. Renders every uploaded file inline (image as
-// <img>, PDF as <object>) so the admin can verify each artifact at a
-// glance instead of opening every link separately.
-function UploadedDocsPreview({ files, studentId }) {
-  const fieldIndex = useMemo(() => buildFieldIndex(), []);
-  if (!files || files.length === 0) {
-    return <p className="text-sm text-stone-800">Student hasn't uploaded any documents yet.</p>;
-  }
-  return (
-    <div className="space-y-4">
-      {files.map((f) => (
-        <DocumentPreview key={f.id} file={f} fieldIndex={fieldIndex} studentId={studentId} />
-      ))}
-    </div>
-  );
-}
-
-// ============================================================
 // RequiredDocsStaff — staff workflow surface for one student's
 // LOR / Internship / SOP rows. Fetches /api/required-docs/student/:id;
 // renders each as an editable card with a counsellor draft textarea

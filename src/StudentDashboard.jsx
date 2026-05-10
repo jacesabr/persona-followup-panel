@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import { PhotoProvider, PhotoView } from "react-photo-view";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -1135,11 +1137,32 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           </div>
         )}
       </div>
-      {docSummary && (
+      {file.ai_description ? (
+        <div className="border-t border-stone-200 bg-white px-4 py-4">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
+            AI extraction
+          </p>
+          <div
+            className="prose prose-sm max-w-none text-stone-900
+                       prose-headings:text-black prose-headings:font-semibold
+                       prose-h3:mt-4 prose-h3:mb-2 prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-[0.15em]
+                       prose-p:my-2
+                       prose-table:my-3 prose-th:bg-stone-100 prose-th:text-left prose-th:font-semibold
+                       prose-th:border prose-th:border-stone-300 prose-th:px-2 prose-th:py-1
+                       prose-td:border prose-td:border-stone-300 prose-td:px-2 prose-td:py-1
+                       prose-ul:my-2 prose-li:my-0.5
+                       prose-strong:text-black"
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {file.ai_description}
+            </ReactMarkdown>
+          </div>
+        </div>
+      ) : docSummary ? (
         <p className="border-t border-stone-200 px-4 py-3 text-sm text-stone-800">
-          <span className="text-stone-600">What this is — </span>{docSummary}
+          <span className="text-stone-700">What this is. </span>{docSummary}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

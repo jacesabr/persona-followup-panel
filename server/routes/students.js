@@ -492,6 +492,7 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
 
     const filesRes = await pool.query(
       `SELECT id, field_id, row_index, original_name, size, mime_type,
+              ai_description, ai_extracted,
               superseded_at, created_at
          FROM intake_files WHERE student_id = $1
          ORDER BY field_id, created_at ASC`,
@@ -1019,6 +1020,7 @@ router.get("/me/files", requireStudent, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, field_id, row_index, original_name, size, mime_type,
+              ai_description, ai_extracted,
               superseded_at, created_at
          FROM intake_files
         WHERE student_id = $1 AND superseded_at IS NULL
