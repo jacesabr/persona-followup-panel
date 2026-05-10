@@ -60,7 +60,11 @@ function slugifyName(name) {
     .slice(0, 60) || "resume";
 }
 
-export default function ResumePdfPicker({ payload, studentName }) {
+// `compact` (optional) renders three pill-style buttons in a single row
+// instead of full descriptive cards. Used in the staff slide-by-slide
+// review where vertical space is tight and the reviewer already knows
+// what each style is.
+export default function ResumePdfPicker({ payload, studentName, compact = false }) {
   const [selectedId, setSelectedId] = useState("editorial");
   const selected = STYLES.find((s) => s.id === selectedId) || STYLES[0];
   const SelectedComponent = selected.Component;
@@ -89,38 +93,62 @@ export default function ResumePdfPicker({ payload, studentName }) {
 
   return (
     <div className="border border-stone-200 bg-white">
-      <div className="border-b border-stone-200 bg-stone-50 px-5 py-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
-          Download as PDF
-        </p>
-        <p className="mt-1 text-sm text-stone-800">
-          Pick a style. The same résumé content renders differently in each.
-        </p>
-      </div>
+      {!compact && (
+        <div className="border-b border-stone-200 bg-stone-50 px-5 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
+            Download as PDF
+          </p>
+          <p className="mt-1 text-sm text-stone-800">
+            Pick a style. The same résumé content renders differently in each.
+          </p>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-3">
-        {STYLES.map((s) => {
-          const isSelected = s.id === selectedId;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSelectedId(s.id)}
-              className={`flex flex-col items-start border px-4 py-3 text-left transition ${
-                isSelected
-                  ? "border-stone-900 bg-stone-50"
-                  : "border-stone-300 bg-white hover:border-stone-700"
-              }`}
-            >
-              <span className="text-base font-medium text-black">{s.label}</span>
-              <span className="mt-0.5 text-xs uppercase tracking-[0.15em] text-stone-700">
-                {s.tagline}
-              </span>
-              <span className="mt-2 text-sm text-stone-800">{s.description}</span>
-            </button>
-          );
-        })}
-      </div>
+      {compact ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-3">
+          {STYLES.map((s) => {
+            const isSelected = s.id === selectedId;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSelectedId(s.id)}
+                className={`border px-3 py-1.5 text-xs font-medium transition ${
+                  isSelected
+                    ? "border-stone-900 bg-stone-900 text-white"
+                    : "border-stone-300 bg-white text-black hover:border-stone-700"
+                }`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-3">
+          {STYLES.map((s) => {
+            const isSelected = s.id === selectedId;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSelectedId(s.id)}
+                className={`flex flex-col items-start border px-4 py-3 text-left transition ${
+                  isSelected
+                    ? "border-stone-900 bg-stone-50"
+                    : "border-stone-300 bg-white hover:border-stone-700"
+                }`}
+              >
+                <span className="text-base font-medium text-black">{s.label}</span>
+                <span className="mt-0.5 text-xs uppercase tracking-[0.15em] text-stone-700">
+                  {s.tagline}
+                </span>
+                <span className="mt-2 text-sm text-stone-800">{s.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-stone-200 bg-white px-5 py-4">
         <PDFDownloadLink

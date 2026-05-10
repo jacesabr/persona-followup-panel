@@ -603,18 +603,18 @@ CREATE INDEX IF NOT EXISTS idx_required_docs_open_requests
 -- Once accepted, the row enters the existing draft → request →
 -- received lifecycle unchanged.
 --
--- Backfill: every existing kind='lor' row was implicitly accepted
--- at creation time (the student typed the recipient details into
--- the intake form), so backfill student_accepted_at = created_at on
--- those rows. The COALESCE keeps idempotency: re-running the
--- migration on a row that's already populated leaves it alone.
+-- Historical note: an earlier version of this migration ran a
+-- backfill UPDATE that set student_accepted_at = created_at on every
+-- NULL kind='lor' row. That made sense as a one-time pass for the
+-- legacy rows that pre-dated the suggestions feature, but migrate.js
+-- runs on every deploy — so on any subsequent deploy it would clobber
+-- freshly-inserted AI suggestions (which legitimately use NULL to
+-- mean "pending student review") and silently mark them as accepted.
+-- The backfill has been removed. The one-time pass already happened
+-- on the deploy that introduced the column; new rows correctly stay
+-- NULL until the student acts on them.
 ALTER TABLE intake_required_docs
   ADD COLUMN IF NOT EXISTS student_accepted_at TIMESTAMPTZ;
-UPDATE intake_required_docs
-   SET student_accepted_at = created_at
- WHERE kind = 'lor'
-   AND student_accepted_at IS NULL
-   AND created_at IS NOT NULL;
 -- Index for the student-side query that filters suggestions vs
 -- accepted rows. Partial index keeps it tiny — only rows that are
 -- still suggestions match.

@@ -1169,20 +1169,22 @@ function humanRelative(iso) {
   return `${Math.round(mo / 12)}y ago`;
 }
 
-// AiSuggestionsStep — read-only review of what the AI pipeline drafted
-// for this student before any counsellor / admin edits land. Shows two
-// buckets:
-//   1. Suggested LORs   — kind='lor' rows with student_accepted_at IS NULL.
-//                          These are recommender candidates the AI picked
-//                          from the intake; the student hasn't yet
-//                          accept/rejected them.
-//   2. AI-drafted SOP   — the SOP row's staff_draft when it's set and
-//                          the row hasn't been admin-approved yet. Once
-//                          approved it disappears from this slide (and
-//                          surfaces on the student's dashboard).
-// Edits live on the next slide ("Required documents") — this slide is
-// purely a heads-up so the reviewer can see, side-by-side with the
-// resume + intake, what the AI proposed.
+// AiSuggestionsStep — staff status report on what the AI pipeline
+// produced for this student. Shows every kind='lor' row the AI proposed
+// (regardless of whether the student has acted on it yet) with a
+// per-row status pill, plus the AI-drafted SOP. Edits / accepts /
+// approvals happen on the next slide ("Required documents") — this
+// slide is purely a heads-up read.
+//
+// LOR status model (intentionally only two values; rejection is
+// hard-deleted today so "rejected" history isn't recoverable without
+// soft-deletes):
+//   - "Accepted by student"  — student_accepted_at IS NOT NULL
+//   - "Not yet reviewed"     — student_accepted_at IS NULL
+//
+// The AI-drafted SOP block shows the staff_draft text when present,
+// in three states: awaiting admin approval, approved (final), or
+// no draft yet.
 // ============================================================
 function AiSuggestionsStep({ studentId }) {
   const [docs, setDocs] = useState(null);
@@ -1208,20 +1210,12 @@ function AiSuggestionsStep({ studentId }) {
     return <p className="text-black">Loading…</p>;
   }
 
-  const lorSuggestions = docs.filter((d) => d.kind === "lor" && !d.student_accepted_at);
+  const lors = docs.filter((d) => d.kind === "lor");
   const sopRow = docs.find((d) => d.kind === "sop");
-  const sopDraft = sopRow && sopRow.staff_draft && sopRow.staff_draft.trim() && !sopRow.approved_by_admin_at
+  const sopDraft = sopRow && sopRow.staff_draft && sopRow.staff_draft.trim()
     ? sopRow.staff_draft
     : null;
-
-  if (lorSuggestions.length === 0 && !sopDraft) {
-    return (
-      <p className="border border-stone-200 bg-white px-4 py-3 text-black">
-        No AI suggestions yet — either the pipeline hasn't run for this student or every suggestion has already been
-        accepted / approved (see the next slide).
-      </p>
-    );
-  }
+  const sopApproved = !!(sopRow && sopRow.approved_by_admin_at);
 
   return (
     <div className="space-y-6">
@@ -1231,25 +1225,39 @@ function AiSuggestionsStep({ studentId }) {
 
       <div className="space-y-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Suggested LORs</p>
-        {lorSuggestions.length > 0 ? (
-          lorSuggestions.map((d) => (
-            <div key={d.id} className="border border-[#cc785c] bg-[#fdf4ef] px-4 py-3">
-              <p className="text-sm font-semibold text-black">
-                {d.recipient_name || "(no name)"}
-                <span className="ml-2 text-stone-700">·</span>{" "}
-                <span className="font-normal text-stone-800">{d.recipient_role || "(no role)"}</span>
-              </p>
-              {d.reason_brief && (
-                <p className="mt-1 text-sm text-black">{d.reason_brief}</p>
-              )}
-              <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-[#cc785c]">
-                Pending student review
-              </p>
-            </div>
-          ))
+        {lors.length > 0 ? (
+          lors.map((d) => {
+            const accepted = !!d.student_accepted_at;
+            return (
+              <div
+                key={d.id}
+                className={`border px-4 py-3 ${
+                  accepted
+                    ? "border-stone-300 bg-white"
+                    : "border-[#cc785c] bg-[#fdf4ef]"
+                }`}
+              >
+                <p className="text-sm font-semibold text-black">
+                  {d.recipient_name || "(no name)"}
+                  <span className="ml-2 text-stone-700">·</span>{" "}
+                  <span className="font-normal text-stone-800">{d.recipient_role || "(no role)"}</span>
+                </p>
+                {d.reason_brief && (
+                  <p className="mt-1 text-sm text-black">{d.reason_brief}</p>
+                )}
+                <p
+                  className={`mt-2 text-[11px] uppercase tracking-[0.12em] ${
+                    accepted ? "text-emerald-700" : "text-[#cc785c]"
+                  }`}
+                >
+                  {accepted ? "Accepted by student" : "Not yet reviewed"}
+                </p>
+              </div>
+            );
+          })
         ) : (
           <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
-            No LOR suggestions — student already accepted or removed each one.
+            No LORs in the DB for this student — the pipeline didn't propose any, or they were all removed.
           </p>
         )}
       </div>
@@ -1257,17 +1265,23 @@ function AiSuggestionsStep({ studentId }) {
       <div className="space-y-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">AI-drafted SOP</p>
         {sopDraft ? (
-          <div className="border border-[#cc785c] bg-[#fdf4ef] px-4 py-3">
-            <p className="mb-2 text-[11px] uppercase tracking-[0.12em] text-[#cc785c]">
-              Awaiting admin approval
+          <div
+            className={`border px-4 py-3 ${
+              sopApproved ? "border-stone-300 bg-white" : "border-[#cc785c] bg-[#fdf4ef]"
+            }`}
+          >
+            <p
+              className={`mb-2 text-[11px] uppercase tracking-[0.12em] ${
+                sopApproved ? "text-emerald-700" : "text-[#cc785c]"
+              }`}
+            >
+              {sopApproved ? "Approved" : "Awaiting admin approval"}
             </p>
-            <p className="whitespace-pre-wrap text-sm text-black">{sopDraft}</p>
+            <p className="whitespace-pre-wrap text-base text-black">{sopDraft}</p>
           </div>
         ) : (
           <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
-            {sopRow && sopRow.approved_by_admin_at
-              ? "SOP already approved — see the next slide for the final text."
-              : "AI hasn't drafted an SOP for this student yet."}
+            AI hasn't drafted an SOP for this student yet.
           </p>
         )}
       </div>

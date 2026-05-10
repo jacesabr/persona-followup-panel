@@ -43,8 +43,9 @@ pipeline, generate:
 3. **Resume** — JSON-structured payload (preferred) or markdown
    (legacy fallback). Stealth Mode rules apply: no banned words /
    phrases / em-dashes, plain language, no fluff.
-4. **SOP draft** — first-person, three paragraphs, ~400–600 words,
-   anchored to the student's own activities and answers.
+4. **SOP draft** — first-person, three paragraphs, **max 500 words**
+   (aim for 400–500), anchored to the student's own activities and
+   answers.
 5. **LOR drafts** — one per `kind='lor'` row in `intake_required_docs`
    whose `staff_draft` is NULL. Recommender voice, 200–300 words.
 6. **Internship drafts** — one per `kind='internship'` row whose
@@ -473,6 +474,55 @@ Section rules:
   Empty array if none — do not pad.
 - Stealth Mode applies to every body string in every section.
 
+**Empty-section discipline (HARD RULE).** The renderer skips any
+section whose array is empty — no heading, no "none" placeholder.
+Use that. Never emit a row that says "Not taking", "Planning to
+take", "Not yet taken", "Will take", "N/A", "TBD", or any other
+absence-marker prose. Those are negative facts; resumes only
+carry positive specifics.
+
+This applies to every section, but in practice it bites hardest on
+`standardized_tests` because students often have no IELTS / TOEFL /
+SAT yet. The correct emit when a student has not taken any
+standardized test is:
+
+```json
+"standardized_tests": []
+```
+
+NOT:
+
+```json
+"standardized_tests": [
+  { "label": "IELTS", "body": "Not taking. Medium of instruction English…" }
+]
+```
+
+If a row would be a net negative — describing what the student has
+NOT done, or padding with generic sentences — drop it. The same
+goes for `internships`, `volunteer`, `publications`, etc. An empty
+array is a feature; it tells the renderer to skip the section.
+
+**Per-section sanity pass before emit (HARD RULE).** Before
+serialising the resume, walk every populated section and ask three
+questions per row:
+
+1. *Is this row a positive, specific fact?* If the body starts with
+   "not", "no", "haven't", "won't", or describes an absence, the row
+   is wrong shape — either rewrite it as a positive fact lifted from
+   the file extractions, or drop it.
+2. *Does this row pad the section?* If keeping it would only fill
+   space without adding admissions value, drop it. A section with
+   three strong rows beats one with three strong + two weak.
+3. *Could 1000 other Indian Class XII applicants paste this exact
+   line into their own resume?* If yes, anchor the body to a specific
+   from the student's `ai_description` blocks (file names, dates,
+   per-subject marks, signatory names) or drop it.
+
+If you find yourself adding a row to "fill out" a section, that is
+the signal to leave the section empty instead. Resumes are graded
+on signal density, not section count.
+
 Length target: **300–450 words across all visible text fields**.
 Stealth Mode rules apply — the canonical, fully-fleshed-out version
 lives in [`automation/resume_schema_v2.md`](resume_schema_v2.md)
@@ -518,7 +568,10 @@ that came out of the May 2026 audit:
   and rebuild around it. Detectors flag generic phrasing harder for
   non-native writers — that's our cohort, so the bar is higher.
 
-#### SOP draft (~400–600 words, first-person, three paragraphs)
+#### SOP draft (max 500 words, first-person, three paragraphs)
+
+Aim for 400–500 words. **Hard cap: 500 words.** Anything above that
+gets cut server-side or by the counsellor at review.
 
 1. Why this field, grounded in lived experience (an activity, a
    class, a moment).
