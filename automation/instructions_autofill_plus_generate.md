@@ -164,11 +164,59 @@ Compose `ai_description` as a markdown block with the five sections
 below in this order. Skip a section only when it would genuinely be
 empty.
 
-**Section 1 — Document identification** (one paragraph, 40–80 words)
+**Section 1 — Narrative & analysis** (two paragraphs, 150–300 words combined)
 
-What the document is, who it is about, what authority issued it, the
-visible date / academic year, the page count, the language(s). No
-flourish, no adjectives.
+This is the section a counsellor reads first, and it has to do real
+work. "Document identification" alone is not enough — a one-liner
+that the file is "Pratham's Class X marksheet" tells the reader
+nothing they couldn't see from the filename.
+
+Open with one paragraph of identification: what the document is, who
+it is about, the issuing authority, the academic year / date, the
+page count, the language(s). Plain, no adjectives. ~50–80 words.
+
+Then a second paragraph of analysis that turns the raw data into a
+narrative the reader can absorb in one pass. The shape depends on
+the document:
+
+- **Marksheets / transcripts / scorecards.** Lead with the headline
+  number (overall %, GPA, band score). Then pattern: which subjects
+  / sections the student is strongest in (top 2–3 by raw mark, with
+  the actual marks), which are weakest (with marks). If the document
+  spans multiple years / terms / sections, call out the trend (year-
+  on-year change, STEM-vs-Humanities split, listening-vs-writing
+  gap). If you have prior-year data on the same student in any other
+  file, compare ("Class XI Maths 84 vs Class X Maths 99 — drop of
+  15 points"). Anchor every claim to a visible number from the
+  source. Aim for a reader who has not opened the file to come away
+  knowing the story.
+
+- **Identity documents (Aadhar, passport, PAN).** Lead with the
+  fields that downstream artifacts will care about: name spelling
+  variants, DOB, address, expiry. If any field disagrees with
+  `answers.*` flag the conflict in this paragraph and again in
+  Section 5. ~80–120 words is enough.
+
+- **Certificates / award letters / completion proofs.** Lead with
+  what the certificate proves (programme name, issuing body,
+  duration). Then the meaningful detail: cohort size if visible,
+  rank / honours level, what the programme covered, how it
+  connects to the student's stated direction (CS, business,
+  research). Useful for SOP / LOR colour.
+
+- **Recommendation letters / supporting prose.** Summarise the
+  recommender's specific claims (which course, what grade, what
+  project) and pull the strongest 1–2 sentences as quotes. The
+  resume / SOP composer will lift these later — make them easy to
+  find.
+
+- **Photos / signed declarations / single-purpose pages.** Skip the
+  analysis paragraph; one identification paragraph is enough.
+
+The narrative is for humans (counsellors scanning the staff panel)
+AND for the resume / SOP / LOR composers downstream — they read
+this section to ground their own bullets. Sloppy narrative here
+produces sloppy artifacts everywhere.
 
 **Section 2 — Verbatim transcription** (under a `### Verbatim`
 heading)
@@ -218,19 +266,38 @@ declarations).
 
 **Section 5 — Conclusions** (under a `### Conclusions` heading)
 
-2–4 bullets stating what this document tells us about the student.
+2–5 bullets stating what this document tells us about the student.
 Anchor each bullet to a specific number or fact from the
-transcription — never a generic statement. Examples:
+transcription — never a generic statement. Where the document
+supports a downstream artifact, say so explicitly so the SOP / LOR
+composer can lift the angle.
 
-- *"Class X total 462/500 (92.4%) places him in roughly the top decile
-  of CBSE 10th candidates that year."*
-- *"Aadhar address (Ludhiana, Punjab) matches `answers.address` and
-  `answers.city` — no reconciliation needed."*
-- *"Passport expires 12 Mar 2027 — within the 6-month validity window
-  required by US/UK visa offices for 2026 intake. **Flag for renewal
-  before any 2027 intake.**"*
+Each bullet should fit one of these shapes:
 
-Lead with the actionable signal where one exists.
+- **Narrative signal** — a fact that supports a story the SOP / LOR
+  can build around. *"Maths 99 + Physics 96 + CS 95 vs English 78
+  supports the quantitative-track SOP angle."*
+- **Reconciliation flag** — a discrepancy with `answers.*` that
+  needs human attention. *"Aadhar DOB 14 Mar 2008 disagrees with
+  `answers.dob` (15 Mar 2008); flag for counsellor."*
+- **Operational fact** — actionable timing or validity. *"Passport
+  expires 12 Mar 2027; within the 6-month window for 2026 intake,
+  flag for renewal before any 2027 intake."*
+- **LOR-source flag** — when the document names someone who could
+  plausibly write a recommendation (subject teacher whose
+  signature appears, mentor on a certificate, internship
+  supervisor). *"Marksheet signed by Controller of Examinations,
+  Mrs Anjali Verma — not a likely LOR source."* OR *"Entrepreneurship
+  course completion certificate names mentor 'Rajiv Mehta, MENTORx
+  Global' — strong LOR candidate; surface as a suggestion."*
+- **Cross-doc comparison** — when this file's content meaningfully
+  agrees / disagrees with another file already on the student.
+  *"Class XI Maths 84 vs Class X Maths 99 — 15-point drop; SOP
+  should not lean on 'consistently strong in Maths' framing."*
+
+Lead with the actionable signal where one exists. The LOR-source
+flag matters: those names feed a separate suggestion list the
+counsellor uses to nudge the student.
 
 **Then: compose `ai_extracted`**
 
