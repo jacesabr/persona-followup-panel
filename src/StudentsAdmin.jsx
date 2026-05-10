@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
+import NextAiRunTimer from "./NextAiRunTimer.jsx";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -277,6 +278,7 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
         Sign up a new student
       </p>
+      <NextAiRunTimer className="mb-4" />
       <div className={`grid grid-cols-1 gap-4 ${isAdmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <label className="block">
           <span className="text-[10px] uppercase tracking-[0.15em] text-black">
