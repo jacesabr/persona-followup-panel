@@ -11,6 +11,14 @@
 > them to `/api/admin/ai/dispatch`. The API generator path remains
 > in the codebase as a fallback but is not the recommended route.
 >
+> **Tasks policy (2026-05-10):** Counsellor tasks are NOT created by
+> any AI path. The historical `seed-pratham-sop-and-tasks.js` one-shot
+> referenced below has been deleted from the repo. Tasks remain
+> entirely counsellor-driven (Tasks tab → "+ New"). Existing rows
+> 13–17 in `counsellor_tasks` from the original 2026-05-09 seed run
+> are unaffected and stay assigned to adminsuhas — leave them, edit
+> them, or complete them via the panel.
+>
 > Keep this file for reference if/when the API path is reactivated.
 > For the current state-of-the-art resume generation flow, read:
 >   1. `automation/instructions_autofill_plus_generate.md` (runbook)
@@ -29,8 +37,8 @@ Rather than block the user, three artefacts were authored manually by Claude Opu
 | Artifact | Row(s) | Authoring script |
 |---|---|---|
 | Profile resume (label `profile-summary (handwritten)`) | `intake_resumes.id = 6` | [`server/scripts/set-pratham-resume.js`](server/scripts/set-pratham-resume.js) |
-| SOP draft | `intake_required_docs.id = 30` (kind=`sop`) | [`server/scripts/seed-pratham-sop-and-tasks.js`](server/scripts/seed-pratham-sop-and-tasks.js) |
-| 5 counsellor tasks for admin Suhas | `counsellor_tasks.id = 13..17` | same script |
+| SOP draft | `intake_required_docs.id = 30` (kind=`sop`) | `server/scripts/seed-pratham-sop-and-tasks.js` (DELETED 2026-05-10 — tasks are no longer auto-created by any path) |
+| 5 counsellor tasks for admin Suhas | `counsellor_tasks.id = 13..17` | same script (DELETED) |
 
 This file is the recipe for switching back to the API path the codebase was originally designed around, the moment a funded LLM key exists.
 
