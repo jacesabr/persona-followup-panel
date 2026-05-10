@@ -337,12 +337,49 @@ Section rules:
 - Stealth Mode applies to every body string in every section.
 
 Length target: **300–450 words across all visible text fields**.
-Stealth Mode rules apply:
-- No banned words: *passionate, dedicated, hardworking, ambitious, motivated, journey, leverage, foster, navigate, cultivate, embark, nurture, embraced, demonstrated, sought, curated, pivotal, transformative, holistic, robust, seamless*.
-- No banned phrase patterns: *"deep dive", "in the realm of", "at the heart of", "speaks volumes", "in today's world"*.
-- No banned verb-openers on bullets: *Spearheaded, Pioneered, Orchestrated, Navigated, Cultivated, Fostered, Leveraged, Demonstrated, Curated, Embarked*. Lead with concrete verbs (*Built, Wrote, Ran, Led, Won, Filed, Coded, Trained, Sold*).
+Stealth Mode rules apply — the canonical, fully-fleshed-out version
+lives in [`automation/resume_schema_v2.md`](resume_schema_v2.md)
+under "Stealth Mode rules." Quick reference, with the additions
+that came out of the May 2026 audit:
+
+**Word-level**
 - No em-dashes. No semicolons. No filler adjectives. Quantify
   whenever the data supports it. **Never invent achievements.**
+- No banned words: *passionate, dedicated, hardworking, ambitious,
+  motivated, journey, leverage, foster, navigate, cultivate, embark,
+  nurture, embraced, demonstrated, sought, curated, pivotal,
+  transformative, holistic, robust, seamless, crucial,
+  essential (filler), additionally, indeed*.
+- No banned phrase patterns: *"deep dive", "in the realm of",
+  "at the heart of", "speaks volumes", "in today's world",
+  "in today's digital age", "it's important to note", "stands as a
+  testament", "key takeaway", "revolutionize the way",
+  "unlock the potential"*.
+- No banned verb-openers on bullets: *Spearheaded, Pioneered,
+  Orchestrated, Navigated, Cultivated, Fostered, Leveraged,
+  Demonstrated, Curated, Embarked*. Lead with concrete verbs
+  (*Built, Wrote, Ran, Led, Won, Filed, Coded, Trained, Sold*).
+
+**Structural** (the parts detectors actually weight)
+- **No transition stacking.** Never open two consecutive sentences
+  (or two paragraph openers in a 3-paragraph SOP) with Furthermore /
+  Moreover / Additionally / Indeed / In addition. Even one in a
+  single document is a tell.
+- **Vary register across sections.** Lede sounds like observing out
+  loud, bullets terse fact-first past-tense, closing reflective. If
+  the lede could be swapped with a bullet body and the doc still
+  flows, re-author — that's the AI-print.
+- **Sentence-length distribution.** Across the 3–6 bullets in any one
+  section: at least one fragment (5–10 words), at least one longer
+  clause (20–25 words with a comma split), the rest 12–18. AI
+  defaults to ~13-word sentences over and over.
+- **Whole-document lexical diversity.** No verb reused across two
+  bullets in the same section. No modifier reused across the doc.
+- **The "1000 students" test.** Before saving any bullet, ask: could
+  1000 other Indian Class XII applicants copy-paste this exact line?
+  If yes, find a specific from the student's `ai_description` blocks
+  and rebuild around it. Detectors flag generic phrasing harder for
+  non-native writers — that's our cohort, so the bar is higher.
 
 #### SOP draft (~400–600 words, first-person, three paragraphs)
 

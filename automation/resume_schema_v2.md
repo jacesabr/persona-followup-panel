@@ -118,6 +118,17 @@ These are mirrored from `server/generators/section.js`'s system prompt
 and from Section 3c of `instructions_autofill_plus_generate.md`. Every
 string the agent emits MUST satisfy them.
 
+**Why this matters for our cohort.** Admissions offices in 2026
+routinely run resumes and SOPs through detectors (GPTZero,
+Originality.ai, Turnitin's AI bypasser detection added Aug 2025).
+Detectors have a well-documented bias that flags non-native English
+writers harder than native ones — our applicants are Indian
+high-school students, non-native by default, so the bar for "doesn't
+trigger" is HIGHER for us, not lower. Stealth Mode is not optional
+polish; it is the floor below which the artifact is not shippable.
+
+### Word-level rules
+
 - **No em-dashes (`—`).** Single biggest 2026 AI tell. Use a period
   or a comma. Zero exceptions.
 - **No semicolons inside bullets.**
@@ -126,25 +137,77 @@ string the agent emits MUST satisfy them.
   elevate, transformative, holistic, dynamic, multifaceted, paradigm,
   synergy, streamline, endeavor, paramount, intricate, nuanced,
   vibrant, meticulous, profound, plethora, myriad, realm, tapestry,
-  bespoke, meticulously.
-- **No banned phrases:** "in today's fast-paced", "ever-evolving",
-  "cutting-edge", "in the realm of", "it's worth noting", "plays a
-  pivotal role", "rich tapestry", "moreover", "furthermore", "in
-  conclusion", "data-driven", "results-oriented", "passionate about",
-  "proven track record", "wide range of", "deep understanding".
+  bespoke, meticulously, crucial, essential (when filler), additionally,
+  indeed.
+- **No banned phrases:** "in today's fast-paced", "in today's digital
+  age", "ever-evolving", "cutting-edge", "in the realm of", "it's
+  worth noting", "it's important to note", "stands as a testament",
+  "plays a pivotal role", "rich tapestry", "moreover", "furthermore",
+  "in conclusion", "key takeaway", "data-driven", "results-oriented",
+  "passionate about", "proven track record", "wide range of", "deep
+  understanding", "revolutionize the way", "unlock the potential".
 - **No banned verb-openers** on bullets: Spearheaded, Orchestrated,
   Pioneered, Championed, Ushered in, Catalyzed.
   Use instead: shipped, ran, owned, built, broke, fixed, cut, raised,
   launched, rebuilt, inherited, untangled, replaced.
+
+### Structural rules (the parts detectors actually weight in 2026)
+
+Word lists alone aren't enough. 2026 detectors score perplexity
+(per-word predictability), burstiness (sentence-length variance),
+discourse coherence patterns, and lexical diversity curves at the
+paragraph and document level. The rules below address each of those
+signals concretely.
+
 - **Lede in the first 4 words.** Action and outcome must hit before
-  the eye drifts.
+  the eye drifts. AI loves slow lead-ins ("As a student passionate
+  about…"); humans cut to the verb.
 - **One concrete number per bullet ideally** (percentage, dollars,
   time, headcount, marks-out-of-total). If the source has none,
   derive a defensible one. Never invent precision.
-- **Each bullet under 22 words; most under 18.**
-- **Vary openers** — never two adjacent bullets starting the same way.
-- **Past-tense, third-person factual register.** Confident, not
-  boastful.
+- **Sentence-length distribution, not just a cap.** Across a candidate's
+  3–6 bullets in one section: at least one fragment (5–10 words, no
+  main verb — "30+ active members."), at least one longer clause
+  (20–25 words with a comma split), the rest in the 12–18 band. Two
+  adjacent bullets in the same length bucket = rewrite one. AI
+  defaults to ~13-word sentences over and over; humans don't.
+- **Vary openers — never two adjacent bullets starting the same way.**
+  Not just verb-tense; vary structure: action verb / scope noun /
+  outcome / contrarian framing.
+- **No transition stacking.** Never open two consecutive sentences
+  (or two paragraph openers in a three-paragraph SOP) with
+  Furthermore / Moreover / Additionally / Indeed / In addition. One
+  of these in a single document is already a tell; back-to-back is a
+  confession. Use a real connector keyed to the prior sentence
+  ("Two of those won regionals", "What that taught him", "By Class
+  XII") or no connector at all and trust the reader.
+- **Vary register across sections (the "AI-print" rule).** A single
+  consistent voice across the whole document is the strongest
+  document-level AI fingerprint. The lede should read like a person
+  observing out loud (slightly informal, present-tense). Bullets
+  should be terse, fact-first, past-tense. The closing note should
+  feel reflective. If the lede could be swapped with a bullet body
+  and the doc still flows, you're flat — re-author until each section
+  sounds like a different register.
+- **Whole-document lexical diversity.** Don't reuse the same verb
+  across two bullets in the same section. Don't reuse the same
+  modifier ("strong", "active", "consistent", "competitive") across
+  the document. Track what you've already used and reach for a
+  synonym before reusing.
+- **Past-tense, third-person factual register on bullets.** Confident,
+  not boastful.
+
+### The "1000 students" test (run on every bullet before dispatch)
+
+Before saving any bullet, ask: *could 1000 other Indian Class XII
+applicants copy-paste this exact line into their own resume?* If yes,
+the bullet is generic — open the student's `ai_description` blocks,
+find a specific only this student has (a course name, a project
+outcome, an exact mark, a named teacher), and rebuild the bullet
+around it. The whole point of running the pipeline against the full
+verbatim per-document detail is to have those specifics on hand.
+A bullet that survives the 1000-student test is the floor, not the
+ceiling.
 
 ## Per-document granular detail
 
