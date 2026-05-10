@@ -651,30 +651,34 @@ function ChapterBlock({ chapter }) {
 // reader can scan top-to-bottom in one column rather than
 // parsing run-on sentences.
 // ============================================================
-export function ChapterSummaryBlock({ chapter, studentId }) {
+export function ChapterSummaryBlock({ chapter, studentId, headless = false }) {
   return (
     <div className="border border-stone-200 bg-white">
-      <div className="border-b border-stone-100 px-6 py-3">
-        <h3 className="font-serif text-xl text-black">{chapter.title}</h3>
-      </div>
+      {!headless && (
+        <div className="border-b border-stone-100 px-6 py-3">
+          <h3 className="font-serif text-xl text-black">{chapter.title}</h3>
+        </div>
+      )}
       <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <PageSummary key={page.id} page={page} studentId={studentId} />
+          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} />
         ))}
       </div>
     </div>
   );
 }
 
-function PageSummary({ page, studentId }) {
+function PageSummary({ page, studentId, hidePageTitle = false }) {
   const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
   if (fields.length === 0) return null;
   return (
-    <div className="px-6 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-600">
-        {page.title}
-      </p>
-      <dl className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-[180px_1fr]">
+    <div className="px-6 py-5">
+      {!hidePageTitle && (
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-600">
+          {page.title}
+        </p>
+      )}
+      <dl className={`${hidePageTitle ? "" : "mt-3 "}grid gap-x-8 gap-y-3 sm:grid-cols-[180px_1fr]`}>
         {fields.map((f) => (
           <SummaryFieldRow key={f.id} field={f} studentId={studentId} />
         ))}
@@ -1132,6 +1136,33 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           Open in new tab
         </a>
       </div>
+      {docSummary && (
+        <p className="border-b border-stone-200 px-4 py-3 text-sm text-stone-800">
+          <span className="text-stone-700">What this is. </span>{docSummary}
+        </p>
+      )}
+      {file.ai_description && (
+        <div className="border-b border-stone-200 bg-white px-4 py-4">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
+            AI extraction
+          </p>
+          <div
+            className="prose prose-sm max-w-none text-stone-900
+                       prose-headings:text-black prose-headings:font-semibold
+                       prose-h3:mt-4 prose-h3:mb-2 prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-[0.15em]
+                       prose-p:my-2
+                       prose-table:my-3 prose-th:bg-stone-100 prose-th:text-left prose-th:font-semibold
+                       prose-th:border prose-th:border-stone-300 prose-th:px-2 prose-th:py-1
+                       prose-td:border prose-td:border-stone-300 prose-td:px-2 prose-td:py-1
+                       prose-ul:my-2 prose-li:my-0.5
+                       prose-strong:text-black"
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {file.ai_description}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
       <div className="bg-stone-50">
         {isImg && (
           <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
@@ -1157,32 +1188,6 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           </div>
         )}
       </div>
-      {file.ai_description ? (
-        <div className="border-t border-stone-200 bg-white px-4 py-4">
-          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
-            AI extraction
-          </p>
-          <div
-            className="prose prose-sm max-w-none text-stone-900
-                       prose-headings:text-black prose-headings:font-semibold
-                       prose-h3:mt-4 prose-h3:mb-2 prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-[0.15em]
-                       prose-p:my-2
-                       prose-table:my-3 prose-th:bg-stone-100 prose-th:text-left prose-th:font-semibold
-                       prose-th:border prose-th:border-stone-300 prose-th:px-2 prose-th:py-1
-                       prose-td:border prose-td:border-stone-300 prose-td:px-2 prose-td:py-1
-                       prose-ul:my-2 prose-li:my-0.5
-                       prose-strong:text-black"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {file.ai_description}
-            </ReactMarkdown>
-          </div>
-        </div>
-      ) : docSummary ? (
-        <p className="border-t border-stone-200 px-4 py-3 text-sm text-stone-800">
-          <span className="text-stone-700">What this is. </span>{docSummary}
-        </p>
-      ) : null}
     </div>
   );
 }

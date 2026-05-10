@@ -292,6 +292,26 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
       </p>
       <RequestManualFillBanner className="mb-4" />
       <div className={`grid grid-cols-1 gap-4 ${isAdmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+        {isAdmin && (
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-black">
+              Assign to counsellor *
+            </span>
+            <select
+              value={counsellorId}
+              onChange={(e) => setCounsellorId(e.target.value)}
+              required
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            >
+              <option value="">— select counsellor —</option>
+              {counsellorOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block">
           <span className="text-[10px] uppercase tracking-[0.15em] text-black">
             Username *
@@ -317,41 +337,32 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
             className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
           />
         </label>
-        {isAdmin && (
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-[0.15em] text-black">
-              Assign to counsellor *
-            </span>
-            <select
-              value={counsellorId}
-              onChange={(e) => setCounsellorId(e.target.value)}
-              required
-              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
-            >
-              <option value="">— select counsellor —</option>
-              {counsellorOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
       </div>
       <StarterDocsField files={starterFiles} onChange={setStarterFiles} />
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
-        >
-          {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
-          {submitting ? (starterFiles.length > 0 ? "Uploading…" : "Creating…") : "Create account"}
-        </button>
-        {err && (
-          <span className="inline-flex items-center gap-1 text-xs text-red-700">
-            <AlertCircle className="h-3 w-3" /> {err}
-          </span>
+      <div className="mt-4 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
+            {submitting
+              ? (starterFiles.length > 0 ? "Uploading…" : "Creating…")
+              : (starterFiles.length > 0 ? "Create account & queue for processing" : "Create account")}
+          </button>
+          {err && (
+            <span className="inline-flex items-center gap-1 text-xs text-red-700">
+              <AlertCircle className="h-3 w-3" /> {err}
+            </span>
+          )}
+        </div>
+        {starterFiles.length > 0 && (
+          <p className="text-sm text-stone-800">
+            On submit, the dev is emailed and manually triggers AI auto-fill of the
+            intake form and auto-creation of the resume, SOP, and LOR drafts —
+            usually within ~1 hour, faster if the dev is online.
+          </p>
         )}
       </div>
     </form>
@@ -386,7 +397,8 @@ function StarterDocsField({ files, onChange }) {
       </p>
       <p className="mt-1 text-sm text-stone-800">
         Drop in marksheets, passport, test slips, certificates — anything you already have.
-        The AI will read them, fill in the intake form, and draft a resume + SOP before the student logs in.
+        After submit, the dev is emailed and manually triggers AI auto-fill of the intake form
+        and auto-creation of the resume, SOP, and LOR drafts (~1 hour, faster if the dev is online).
       </p>
       {files.length > 0 && (
         <ul className="mt-3 space-y-1.5">
@@ -767,19 +779,19 @@ function StudentDetailModal({ studentId, role, onClose }) {
         className="m-0 flex min-h-screen w-full max-w-6xl flex-col border-x border-stone-300 bg-[#f4f0e6] shadow-2xl sm:my-4 sm:min-h-[calc(100vh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-4 backdrop-blur">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-stone-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">
               Student detail
             </p>
-            <p className="truncate font-serif text-lg text-black">{headerName}</p>
+            <p className="truncate font-serif text-2xl text-black">{headerName}</p>
           </div>
           <button
             onClick={onClose}
             title="Close (Esc)"
-            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
+            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
           >
-            <X className="h-3.5 w-3.5" /> Close
+            <X className="h-4 w-4" /> Close
           </button>
         </div>
 
@@ -843,27 +855,29 @@ function StudentDetail({ detail, role, onRefresh }) {
           kind: "page",
           chapterTitle: chapter.title,
           page,
-          title: `${chapter.title} · ${page.title}`,
+          eyebrow: chapter.title,
+          title: page.title,
         });
       });
     });
     if (grouped.length === 0) {
-      out.push({ kind: "empty", title: "Intake form data" });
+      out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
-    out.push({ kind: "resumes", title: `AI-generated resumes (${resumes?.length || 0})` });
-    out.push({ kind: "required", title: "Required documents (LOR / Internship / SOP)" });
+    out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
+    out.push({ kind: "required", eyebrow: "Required documents", title: "LOR / Internship / SOP" });
     // Each uploaded file gets its own step. The doc previewer renders
     // the verbatim + table + summary + conclusions block in full, which
     // is too tall to share a step with anything else.
     const uploads = files || [];
     if (uploads.length === 0) {
-      out.push({ kind: "uploads-empty", title: "Uploaded documents (0)" });
+      out.push({ kind: "uploads-empty", eyebrow: "Uploaded documents", title: "None yet" });
     } else {
       uploads.forEach((file, i) => {
         out.push({
           kind: "upload",
           file,
-          title: `Document ${i + 1} of ${uploads.length} · ${file.original_name}`,
+          eyebrow: `Document ${i + 1} of ${uploads.length}`,
+          title: file.original_name,
         });
       });
     }
@@ -898,42 +912,48 @@ function StudentDetail({ detail, role, onRefresh }) {
           the right. Sticky to the top of the expanded panel so the
           counter and arrows stay reachable while a tall PDF preview
           scrolls below. */}
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur">
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/95 px-4 py-3 backdrop-blur">
         <div className="flex items-baseline gap-2">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-black">Pipeline</span>
-          <span className={`text-[11px] font-medium ${phaseTone}`}>{phaseLabel}</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">Pipeline</span>
+          <span className={`text-sm font-medium ${phaseTone}`}>{phaseLabel}</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={goPrev}
             disabled={atStart}
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+            className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-2.5 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
           >
-            <ArrowLeft className="h-3 w-3" /> Prev
+            <ArrowLeft className="h-3.5 w-3.5" /> Prev
           </button>
-          <span className="min-w-[60px] text-center text-[10px] uppercase tracking-[0.15em] text-black">
+          <span className="min-w-[64px] text-center text-xs font-medium tracking-[0.1em] text-stone-700">
             {stepIdx + 1} / {steps.length}
           </span>
           <button
             type="button"
             onClick={goNext}
             disabled={atEnd}
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
+            className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-2.5 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
           >
-            Next <ArrowRight className="h-3 w-3" />
+            Next <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h3 className="font-serif text-base text-black">{step?.title}</h3>
+      <div className="mb-4">
+        {step?.eyebrow && (
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-600">
+            {step.eyebrow}
+          </p>
+        )}
+        <h2 className="mt-1.5 font-serif text-3xl leading-tight text-black">{step?.title}</h2>
       </div>
 
       {step?.kind === "page" && (
         <ChapterSummaryBlock
           chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
           studentId={student.student_id}
+          headless
         />
       )}
       {step?.kind === "empty" && (
