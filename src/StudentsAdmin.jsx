@@ -863,14 +863,13 @@ function StudentDetail({ detail, role, onRefresh }) {
   //   1. For each chapter's pages, in order:
   //      a. Pages with NO uploaded files → a single "page" slide
   //         showing the form fields (typed answers).
-  //      b. Pages with one or more uploaded files → ONE slide per file,
-  //         each combining the page's form fields, the document, and
-  //         the AI analysis. No separate "fields-only" slide for these
-  //         pages — the form fields ride along on every doc slide so
-  //         the reader always has typed-in context next to the image
-  //         (e.g. the typed Aadhar number sits beside the Aadhar scan).
-  //         When a page has multiple docs, slide titles include
-  //         " · document N/M" so the reader knows there's more to come.
+  //      b. Pages with exactly one uploaded file → ONE combined slide
+  //         showing the form fields, the document, and the AI analysis
+  //         together (the typed context sits next to the scan).
+  //      c. Pages with multiple uploaded files → a "page" review slide
+  //         showing the form fields once, then ONE "doc-only" slide per
+  //         file (PDF + AI analysis only). Avoids re-rendering the whole
+  //         activities list for every proof PDF.
   //   2. Resumes step.
   //   3. Required documents step.
   const steps = useMemo(() => {
@@ -889,17 +888,33 @@ function StudentDetail({ detail, role, onRefresh }) {
           });
           return;
         }
-        pageFiles.forEach((file, i) => {
-          const counter = pageFiles.length > 1
-            ? ` · document ${i + 1}/${pageFiles.length}`
-            : "";
+        if (pageFiles.length === 1) {
           out.push({
             kind: "page-with-doc",
             chapterTitle: chapter.title,
             page,
+            file: pageFiles[0],
+            eyebrow: chapter.title,
+            title: page.title,
+          });
+          return;
+        }
+        // Multi-doc page: review first, then one slide per document.
+        out.push({
+          kind: "page",
+          chapterTitle: chapter.title,
+          page,
+          eyebrow: chapter.title,
+          title: `${page.title} · review`,
+        });
+        pageFiles.forEach((file, i) => {
+          out.push({
+            kind: "doc-only",
+            chapterTitle: chapter.title,
+            page,
             file,
             eyebrow: chapter.title,
-            title: `${page.title}${counter}`,
+            title: `${page.title} · document ${i + 1}/${pageFiles.length}`,
           });
         });
       });
@@ -1005,6 +1020,9 @@ function StudentDetail({ detail, role, onRefresh }) {
           />
           <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
         </div>
+      )}
+      {step?.kind === "doc-only" && (
+        <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
       )}
       {step?.kind === "empty" && (
         <p className="border border-stone-200 bg-white px-4 py-3 text-black">
