@@ -192,22 +192,60 @@ SOP, and LOR composers read this to ground their bullets. The amount
 of detail and the shape depend on what the document actually carries:
 
 - **Academic documents** (marksheets, transcripts, scorecards):
-  headline number first (overall %, GPA, band), then strongest 2–3
-  subjects with raw marks, weakest with raw marks, trend across
-  years if visible, comparison to other files on the same student
-  (e.g. "Class XI Maths 84 vs Class X Maths 99 — 15-point drop").
-  Anchor every claim to a number on the source.
-- **Identity documents** (Aadhar, passport, PAN): the fields
-  downstream cares about — name variants, DOB, address, expiry.
-  Flag conflicts with `answers.*` here AND in Section 5.
-- **Certificates / completion letters**: what was earned, issuing
-  body, programme content, cohort size or rank if visible, how it
-  connects to the student's stated direction.
-- **Recommendation letters / supporting prose**: the recommender's
-  specific claims summarised, plus the 1–2 strongest sentences
-  quoted verbatim so the SOP / LOR composer can lift them.
-- **Photos, signed declarations, single-purpose pages**: the opening
-  student paragraph is enough; skip the layered detail.
+  Headline number first (overall %, GPA, band), then strongest 2–3
+  subjects with raw marks and the weakest, trend across years if
+  visible, comparison to other files on the same student (e.g.
+  "Class XI Maths 84 vs Class X Maths 99 — 15-point drop"). Anchor
+  every claim to a number on the source. Name the school/board if
+  visible — maps to `schoolName`.
+
+- **Aadhaar card** (the most information-dense identity doc):
+  - Name as printed — maps to `name`.
+  - DOB on the card — maps to `dob`.
+  - Mobile number — maps to `phone` (add +91 prefix if not on card).
+  - 12-digit Aadhaar number formatted `XXXX XXXX XXXX` — maps to `aadhar`.
+  - Address: break into components — house/street block → `address_street`,
+    VTC/locality → `address_area`, district → `address_city`, state →
+    `address_state`, PIN code → `address_pin`.
+  - **C/O field**: if the value is a personal name (e.g. "VIKAS AGGARWAL"),
+    this is the father/guardian's name — maps to `father_name`. Skip if
+    the C/O is a company or organisation name.
+  - Flag every field against existing `answers.*` values and call out
+    any mismatch in Section 5.
+
+- **Passport**:
+  - Name, DOB (ISO YYYY-MM-DD) — maps to `name`, `dob`.
+  - Passport number (alphanumeric) — maps to `passport`.
+  - Expiry date (ISO YYYY-MM-DD) — maps to `passportExpiry`.
+  - Nationality, issue country — describe in narrative, no intake key.
+  - Flag expiry: if within 12 months of application intake year, call it
+    out as an operational flag in Section 5.
+
+- **PAN card**: PAN number (10 chars, e.g. ABCDE1234F) → `pan`.
+  Name and DOB on PAN cross-check against Aadhaar — flag any mismatch.
+
+- **Certificates / completion letters**: What was earned, issuing body,
+  programme content, cohort size or rank if visible, how it connects to
+  the student's stated direction. Always check for a named mentor,
+  course leader, or supervisor — that name is a LOR candidate; flag it
+  in Section 5.
+
+- **Internship / experience letter**: Employer name, supervisor name,
+  period, role, and the 1–2 specific contributions described. No intake
+  autofill fields — describe in narrative and flag supervisor as a LOR
+  candidate.
+
+- **Recommendation letters / supporting prose**: The recommender's
+  specific claims summarised, plus the 1–2 strongest sentences quoted
+  verbatim so the SOP / LOR composer can lift them.
+
+- **Passport photo / headshot**: One sentence confirming it is a photo,
+  approximate age and presentation (white background, shoulders-up,
+  etc.). No autofill fields. Skip layered detail and numeric summary.
+
+- **Signed declarations, administrative forms, single-purpose pages**:
+  The opening student paragraph is enough. Skip layered detail. Note any
+  named signatories if they are plausible LOR sources.
 
 Total Section 1 length: 150–350 words depending on how much the
 document actually carries. A passport bio page is short; a Class XII
@@ -297,19 +335,30 @@ counsellor uses to nudge the student.
 **Then: compose `ai_extracted`**
 
 A JSON object lifting only the structured fields that map to known
-intake answers. Field-mapping registry:
+intake answers. This is the canonical field registry — emit every key
+that has a readable value on the document. The dispatch endpoint
+enforces no-overwrite, so it's safe to send keys that may already be
+set; they will be skipped server-side.
 
-| Document type   | Extracted keys → intake-answer keys |
-|---              |---|
-| Aadhar card     | `name`, `dob`, `aadhar` (12-digit, formatted `XXXX XXXX XXXX`), `address_*` |
-| Passport        | `name`, `dob`, `passport`, `passportExpiry` (ISO date) |
-| Marksheet (10)  | `marks10pct`, `school10Name` if visible |
-| Marksheet (11)  | `marks11pct` |
-| Marksheet (12)  | `marks12pct`, `marks12predicted` |
-| IELTS result    | `ielts_score` (overall band, 0.5 step), `ielts_status='Already taken'` |
-| TOEFL result    | `toefl_score`, `toefl_booked=true` |
-| SAT/ACT result  | `sat_score`, `sat_booked=true` |
-| Photo / Other   | nothing extractable; description only |
+| Document type | Extracted keys → intake-answer keys |
+|---|---|
+| **Aadhaar card** | `name` (exact as printed), `dob` (ISO YYYY-MM-DD), `phone` (+91 prefix + 10 digits), `aadhar` (XXXX XXXX XXXX), `address_street` (house + street), `address_area` (VTC or locality), `address_city` (district), `address_state`, `address_pin` (6-digit), `father_name` (C/O field — only if a personal name, skip if org) |
+| **Passport** | `name`, `dob` (ISO YYYY-MM-DD), `passport` (alphanumeric), `passportExpiry` (ISO YYYY-MM-DD) |
+| **PAN card** | `pan` (10-char alphanumeric, e.g. ABCDE1234F) |
+| **Marksheet — Class 10** | `marks10pct` (number, one decimal), `schoolName` (if school name appears on the marksheet) |
+| **Marksheet — Class 11** | `marks11pct` (number, one decimal) |
+| **Marksheet — Class 12** | `marks12pct` (actual %, number), `marks12predicted` (predicted score as text, e.g. "92% predicted") |
+| **UG transcript / consolidated marks** | `cgpa` (as text matching the card's own scale, e.g. "8.5 / 10"), `uniName` (if visible) |
+| **IELTS result** | `ielts_score` (overall band, one decimal, e.g. "7.5"), `ielts_status` = "Already taken" |
+| **TOEFL result** | `toefl_score` (total score as text), `toefl_booked` = true |
+| **SAT result** | `sat_score` (total as text, e.g. "1480"), `sat_booked` = true |
+| **ACT result** | `sat_score` (composite as text), `sat_booked` = true |
+| **GRE / GMAT** | Nothing to a known intake key — describe in narrative only |
+| **Activity certificate** | Nothing extractable — describe and flag named mentor as LOR candidate |
+| **Internship / experience letter** | Nothing extractable — describe and flag supervisor as LOR candidate |
+| **Passport photo / headshot** | Nothing extractable |
+| **Signed declarations / admin forms** | Nothing extractable unless school name or address appears |
+| **Any unrecognised document** | Nothing extractable — describe what you see; do not guess a category |
 
 If a document's content disagrees with an existing intake answer,
 **do not overwrite**. The dispatch endpoint enforces this server-side
@@ -676,7 +725,97 @@ UPDATE intake_students SET ai_artifacts_generated_at = NULL WHERE student_id = '
 
 ---
 
-## Section C — Schema reference (what the pipeline touches)
+## Section C — Complete intake answer key reference
+
+Every intake answer the autofill pipeline can write is listed here.
+When composing `autofill_answers` in the dispatch body, use these
+exact key strings. The dispatch endpoint ignores unknown keys.
+
+**Personal — basics (page: p_basics)**
+- `name` — full name as on legal documents
+- `email` — student's personal email
+- `phone` — mobile number, +91 prefix, e.g. "+91 9876212600"
+- `bloodGroup` — optional
+
+**Personal — address (page: p_address)**
+- `address_street` — house number + street name
+- `address_area` — locality / area / VTC / colony
+- `address_city` — city name (for Aadhaar: use the District field)
+- `address_state` — state name, e.g. "Punjab"
+- `address_pin` — 6-digit PIN code as a string
+
+**Personal — Aadhaar (page: p_aadhar)**
+- `aadhar` — 12-digit number formatted `XXXX XXXX XXXX`
+
+**Personal — PAN (page: p_pan, optional)**
+- `pan` — 10-char PAN number
+
+**Schooling (page: p_school)**
+- `schoolName` — school name as on marksheet / school letter
+- `schoolEmail` — school email if visible
+- `schoolAddress_street`, `schoolAddress_area`, `schoolAddress_city`,
+  `schoolAddress_state`, `schoolAddress_pin` — from school documents
+
+**Schooling — university (page: p_uni, optional)**
+- `uniName`, `uniEmail`, `uniAddress`
+
+**Academics (page: p_marks10)**
+- `marks10pct` — Class 10 overall percentage as a number, e.g. 92.4
+
+**Academics (page: p_marks11)**
+- `marks11pct` — Class 11 overall percentage as a number
+
+**Academics (page: p_marks12, optional)**
+- `marks12pct` — Class 12 percentage as a number
+- `marks12predicted` — predicted score as text, e.g. "92% predicted"
+
+**Academics — UG (page: p_cgpa, optional)**
+- `cgpa` — CGPA as text, e.g. "8.5 / 10" or "3.9 / 4.0"
+
+**Passport (page: p_passport_scans, optional)**
+- `passport` — passport number
+- `passportExpiry` — expiry date ISO YYYY-MM-DD
+- `dob` — date of birth ISO YYYY-MM-DD
+
+**Tests — IELTS (page: p_ielts)**
+- `ielts_status` — "Already taken" | "Planning to take" | "Won't take"
+- `ielts_score` — overall band, e.g. "7.5" (only when "Already taken")
+- `ielts_planned_date` — ISO date (only when "Planning to take")
+- `ielts_bookingNum` — booking number (optional)
+
+**Tests — other (page: p_tests, optional)**
+- `toefl_booked` — boolean
+- `toefl_score` — total score as text
+- `sat_booked` — boolean (true for both SAT and ACT)
+- `sat_score` — total score as text
+- `ap_booked` — boolean
+- `ap_score` — per-subject scores as text
+
+**Family — father (page: p_father)**
+- `father_name`, `father_dob` (ISO), `father_education`,
+  `father_institution`, `father_aadhar` (XXXX XXXX XXXX),
+  `father_occupation`, `father_position`, `father_phone`,
+  `father_email`, `father_org`
+
+**Family — mother (page: p_mother)**
+- `mother_name`, `mother_dob` (ISO), `mother_education`,
+  `mother_institution`, `mother_aadhar` (XXXX XXXX XXXX),
+  `mother_occupation`, `mother_position`, `mother_phone`,
+  `mother_email`, `mother_org`
+
+**Destination (panel tab)**
+- `targetCountry` — must match an option from the COUNTRIES list in
+  intakeSchema.js (India, UK, USA, Canada, Australia, etc.)
+
+**Keys the pipeline must never write:**
+- Any file-slot key (`aadharFile`, `photoFile`, `marks10sheet`, etc.) —
+  file references are managed by the upload system, not the AI dispatch.
+- Any key not in this list — the dispatch drops unknowns anyway, but
+  don't pad the payload.
+
+---
+
+## Section D — DB schema reference (what the pipeline touches)
 
 Tables the agent reads:
 - `intake_students` — `data.answers`, `intake_phase`, `is_archived`, `ai_eligible_via_pre_upload`, `ai_artifacts_generated_at`
