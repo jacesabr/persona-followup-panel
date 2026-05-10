@@ -8,6 +8,7 @@ import {
   Send, Save, Check, ChevronDown, ExternalLink, ClipboardList,
 } from "lucide-react";
 import { api } from "./api.js";
+import { computeRequiredDocState } from "../lib/requiredDocStatus.js";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -31,15 +32,26 @@ function businessDaysLeft(deadlineIso) {
   return count;
 }
 
+// Counsellor-facing label + tone for each canonical state. Students
+// see different labels for the same states (see STATUS_PILL in
+// StudentDashboard.jsx) — that's intentional, both surfaces compute
+// state from `computeRequiredDocState` so the underlying truth stays
+// in sync.
+const COUNSELLOR_LABELS = {
+  awaiting_draft:    { label: "Awaiting draft",          cls: "bg-stone-100 text-black border-stone-300" },
+  draft_in_progress: { label: "Draft in progress",       cls: "bg-stone-100 text-black border-stone-300" },
+  drafted:           { label: "Ready to send",           cls: "bg-amber-50 text-amber-800 border-amber-300" },
+  drafted_sop:       { label: "Awaiting admin approval", cls: "bg-amber-50 text-amber-800 border-amber-300" },
+  received:          { label: "Complete",                cls: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  approved:          { label: "Approved",                cls: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+};
+
 // Returns { label, cls } for the badge shown in both the row header and card.
+// `requested` is the only state with a dynamic label (deadline countdown),
+// so it's computed inline rather than living in the table above.
 function docStatus(doc) {
-  if (doc.kind === "sop") {
-    if (doc.approved_by_admin_at) return { label: "Approved",               cls: "bg-emerald-50 text-emerald-800 border-emerald-300" };
-    if (doc.staff_draft)          return { label: "Awaiting admin approval", cls: "bg-amber-50 text-amber-800 border-amber-300" };
-    return                               { label: "Awaiting draft",          cls: "bg-stone-100 text-black border-stone-300" };
-  }
-  if (doc.final_file_id)   return { label: "Complete",               cls: "bg-emerald-50 text-emerald-800 border-emerald-300" };
-  if (doc.requested_at) {
+  const state = computeRequiredDocState(doc);
+  if (state === "requested") {
     const left   = businessDaysLeft(doc.deadline_at);
     const urgent = left !== null && left <= 1;
     const label  = left === null   ? `Sent — due ${humanDate(doc.deadline_at)}`
@@ -48,9 +60,7 @@ function docStatus(doc) {
                  :                   `Day ${5 - left} of 5`;
     return { label, cls: urgent ? "bg-red-50 text-red-800 border-red-300" : "bg-blue-50 text-blue-800 border-blue-300" };
   }
-  if (doc.marked_done_at) return { label: "Ready to send",   cls: "bg-amber-50 text-amber-800 border-amber-300" };
-  if (doc.staff_draft)    return { label: "Draft in progress", cls: "bg-stone-100 text-black border-stone-300" };
-  return                         { label: "Awaiting draft",   cls: "bg-stone-100 text-black border-stone-300" };
+  return COUNSELLOR_LABELS[state] || { label: state, cls: "bg-stone-100 text-black border-stone-300" };
 }
 
 function docHeading(doc) {

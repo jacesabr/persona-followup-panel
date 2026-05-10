@@ -16,8 +16,6 @@ import {
   Loader2,
   AlertTriangle,
   LogOut,
-  FileText,
-  Image as ImageIcon,
   Paperclip,
   Clock,
   CheckCircle2,
@@ -34,7 +32,9 @@ import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import ResumeTemplate from "./ResumeTemplate.jsx";
+import ResumePdfPicker from "./resumePdf/index.jsx";
 import { api } from "./api.js";
+import { computeRequiredDocState } from "../lib/requiredDocStatus.js";
 
 const POLL_INTERVAL_MS = 4000;
 
@@ -349,7 +349,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Your resume</h2>
             {latestResume ? (
               <div className="mt-4 border border-stone-200 bg-white p-6">
-                <ResumeView latest={latestResume} />
+                <ResumeView latest={latestResume} studentName={headerName} />
               </div>
             ) : (
               <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
@@ -745,7 +745,7 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
     ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
     : "Drafted by your counsellor; approved by admin.";
 
-  const status = computeStatus(doc);
+  const status = computeRequiredDocState(doc);
   const pill = STATUS_PILL[status] || { label: status, tone: "bg-stone-100 text-black border-stone-300" };
 
   // Deadline countdown for requested-but-not-uploaded rows.
@@ -848,26 +848,21 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
   );
 }
 
+// Student-facing label + tone for each canonical state from
+// computeRequiredDocState. `draft_in_progress` collapses into the
+// same pre-send copy as `awaiting_draft` — students don't need to
+// distinguish "no draft yet" from "counsellor partway through";
+// both feel like "your counsellor is working on it". Counsellors see
+// the distinction in their own panel via COUNSELLOR_LABELS.
 const STATUS_PILL = {
-  awaiting_draft:   { label: "Counsellor drafting", tone: "bg-stone-100 text-black border-stone-300" },
-  drafted:          { label: "Ready to send",       tone: "bg-amber-50 text-amber-800 border-amber-300" },
-  drafted_sop:      { label: "Awaiting admin approval", tone: "bg-amber-50 text-amber-800 border-amber-300" },
-  requested:        { label: "Print on letterhead", tone: "bg-blue-50 text-blue-800 border-blue-300" },
-  received:         { label: "Received",            tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
-  approved:         { label: "Approved",            tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  awaiting_draft:    { label: "Counsellor drafting",   tone: "bg-stone-100 text-black border-stone-300" },
+  draft_in_progress: { label: "Counsellor drafting",   tone: "bg-stone-100 text-black border-stone-300" },
+  drafted:           { label: "Ready to send",         tone: "bg-amber-50 text-amber-800 border-amber-300" },
+  drafted_sop:       { label: "Awaiting admin approval", tone: "bg-amber-50 text-amber-800 border-amber-300" },
+  requested:         { label: "Print on letterhead",   tone: "bg-blue-50 text-blue-800 border-blue-300" },
+  received:          { label: "Received",              tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  approved:          { label: "Approved",              tone: "bg-emerald-50 text-emerald-800 border-emerald-300" },
 };
-
-function computeStatus(doc) {
-  if (doc.kind === "sop") {
-    if (doc.approved_by_admin_at) return "approved";
-    if (doc.staff_draft) return "drafted_sop";
-    return "awaiting_draft";
-  }
-  if (doc.final_file_id) return "received";
-  if (doc.requested_at) return "requested";
-  if (doc.marked_done_at) return "drafted";
-  return "awaiting_draft";
-}
 
 // "Day N of 5" / urgent badge. Counts elapsed business days since the
 // request was sent (skips Sat/Sun, matches the deadline calculation
@@ -892,7 +887,7 @@ function computeDayBadge(requestedAt, deadlineAt) {
   return { label: `Day ${day} of 5`, tone: "bg-stone-100 text-black border-stone-300" };
 }
 
-function ResumeView({ latest }) {
+function ResumeView({ latest, studentName }) {
   if (!latest) return null;
   if (latest.status === "pending" || latest.status === "running") {
     return (
@@ -931,16 +926,9 @@ function ResumeView({ latest }) {
   const json = latest.contentJson || latest.content_json;
   if (json) {
     return (
-      <div>
-        <div className="mb-3 flex justify-end print:hidden">
-          <a
-            href={`/api/students/me/resumes/${latest.id}/print`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
-          >
-            Download PDF
-          </a>
+      <div className="space-y-6 print:space-y-0">
+        <div className="print:hidden">
+          <ResumePdfPicker payload={json} studentName={studentName} />
         </div>
         <ResumeTemplate payload={json} />
       </div>
@@ -1486,51 +1474,6 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
         )}
       </div>
     </div>
-  );
-}
-
-function DocumentTile({ file, fieldIndex, studentId }) {
-  const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
-  // Title is the schema label (e.g. "Aadhar card scan"); falls back
-  // to a prettified field id for files whose schema entry was renamed
-  // since upload.
-  const title = meta?.label || prettifyFieldId(file.field_id);
-  // Description prefers the page's helper text (e.g. "Upload a photo
-  // or scan, then type the number from it.") since that's where the
-  // intake form actually says what this document is for. Otherwise
-  // synthesise something useful from the page title + chapter.
-  const description =
-    meta?.pageHelper ||
-    (meta?.pageTitle && meta?.chapterTitle
-      ? `${meta.chapterTitle} · ${meta.pageTitle}`
-      : meta?.placeholder || null);
-  const Icon = isImage(file.mime_type) ? ImageIcon : FileText;
-  // Default mode hits the student endpoint; staff preview hits the
-  // admin endpoint so the cookie's role authorises the download.
-  const href = studentId
-    ? `/api/students/${studentId}/files/${file.id}`
-    : `/api/students/me/files/${file.id}`;
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex items-start gap-3 border border-stone-900/15 bg-white px-4 py-3 transition hover:border-stone-900/40"
-    >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-black group-hover:text-black" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-medium text-black">{title}</p>
-        {description && (
-          <p className="mt-1 text-[11px] text-black">{description}</p>
-        )}
-        <p className="mt-1 truncate text-[11px] text-black">
-          <span className="text-black">File:</span> {file.original_name}
-        </p>
-        <p className="mt-0.5 text-[10px] text-black">
-          {humanSize(file.size)} · {friendlyMimeLabel(file.mime_type)}
-        </p>
-      </div>
-    </a>
   );
 }
 

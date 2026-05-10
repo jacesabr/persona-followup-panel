@@ -20,7 +20,12 @@
 // "save as PDF" yields the same look as the screen render. The wrapping
 // div carries the class so the host page's chrome can be hidden.
 
-import { CURRENT_RESUME_SCHEMA_VERSION, normalizeResumeJson } from "../lib/resumeSchema.js";
+import {
+  CURRENT_RESUME_SCHEMA_VERSION,
+  normalizeResumeJson,
+  RESUME_BULLET_SECTIONS,
+  RESUME_INLINE_SECTIONS,
+} from "../lib/resumeSchema.js";
 
 export default function ResumeTemplate({ payload }) {
   const data = normalizeResumeJson(payload);
@@ -43,16 +48,13 @@ export default function ResumeTemplate({ payload }) {
         <p className="mt-6 text-base leading-relaxed text-black">{data.lede}</p>
       )}
 
-      <Section title="Education" items={data.education} />
-      <Section title="Standardized tests" items={data.standardized_tests} />
-      <Section title="Awards & recognitions" items={data.awards} />
-      <Section title="Publications" items={data.publications} />
-      <Section title="Internships" items={data.internships} />
-      <Section title="Volunteer work" items={data.volunteer} />
-      <Section title="Co-curricular profile" items={data.activities} />
+      {RESUME_BULLET_SECTIONS.map((s) => (
+        <Section key={s.key} title={s.title} items={data[s.key]} />
+      ))}
 
-      <InlineStrip title="Skills" values={data.skills} />
-      <InlineStrip title="Languages" values={data.languages} />
+      {RESUME_INLINE_SECTIONS.map((s) => (
+        <InlineStrip key={s.key} title={s.title} values={data[s.key]} />
+      ))}
 
       {data.closing_note && (
         <p className="mt-8 border-t border-stone-200 pt-6 text-base leading-relaxed text-black">

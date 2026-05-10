@@ -83,6 +83,14 @@ The renderer:
 11. **Languages** (inline strip)
 12. **Closing note** — paragraph at the foot
 
+The render order + section titles are the single source of truth in
+`lib/resumeSchema.js` (`RESUME_BULLET_SECTIONS` + `RESUME_INLINE_SECTIONS`).
+Every renderer (web `ResumeTemplate` and the three PDF templates in
+`src/resumePdf/`) iterates that list, so adding or renaming a section
+is one edit. Do NOT hardcode section titles in the JSON — the agent
+populates the typed keys (`education`, `awards`, etc.) and the renderer
+pairs them with their display titles from the constant.
+
 Any section whose array is empty is skipped — no empty heading, no
 "none" placeholder.
 
@@ -101,16 +109,28 @@ Any section whose array is empty is skipped — no empty heading, no
 
 ## Where the student / counsellor see it as a PDF
 
-- The student dashboard ("Your resume" section) and the staff student-
-  detail modal both render via `<ResumeTemplate payload={…} />`.
-- Both surfaces include a **"Download PDF"** button that calls
-  `window.print()`. The `.resume-print` scope in `src/index.css`
-  hides every non-resume element on print so the browser's
-  Save-as-PDF dialog yields a clean, single-page document with the
-  same look as the screen render.
+- The student dashboard ("Your resume" tab in PanelTabs) and the
+  staff student-detail modal both render the screen view via
+  `<ResumeTemplate payload={…} />` (single-column serif preview)
+  AND a `<ResumePdfPicker>` that lets the viewer pick one of three
+  styled PDFs to download:
+  - **Editorial Classic** — EB Garamond serif, scholarly. Default.
+  - **Modern Confident** — Inter sans, navy + sage accents.
+  - **Confident Bold** — Roboto + Lato, terracotta accent.
+- All three PDFs are generated client-side by `@react-pdf/renderer`
+  from the same `content_json` payload — no server round trip, no
+  pre-rendered file stored, no style choice persisted (the picker
+  defaults to Editorial each visit). Templates live in
+  `src/resumePdf/{EditorialClassic,ModernConfident,ConfidentBold}.jsx`.
+- A legacy server-side print endpoint at
+  `GET /api/students/me/resumes/:id/print` (and the staff equivalent
+  at `/api/students/:student_id/resumes/:id/print`) is still wired
+  but no longer linked from the UI; it returns a print-ready HTML
+  document for cases where the React picker can't load.
 - This is why writing high-quality `content_json` matters more than
-  worrying about a separate PDF generator: the on-screen render IS
-  the PDF, byte-for-byte.
+  worrying about a separate PDF generator: every template renders
+  the same payload, so a thin or generic bullet looks thin in all
+  three. Get the JSON right and the PDF takes care of itself.
 
 ## Stealth Mode rules (apply to every body / lede / closing_note string)
 

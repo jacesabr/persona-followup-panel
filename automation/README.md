@@ -53,9 +53,15 @@ If you are revising the resume output quality:
 4. All writes for one student land atomically in one POST to
    `/api/admin/ai/dispatch`, which also stamps the matching
    `manual_ai_requests` row as processed.
-5. The student dashboard renders the v2 payload via
-   `<ResumeTemplate>` as a single-column print-ready document. The
-   dashboard's "Download PDF" button calls `window.print()` and the
-   `.resume-print` CSS scope hides everything else, so the browser's
-   Save-as-PDF yields a clean one-page document with the same look
-   as the screen render.
+5. The student dashboard ("Your resume" tab) and the staff student-
+   detail modal render the v2 payload as an on-screen preview via
+   `<ResumeTemplate>`, plus a `<ResumePdfPicker>` (in
+   `src/resumePdf/`) that generates one of three styled PDFs client-
+   side via `@react-pdf/renderer`:
+     - Editorial Classic — Garamond serif, scholarly. Default.
+     - Modern Confident — Inter sans, navy + sage accents.
+     - Confident Bold   — Roboto + Lato, terracotta accent.
+   All three templates consume the same `content_json` payload — no
+   template-specific fields exist, so the agent's job ends at
+   producing the JSON. Quality of every PDF style is gated entirely
+   on the JSON the agent writes.

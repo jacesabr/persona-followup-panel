@@ -17,7 +17,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "@aws-sdk/client-s3": "^3.682.0",
+    "@fontsource/eb-garamond": "^5.2.7",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/lato": "^5.2.7",
+    "@fontsource/roboto": "^5.2.10",
     "@google/genai": "^1.6.0",
+    "@react-pdf/renderer": "^4.5.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
