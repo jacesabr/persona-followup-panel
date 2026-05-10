@@ -31,7 +31,6 @@ import remarkGfm from "remark-gfm";
 import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
-import ResumeTemplate from "./ResumeTemplate.jsx";
 import ResumePdfPicker from "./resumePdf/index.jsx";
 import { api } from "./api.js";
 import { computeRequiredDocState } from "../lib/requiredDocStatus.js";
@@ -926,12 +925,7 @@ function ResumeView({ latest, studentName }) {
   const json = latest.contentJson || latest.content_json;
   if (json) {
     return (
-      <div className="space-y-6 print:space-y-0">
-        <div className="print:hidden">
-          <ResumePdfPicker payload={json} studentName={studentName} />
-        </div>
-        <ResumeTemplate payload={json} />
-      </div>
+      <ResumePdfPicker payload={json} studentName={studentName} />
     );
   }
   const md = latest.contentMd || latest.content_md || "(empty resume)";
@@ -960,8 +954,15 @@ function ChapterBlock({ chapter }) {
 // Each page is a heading + a dl of label/value pairs, so the
 // reader can scan top-to-bottom in one column rather than
 // parsing run-on sentences.
+//
+// `autofilledKeys` (optional) — a Set of field ids that were
+// written by the AI autofill pass. When provided, fields whose
+// id is in the set get an "AI autofilled" eyebrow next to their
+// label. Only the staff slide-by-slide review passes this; the
+// student-facing dashboard leaves it undefined so the badge is
+// hidden.
 // ============================================================
-export function ChapterSummaryBlock({ chapter, studentId, headless = false, hideFilePreviews = false }) {
+export function ChapterSummaryBlock({ chapter, studentId, headless = false, hideFilePreviews = false, autofilledKeys }) {
   return (
     <div className="border border-stone-200 bg-white">
       {!headless && (
@@ -971,14 +972,14 @@ export function ChapterSummaryBlock({ chapter, studentId, headless = false, hide
       )}
       <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} hideFilePreviews={hideFilePreviews} />
+          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} hideFilePreviews={hideFilePreviews} autofilledKeys={autofilledKeys} />
         ))}
       </div>
     </div>
   );
 }
 
-function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews = false }) {
+function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews = false, autofilledKeys }) {
   const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
   if (fields.length === 0) return null;
   return (
@@ -990,17 +991,25 @@ function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews 
       )}
       <dl className={`${hidePageTitle ? "" : "mt-3 "}grid gap-x-8 gap-y-3 sm:grid-cols-[180px_1fr]`}>
         {fields.map((f) => (
-          <SummaryFieldRow key={f.id} field={f} studentId={studentId} hideFilePreviews={hideFilePreviews} />
+          <SummaryFieldRow key={f.id} field={f} studentId={studentId} hideFilePreviews={hideFilePreviews} autofilledKeys={autofilledKeys} />
         ))}
       </dl>
     </div>
   );
 }
 
-function SummaryFieldRow({ field, studentId, hideFilePreviews = false }) {
+function SummaryFieldRow({ field, studentId, hideFilePreviews = false, autofilledKeys }) {
+  const isAutofilled = autofilledKeys && autofilledKeys.has(field.id);
   return (
     <>
-      <dt className="text-sm text-stone-700">{field.label}</dt>
+      <dt className="text-sm text-stone-700">
+        {field.label}
+        {isAutofilled && (
+          <span className="ml-2 inline-flex items-center border border-[#cc785c] bg-[#fdf4ef] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#cc785c] align-middle">
+            AI autofilled
+          </span>
+        )}
+      </dt>
       <dd className="text-base text-black">
         <SummaryFieldValue value={field.value} field={field} studentId={studentId} hideFilePreviews={hideFilePreviews} />
       </dd>

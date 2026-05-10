@@ -380,41 +380,117 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
         }
       }
       if (writtenKeys.length > 0) {
+        // Track provenance: union the keys we just wrote into
+        // data.autofilled_keys so the slide-by-slide review can flag
+        // each field as 'AI autofilled' next to its value. Existing
+        // entries are preserved so re-runs accumulate rather than
+        // overwrite.
+        const priorAutofilled = Array.isArray(data.autofilled_keys) ? data.autofilled_keys : [];
+        const autofilled_keys = Array.from(new Set([...priorAutofilled, ...writtenKeys]));
         await client.query(
           "UPDATE intake_students SET data = $2, updated_at = NOW() WHERE student_id = $1",
-          [studentId, { ...data, answers }]
+          [studentId, { ...data, answers, autofilled_keys }]
         );
       }
       summary.answers_autofilled = writtenKeys.length;
       summary.answers_skipped_already_set = skippedKeys.length;
 
-      // ── 3. Resume INSERT ──────────────────────────────────────
+      // ── 3. Resume UPSERT (one resume per student) ────────────
       // JSON path is preferred (feeds <ResumeTemplate> on the
       // frontend); markdown is the legacy fallback for older
       // routine runs.
+      //
+      // We deliberately keep ONE resume per student rather than
+      // appending a row on every dispatch. Re-runs of the pipeline
+      // overwrite the latest finished resume in place (stable id
+      // for any links pointing at /resumes/:id/print) and any older
+      // duplicate rows from prior runs are deleted in the same
+      // transaction. Pending/running rows are left alone so an
+      // in-flight generation isn't yanked out from under itself.
+      const reuseRow = async () => {
+        const r = await client.query(
+          `SELECT id FROM intake_resumes
+            WHERE student_id = $1
+              AND status NOT IN ('pending','running')
+            ORDER BY created_at DESC LIMIT 1`,
+          [studentId]
+        );
+        return r.rows[0]?.id || null;
+      };
+      const dropOlderDuplicates = async (keepId) => {
+        await client.query(
+          `DELETE FROM intake_resumes
+            WHERE student_id = $1
+              AND id <> $2
+              AND status NOT IN ('pending','running')`,
+          [studentId, keepId]
+        );
+      };
       if (resume_json) {
         const wordCount = countWordsInResumeJson(resume_json);
-        const ins = await client.query(
-          `INSERT INTO intake_resumes
-             (student_id, label, length_words, status, content_json, model)
-           VALUES ($1, 'auto-summary', $2, 'succeeded', $3, 'claude-opus-via-routine')
-           RETURNING id`,
-          [studentId, wordCount, resume_json]
-        );
-        resumeId = ins.rows[0].id;
-        summary.resume_inserted = true;
+        const existingId = await reuseRow();
+        if (existingId) {
+          await client.query(
+            `UPDATE intake_resumes
+                SET label = 'auto-summary',
+                    length_words = $2,
+                    status = 'succeeded',
+                    content_json = $3,
+                    content_md = NULL,
+                    error = NULL,
+                    model = 'claude-opus-via-routine',
+                    updated_at = NOW()
+              WHERE id = $1`,
+            [existingId, wordCount, resume_json]
+          );
+          resumeId = existingId;
+          summary.resume_inserted = false;
+          summary.resume_updated = true;
+        } else {
+          const ins = await client.query(
+            `INSERT INTO intake_resumes
+               (student_id, label, length_words, status, content_json, model)
+             VALUES ($1, 'auto-summary', $2, 'succeeded', $3, 'claude-opus-via-routine')
+             RETURNING id`,
+            [studentId, wordCount, resume_json]
+          );
+          resumeId = ins.rows[0].id;
+          summary.resume_inserted = true;
+        }
+        await dropOlderDuplicates(resumeId);
         summary.resume_format = "json";
       } else if (resume_md && resume_md.trim().length > 0) {
         const wordCount = resume_md.trim().split(/\s+/).length;
-        const ins = await client.query(
-          `INSERT INTO intake_resumes
-             (student_id, label, length_words, status, content_md, model)
-           VALUES ($1, 'auto-summary', $2, 'succeeded', $3, 'claude-opus-via-routine')
-           RETURNING id`,
-          [studentId, wordCount, resume_md]
-        );
-        resumeId = ins.rows[0].id;
-        summary.resume_inserted = true;
+        const existingId = await reuseRow();
+        if (existingId) {
+          await client.query(
+            `UPDATE intake_resumes
+                SET label = 'auto-summary',
+                    length_words = $2,
+                    status = 'succeeded',
+                    content_md = $3,
+                    content_json = NULL,
+                    error = NULL,
+                    model = 'claude-opus-via-routine',
+                    updated_at = NOW()
+              WHERE id = $1`,
+            [existingId, wordCount, resume_md]
+          );
+          resumeId = existingId;
+          summary.resume_inserted = false;
+          summary.resume_updated = true;
+        } else {
+          const ins = await client.query(
+            `INSERT INTO intake_resumes
+               (student_id, label, length_words, status, content_md, model)
+             VALUES ($1, 'auto-summary', $2, 'succeeded', $3, 'claude-opus-via-routine')
+             RETURNING id`,
+            [studentId, wordCount, resume_md]
+          );
+          resumeId = ins.rows[0].id;
+          summary.resume_inserted = true;
+        }
+        await dropOlderDuplicates(resumeId);
         summary.resume_format = "markdown";
       }
 

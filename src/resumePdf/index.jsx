@@ -15,7 +15,7 @@
 // once per session.
 
 import { useMemo, useState } from "react";
-import { PDFDownloadLink, usePDF } from "@react-pdf/renderer";
+import { PDFDownloadLink, PDFViewer, usePDF } from "@react-pdf/renderer";
 import { Loader2, Download, ExternalLink } from "lucide-react";
 import EditorialClassic from "./EditorialClassic.jsx";
 import ModernConfident from "./ModernConfident.jsx";
@@ -171,6 +171,29 @@ export default function ResumePdfPicker({ payload, studentName }) {
             Preview failed: {String(previewInstance.error.message || previewInstance.error).slice(0, 200)}
           </p>
         )}
+      </div>
+
+      {/* Live PDF preview of the selected style. The iframe re-renders
+          on every style swap (~1s) — heavy but worth it: the viewer
+          sees exactly what their download will look like. Keyed by
+          style id so React tears down + re-mounts the viewer when
+          the picked style changes; the alternative is the iframe
+          flashing the previous PDF for a beat before updating. */}
+      <div className="border-t border-stone-200 bg-stone-50 px-5 py-5">
+        <p className="mb-3 text-[11px] uppercase tracking-[0.2em] text-stone-700">
+          Preview · {selected.label}
+        </p>
+        <div className="border border-stone-300 bg-white">
+          <PDFViewer
+            key={selected.id}
+            width="100%"
+            height="700"
+            showToolbar={false}
+            style={{ display: "block", border: 0 }}
+          >
+            {document}
+          </PDFViewer>
+        </div>
       </div>
     </div>
   );
