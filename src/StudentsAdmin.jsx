@@ -850,7 +850,8 @@ function StudentDetail({ detail, role, onRefresh }) {
       .replace(/(\s*\(\d+\))+\s*$/g, "")
       .trim() || "(unnamed file)";
   }, []);
- Persisted on
+
+  // Field-id set the AI autofill pass populated. Persisted on
   // dispatch (server/routes/admin-ai.js) into student.data.autofilled_keys.
   // Used by ChapterSummaryBlock to badge each AI-written field with
   // an "AI autofilled" eyebrow.
