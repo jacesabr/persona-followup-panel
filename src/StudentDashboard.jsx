@@ -933,13 +933,14 @@ function ResumeView({ latest }) {
     return (
       <div>
         <div className="mb-3 flex justify-end print:hidden">
-          <button
-            type="button"
-            onClick={() => window.print()}
+          <a
+            href={`/api/students/me/resumes/${latest.id}/print`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
           >
             Download PDF
-          </button>
+          </a>
         </div>
         <ResumeTemplate payload={json} />
       </div>
@@ -1422,6 +1423,7 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
   const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
   const title = meta?.label || prettifyFieldId(file.field_id);
   const description =
+    getDocSummary(file.field_id) ||
     meta?.pageHelper ||
     (meta?.pageTitle && meta?.chapterTitle
       ? `${meta.chapterTitle} · ${meta.pageTitle}`
@@ -1431,7 +1433,6 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
     : `/api/students/me/files/${file.id}`;
   const isImg = isImage(file.mime_type);
   const isPdf = file.mime_type === "application/pdf";
-  const docSummary = getDocSummary(file.field_id);
   return (
     <div className="border border-stone-900/15 bg-white">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
@@ -1729,7 +1730,9 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
   const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
   const title = meta?.label || prettifyFieldId(file.field_id);
   const hasExtraction = !!file.ai_description && file.ai_description.trim().length > 0;
-  const href = studentId ? `/api/students/${studentId}/files/${file.id}` : null;
+  const href = studentId
+    ? `/api/students/${studentId}/files/${file.id}`
+    : `/api/students/me/files/${file.id}`;
   const isImg = isImage(file.mime_type);
   const isPdf = file.mime_type === "application/pdf";
   return (
@@ -1737,12 +1740,10 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
         <p className="text-base font-medium text-black">{title}</p>
         <p className="text-sm text-stone-800">AI analysis</p>
-        {href && (
-          <a href={href} target="_blank" rel="noopener noreferrer"
+        <a href={href} target="_blank" rel="noopener noreferrer"
             className="ml-auto text-sm text-[#cc785c] underline underline-offset-4 hover:text-[#b86a4f]">
             Open in new tab
           </a>
-        )}
       </div>
       <div className="px-4 py-5">
         {hasExtraction ? (
@@ -1753,7 +1754,7 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
           </p>
         )}
       </div>
-      {href && isImg && (
+      {isImg && (
         <div className="border-t border-stone-200 bg-stone-50 p-4">
           <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
             <PhotoView src={href}>
@@ -1765,7 +1766,7 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
           </PhotoProvider>
         </div>
       )}
-      {href && isPdf && (
+      {isPdf && (
         <div className="border-t border-stone-200">
           <InlinePdf url={href} fileName={file.original_name} maxHeight={500} />
         </div>

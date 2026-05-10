@@ -18,6 +18,7 @@ import { seedRequiredDocsForStudent } from "./required-docs.js";
 import { seedApplicationsForStudent } from "./applications.js";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../middleware/auth.js";
+import { generateResumeHtml } from "../pdf.js";
 
 const router = express.Router();
 
@@ -1471,6 +1472,36 @@ router.post("/:student_id/resumes/:id/regenerate", requireStaff, async (req, res
   }
 });
 
+// GET /api/students/:student_id/resumes/:id/print — staff
+// Returns a beautiful, self-contained HTML document ready for
+// browser print → Save as PDF. The page auto-triggers window.print()
+// after Google Fonts load so the Save as PDF dialog appears immediately.
+router.get("/:student_id/resumes/:id/print", requireStaff, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { rows } = await pool.query(
+      `SELECT r.content_json, r.status, s.display_name
+         FROM intake_resumes r
+         JOIN intake_students s ON s.student_id = r.student_id
+        WHERE r.id = $1 AND r.student_id = $2`,
+      [Number(req.params.id), req.params.student_id]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: "not found" });
+    if (!row.content_json) {
+      return res.status(400).send("This resume does not have structured content and cannot be printed this way.");
+    }
+    const html = generateResumeHtml(row.content_json, row.display_name);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.send(html);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/students/admin/import-examples — admin-only one-shot
 // to sync automation/resume_corpus/example_resume/ on disk into the intake_examples
 // table. Useful because external Render Postgres connections are
@@ -1816,6 +1847,34 @@ router.post("/me/resumes/:id/regenerate", requireStudent, async (req, res, next)
     }).catch((e) => console.error("[resume] regenerate unhandled:", e));
     audit(req, { table: "intake_resumes", id: row.id, action: "regenerate" });
     res.status(202).json({ id: String(row.id), status: "pending" });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/students/me/resumes/:id/print — student-facing print route.
+// Same design as the staff route but scoped to the logged-in student.
+router.get("/me/resumes/:id/print", requireStudent, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { rows } = await pool.query(
+      `SELECT r.content_json, r.status, s.display_name
+         FROM intake_resumes r
+         JOIN intake_students s ON s.student_id = r.student_id
+        WHERE r.id = $1 AND r.student_id = $2`,
+      [Number(req.params.id), req.user.studentId]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: "not found" });
+    if (!row.content_json) {
+      return res.status(400).send("This resume does not have structured content and cannot be printed this way.");
+    }
+    const html = generateResumeHtml(row.content_json, row.display_name);
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.send(html);
   } catch (e) {
     next(e);
   }

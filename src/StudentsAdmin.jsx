@@ -1070,13 +1070,15 @@ function ResumesStep({ resumes, student, regen, onRegen }) {
             {r.content_json ? (
               <div className="max-h-[600px] overflow-auto bg-white">
                 <div className="flex justify-end px-3 pt-3 print:hidden">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
+                  <a
+                    href={`/api/students/${student.student_id}/resumes/${r.id}/print`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
                   >
+                    <Download className="h-3 w-3" />
                     Download PDF
-                  </button>
+                  </a>
                 </div>
                 <ResumeTemplate payload={r.content_json} />
               </div>

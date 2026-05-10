@@ -1218,7 +1218,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   // Tabs that re-render StudentDashboard need its key bumped so the
   // dashboard re-fetches files / required-docs on every tab entry
   // (the same reason Overview did).
-  const DASHBOARD_TABS = new Set(["overview", "documents", "required-docs"]);
+  const DASHBOARD_TABS = new Set(["overview", "documents", "required-docs", "resume"]);
   const switchTo = (id) => {
     if (id === activeTab) return;
     if (DASHBOARD_TABS.has(id)) setOverviewKey((k) => k + 1);
@@ -1226,20 +1226,17 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   };
 
   // Status tab sits between Overview and the schema-driven panel
-  // chapters. Documents / Required documents are read-only views over
-  // data the StudentDashboard already loads — they each render the
-  // dashboard with a `section` prop so only the relevant block shows.
-  // The "destination" chapter (Where you want to go — primary target
-  // country) is folded into the Application status tab so the student's
-  // target country reads as a header for the list of universities they're
-  // actually applying to. It is intentionally omitted from the tab list.
-  // No "Your resume" tab: students upload their own resume via the
-  // "Resume & extras" panel tab, and the auto-generated resume isn't a
-  // student-facing surface.
+  // chapters. Documents / Required documents / Resume are read-only
+  // views over data the StudentDashboard already loads — they each
+  // render the dashboard with a `section` prop so only the relevant
+  // block shows. The "destination" chapter (Where you want to go) is
+  // folded into the Application status tab and intentionally omitted
+  // from the tab list.
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
     { id: "required-docs", label: "Required documents" },
+    { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
     ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),
   ];
@@ -1248,6 +1245,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   const dashboardSection = activeTab === "overview" ? "summary"
     : activeTab === "documents" ? "documents"
     : activeTab === "required-docs" ? "required-docs"
+    : activeTab === "resume" ? "resume"
     : null;
 
   const panelSwitcher = (
