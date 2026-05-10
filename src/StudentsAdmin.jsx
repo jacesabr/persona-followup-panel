@@ -11,7 +11,9 @@ import StudentDashboard, {
   groupAnswersBySchema,
   ChapterSummaryBlock,
   DocumentPreview,
+  ExtractionStep,
   buildFieldIndex,
+  filesForPage,
 } from "./StudentDashboard.jsx";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
@@ -848,8 +850,21 @@ function StudentDetail({ detail, role, onRefresh }) {
 
   const fieldIndex = useMemo(() => buildFieldIndex(), []);
 
+  // Each step is one focused slide. The flow is:
+  //   1. Each chapter's pages, in order. Page slide = typed answers
+  //      + any embedded file thumbnails (via MiniFilePreview).
+  //   2. Right after each page slide that contains files, one focused
+  //      "AI extraction" slide per file (the markdown extraction
+  //      block, no doc image — the reader just saw the doc on the
+  //      previous slide). This avoids cramming long extractions onto
+  //      the same slide as the form values.
+  //   3. Resumes step.
+  //   4. Required documents step.
+  // A late "all uploads" loop is intentionally NOT added — the per-page
+  // extraction slides cover every file once already, in context.
   const steps = useMemo(() => {
     const out = [];
+    const allFiles = files || [];
     grouped.forEach((chapter) => {
       chapter.pages.forEach((page) => {
         out.push({
@@ -859,6 +874,17 @@ function StudentDetail({ detail, role, onRefresh }) {
           eyebrow: chapter.title,
           title: page.title,
         });
+        const pageFiles = filesForPage(page, allFiles);
+        pageFiles.forEach((file) => {
+          out.push({
+            kind: "extraction",
+            chapterTitle: chapter.title,
+            page,
+            file,
+            eyebrow: `${chapter.title} · ${page.title}`,
+            title: `AI extraction · ${file.original_name}`,
+          });
+        });
       });
     });
     if (grouped.length === 0) {
@@ -866,22 +892,6 @@ function StudentDetail({ detail, role, onRefresh }) {
     }
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
     out.push({ kind: "required", eyebrow: "Required documents", title: "LOR / Internship / SOP" });
-    // Each uploaded file gets its own step. The doc previewer renders
-    // the verbatim + table + summary + conclusions block in full, which
-    // is too tall to share a step with anything else.
-    const uploads = files || [];
-    if (uploads.length === 0) {
-      out.push({ kind: "uploads-empty", eyebrow: "Uploaded documents", title: "None yet" });
-    } else {
-      uploads.forEach((file, i) => {
-        out.push({
-          kind: "upload",
-          file,
-          eyebrow: `Document ${i + 1} of ${uploads.length}`,
-          title: file.original_name,
-        });
-      });
-    }
     return out;
   }, [grouped, resumes?.length, files]);
 
@@ -909,35 +919,43 @@ function StudentDetail({ detail, role, onRefresh }) {
 
   return (
     <div className="text-xs">
-      {/* Pagination header — pipeline phase on the left, prev/next on
-          the right. Sticky to the top of the expanded panel so the
-          counter and arrows stay reachable while a tall PDF preview
-          scrolls below. */}
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">Pipeline</span>
-          <span className={`text-sm font-medium ${phaseTone}`}>{phaseLabel}</span>
+      {/* Sticky pagination bar — full-width progress strip on top so
+          the reader sees position at a glance, then a prominent
+          phase label on the left and big coloured prev/next buttons
+          on the right. The orange (#cc785c) is the same brand accent
+          used elsewhere in the app. */}
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-6 border-b-2 border-stone-300 bg-white shadow-sm">
+        <div className="h-1.5 w-full bg-stone-200">
+          <div
+            className="h-full bg-[#cc785c] transition-all duration-200"
+            style={{ width: `${steps.length > 0 ? ((stepIdx + 1) / steps.length) * 100 : 0}%` }}
+          />
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={atStart}
-            className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-2.5 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Prev
-          </button>
-          <span className="min-w-[64px] text-center text-xs font-medium tracking-[0.1em] text-stone-700">
-            {stepIdx + 1} / {steps.length}
-          </span>
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={atEnd}
-            className="inline-flex items-center gap-1.5 border border-stone-300 bg-white px-2.5 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            Next <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="flex items-baseline gap-3">
+            <span className={`font-serif text-lg ${phaseTone}`}>{phaseLabel}</span>
+            <span className="text-base text-stone-800">
+              Step <span className="font-semibold text-black">{stepIdx + 1}</span> of <span className="font-semibold text-black">{steps.length}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={atStart}
+              className="inline-flex items-center gap-2 border-2 border-stone-900 bg-white px-5 py-2.5 text-base font-semibold text-black transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ArrowLeft className="h-5 w-5" /> Prev
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={atEnd}
+              className="inline-flex items-center gap-2 border-2 border-[#cc785c] bg-[#cc785c] px-5 py-2.5 text-base font-semibold text-white transition hover:bg-[#b86a4f] hover:border-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Next <ArrowRight className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -973,17 +991,8 @@ function StudentDetail({ detail, role, onRefresh }) {
       {step?.kind === "required" && (
         <RequiredDocsStaff studentId={student.student_id} role={role} />
       )}
-      {step?.kind === "upload" && (
-        <DocumentPreview
-          file={step.file}
-          fieldIndex={fieldIndex}
-          studentId={student.student_id}
-        />
-      )}
-      {step?.kind === "uploads-empty" && (
-        <p className="text-sm text-stone-800">
-          Student hasn't uploaded any documents yet.
-        </p>
+      {step?.kind === "extraction" && (
+        <ExtractionStep file={step.file} fieldIndex={fieldIndex} />
       )}
     </div>
   );
