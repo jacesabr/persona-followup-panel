@@ -166,38 +166,56 @@ empty.
 
 **Section 1 — Narrative** (no heading; opens the document)
 
-**Target: 3–5 sentences, 60–120 words. Hard cap: 150 words.**
-A counsellor should read the full narrative in 5-10 seconds and have
-the complete picture of what this document tells them. Do NOT write
-a Wikipedia article. Do NOT open with a generic student-bio sentence
-that repeats on every file — that adds zero per-file value and wastes
-the reader's first seconds.
+**Format: bullet points, one logical fact per bullet. 5–10 bullets max.**
+A counsellor must get the full picture in 5–10 seconds. Each bullet is
+one distinct piece of information. Bold the label or the key value.
 
-**Start directly with what the document is and its key facts.**
-Bold the one or two numbers or names that matter most. State one flag
-or cross-doc observation if it's genuinely important. That's it.
+**Rules:**
+- One fact per bullet — do not combine unrelated facts on the same line.
+- Use sub-bullets for lists of the same type (e.g. multiple signatories,
+  multiple subject scores that belong together, items in a set).
+- Do NOT open with a student bio — never write "Pratham Aggarwal is a
+  Class XI student…" — that repeats on every file and adds zero value.
+- Start the first bullet with the document type and key context.
+- Do NOT put cross-doc flags or SOP cautions in the bullets — those
+  belong in Conclusions only.
+- Never use pipeline-meta language: "maps to intake form", "autofill",
+  "narrative value", "downstream artifacts", "surfaces", "establishes".
 
-**Never use pipeline-meta language.** Do not write:
-- "maps to the intake form" / "can autofill"
-- "narrative value" / "the key narrative value here is"
-- "downstream artifacts" / "for the SOP/LOR composer"
-- "surfaces the father's name directly" / "establishes" / "anchors"
-Write as if briefing a human colleague, not narrating your own process.
+**Good example — Aadhaar:**
+```
+- Government-issued UIDAI identity letter, current as of December 2025
+- **Name**: Pratham Aggarwal
+- **DOB**: 1 June 2008
+- **Gender**: Male
+- **Address**: H NO-5 Orchid Vill, Barewal Road, Rajguru Nagar, Ludhiana, Punjab 141012
+- **Mobile**: 9876212600
+- **Aadhaar No.**: 3935 2631 2028
+- **Father (C/O field)**: Vikas Aggarwal
+```
 
-Good example (Aadhaar):
-> *"Government-issued UIDAI identity letter, current as of December 2025.
-> Confirms **Pratham Aggarwal**, DOB **1 June 2008**, address **H NO-5
-> Orchid Vill, Barewal Road, Rajguru Nagar, Ludhiana 141012**, mobile
-> **9876212600**. C/O field names **Vikas Aggarwal** — father."*
+**Good example — marksheet:**
+```
+- CISCE/ICSE Class X · Sat Paul Mittal School, Ludhiana · May 2024
+- **Overall**: 98.0% (588/600) · PASS
+- **Four perfect 100s**:
+  - English Literature, Mathematics, Biology, History & Civics
+- **STEM avg**: 99.5 (Maths 100, Physics 99, Chemistry 99, Bio 100)
+- **Humanities avg**: 98.0 (English 99, Punjabi 96, HCG 99)
+- **Lowest**: Physical Education 95 (distinction band)
+```
 
-Good example (marksheet):
-> *"CISCE/ICSE Class X, Sat Paul Mittal School — May 2024. **98.0%
-> (588/600)**, PASS. Four perfect 100s: English Literature, Mathematics,
-> Biology, History & Civics. STEM avg **99.5**, Humanities avg **98.0**.
-> Note: Maths contracts to 91.5 in Class XI — avoid 'consistently top
-> in Maths' framing."*
+**Good example — certificate with signatories:**
+```
+- MENTORx Foundation Course on Entrepreneurship and Innovation
+- Conducted at Sat Paul Mittal School · Class IX (~2022-23)
+- **Award**: "exceptional performance" — certificate's own wording, quotable verbatim
+- **Signatories** — both strong LOR candidates:
+  - Dr. Nancy Juneja, CEO, MENTORx Global
+  - Dr. Munish Jindal, Founding President, MENTORx Global
+```
 
-The amount of detail depends on what the document carries:
+The amount of detail per bullet depends on what the document carries:
 
 - **Academic documents** (marksheets, transcripts, scorecards):
   Headline number first (overall %, GPA, band), then strongest 2–3

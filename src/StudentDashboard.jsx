@@ -1725,26 +1725,48 @@ function AiDescriptionRenderer({ markdown }) {
 // that has the file inline, so the reader sees the typed answers
 // and the document on slide N, then the long-form extraction on
 // slide N+1, instead of either being crammed onto the same slide.
-export function ExtractionStep({ file, fieldIndex }) {
+export function ExtractionStep({ file, fieldIndex, studentId }) {
   const meta = fieldIndex.get(extractFieldRoot(file.field_id)) || null;
   const title = meta?.label || prettifyFieldId(file.field_id);
   const hasExtraction = !!file.ai_description && file.ai_description.trim().length > 0;
+  const href = studentId ? `/api/students/${studentId}/files/${file.id}` : null;
+  const isImg = isImage(file.mime_type);
+  const isPdf = file.mime_type === "application/pdf";
   return (
     <div className="border border-stone-900/15 bg-white">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-stone-200 px-4 py-3">
         <p className="text-base font-medium text-black">{title}</p>
-        <p className="text-sm text-stone-800">AI extraction</p>
-        <p className="ml-auto text-sm text-stone-800">
-          {file.original_name}
-        </p>
+        <p className="text-sm text-stone-800">AI analysis</p>
+        {href && (
+          <a href={href} target="_blank" rel="noopener noreferrer"
+            className="ml-auto text-sm text-[#cc785c] underline underline-offset-4 hover:text-[#b86a4f]">
+            Open in new tab
+          </a>
+        )}
       </div>
+      {href && isImg && (
+        <div className="border-b border-stone-200 bg-stone-50 p-4">
+          <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
+            <PhotoView src={href}>
+              <img src={href} alt={title} loading="lazy" decoding="async"
+                referrerPolicy="no-referrer"
+                className="mx-auto block max-h-[60vh] w-auto max-w-full cursor-zoom-in"
+                style={{ imageOrientation: "from-image" }} />
+            </PhotoView>
+          </PhotoProvider>
+        </div>
+      )}
+      {href && isPdf && (
+        <div className="border-b border-stone-200">
+          <InlinePdf url={href} fileName={file.original_name} maxHeight={500} />
+        </div>
+      )}
       <div className="px-4 py-5">
         {hasExtraction ? (
           <AiDescriptionRenderer markdown={file.ai_description} />
         ) : (
           <p className="text-sm text-stone-800">
-            No AI extraction yet for this file. Run the autofill +
-            generate pipeline to populate it.
+            No AI analysis yet for this file. Run the automation pipeline to populate it.
           </p>
         )}
       </div>

@@ -992,7 +992,7 @@ function StudentDetail({ detail, role, onRefresh }) {
         <RequiredDocsStaff studentId={student.student_id} role={role} />
       )}
       {step?.kind === "extraction" && (
-        <ExtractionStep file={step.file} fieldIndex={fieldIndex} />
+        <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
       )}
     </div>
   );
