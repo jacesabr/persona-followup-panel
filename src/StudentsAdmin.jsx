@@ -850,6 +850,15 @@ function StudentDetail({ detail, role, onRefresh }) {
 
   const fieldIndex = useMemo(() => buildFieldIndex(), []);
 
+  // Field-id set the AI autofill pass populated. Persisted on
+  // dispatch (server/routes/admin-ai.js) into student.data.autofilled_keys.
+  // Used by ChapterSummaryBlock to badge each AI-written field with
+  // an "AI autofilled" eyebrow.
+  const autofilledKeys = useMemo(() => {
+    const list = student?.data?.autofilled_keys;
+    return Array.isArray(list) ? new Set(list) : null;
+  }, [student?.data?.autofilled_keys]);
+
   // Each step is one focused slide. The flow is:
   //   1. For each chapter's pages, in order:
   //      a. Pages with NO uploaded files → a single "page" slide
@@ -899,6 +908,7 @@ function StudentDetail({ detail, role, onRefresh }) {
       out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
+    out.push({ kind: "ai-suggestions", eyebrow: "AI suggestions", title: "Suggested LORs & SOP" });
     out.push({ kind: "required", eyebrow: "Required documents", title: "LOR / Internship / SOP" });
     return out;
   }, [grouped, resumes?.length, files]);
@@ -981,6 +991,7 @@ function StudentDetail({ detail, role, onRefresh }) {
           chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
           studentId={student.student_id}
           headless
+          autofilledKeys={autofilledKeys}
         />
       )}
       {step?.kind === "page-with-doc" && (
@@ -990,6 +1001,7 @@ function StudentDetail({ detail, role, onRefresh }) {
             studentId={student.student_id}
             headless
             hideFilePreviews
+            autofilledKeys={autofilledKeys}
           />
           <ExtractionStep file={step.file} fieldIndex={fieldIndex} studentId={student.student_id} />
         </div>
@@ -1006,6 +1018,9 @@ function StudentDetail({ detail, role, onRefresh }) {
           regen={regen}
           onRegen={handleRegen}
         />
+      )}
+      {step?.kind === "ai-suggestions" && (
+        <AiSuggestionsStep studentId={student.student_id} />
       )}
       {step?.kind === "required" && (
         <RequiredDocsStaff studentId={student.student_id} role={role} />
@@ -1159,7 +1174,113 @@ function humanRelative(iso) {
   return `${Math.round(mo / 12)}y ago`;
 }
 
-// RequiredDocsStaff — staff workflow surface for one student's
+// AiSuggestionsStep — read-only review of what the AI pipeline drafted
+// for this student before any counsellor / admin edits land. Shows two
+// buckets:
+//   1. Suggested LORs   — kind='lor' rows with student_accepted_at IS NULL.
+//                          These are recommender candidates the AI picked
+//                          from the intake; the student hasn't yet
+//                          accept/rejected them.
+//   2. AI-drafted SOP   — the SOP row's staff_draft when it's set and
+//                          the row hasn't been admin-approved yet. Once
+//                          approved it disappears from this slide (and
+//                          surfaces on the student's dashboard).
+// Edits live on the next slide ("Required documents") — this slide is
+// purely a heads-up so the reviewer can see, side-by-side with the
+// resume + intake, what the AI proposed.
+// ============================================================
+function AiSuggestionsStep({ studentId }) {
+  const [docs, setDocs] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .listRequiredDocsForStudent(studentId)
+      .then((list) => { if (active) { setDocs(list); setErr(null); } })
+      .catch((e) => { if (active) setErr(e?.message || "Couldn't load suggestions."); });
+    return () => { active = false; };
+  }, [studentId]);
+
+  if (err) {
+    return (
+      <p className="inline-flex items-center gap-1 border border-red-300 bg-red-50 px-2 py-1 text-sm text-red-700">
+        <AlertCircle className="h-3 w-3" /> {err}
+      </p>
+    );
+  }
+  if (docs === null) {
+    return <p className="text-black">Loading…</p>;
+  }
+
+  const lorSuggestions = docs.filter((d) => d.kind === "lor" && !d.student_accepted_at);
+  const sopRow = docs.find((d) => d.kind === "sop");
+  const sopDraft = sopRow && sopRow.staff_draft && sopRow.staff_draft.trim() && !sopRow.approved_by_admin_at
+    ? sopRow.staff_draft
+    : null;
+
+  if (lorSuggestions.length === 0 && !sopDraft) {
+    return (
+      <p className="border border-stone-200 bg-white px-4 py-3 text-black">
+        No AI suggestions yet — either the pipeline hasn't run for this student or every suggestion has already been
+        accepted / approved (see the next slide).
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-stone-800">
+        Read-only previews of what the AI pipeline produced. Accept / edit / approve happens on the next slide.
+      </p>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Suggested LORs</p>
+        {lorSuggestions.length > 0 ? (
+          lorSuggestions.map((d) => (
+            <div key={d.id} className="border border-[#cc785c] bg-[#fdf4ef] px-4 py-3">
+              <p className="text-sm font-semibold text-black">
+                {d.recipient_name || "(no name)"}
+                <span className="ml-2 text-stone-700">·</span>{" "}
+                <span className="font-normal text-stone-800">{d.recipient_role || "(no role)"}</span>
+              </p>
+              {d.reason_brief && (
+                <p className="mt-1 text-sm text-black">{d.reason_brief}</p>
+              )}
+              <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-[#cc785c]">
+                Pending student review
+              </p>
+            </div>
+          ))
+        ) : (
+          <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
+            No LOR suggestions — student already accepted or removed each one.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">AI-drafted SOP</p>
+        {sopDraft ? (
+          <div className="border border-[#cc785c] bg-[#fdf4ef] px-4 py-3">
+            <p className="mb-2 text-[11px] uppercase tracking-[0.12em] text-[#cc785c]">
+              Awaiting admin approval
+            </p>
+            <p className="whitespace-pre-wrap text-sm text-black">{sopDraft}</p>
+          </div>
+        ) : (
+          <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
+            {sopRow && sopRow.approved_by_admin_at
+              ? "SOP already approved — see the next slide for the final text."
+              : "AI hasn't drafted an SOP for this student yet."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // LOR / Internship / SOP rows. Fetches /api/required-docs/student/:id;
 // renders each as an editable card with a counsellor draft textarea
 // + "Mark done" / "Approve" actions. Bulk "Send requests" button at
