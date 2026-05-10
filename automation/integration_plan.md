@@ -1,4 +1,24 @@
-# Integration plan — replacing the hand-authored generation path with the API path
+# Integration plan — HISTORICAL / SUPERSEDED
+
+> **Status as of 2026-05-10:** This file describes the dormant
+> server-side generator path (Gemini / Anthropic via
+> `server/generators/run.js`). That path is **no longer how
+> production resumes are produced.** The live workflow is the
+> Claude-Code-driven runbook in
+> [`instructions_autofill_plus_generate.md`](instructions_autofill_plus_generate.md):
+> the dev opens this repo locally in Claude Code on notification,
+> the agent reads context, authors artifacts in-head, and POSTs
+> them to `/api/admin/ai/dispatch`. The API generator path remains
+> in the codebase as a fallback but is not the recommended route.
+>
+> Keep this file for reference if/when the API path is reactivated.
+> For the current state-of-the-art resume generation flow, read:
+>   1. `automation/instructions_autofill_plus_generate.md` (runbook)
+>   2. `automation/resume_schema_v2.md` (payload shape + render)
+>   3. `automation/example_payloads/sample_resume_v2.json` (concrete example)
+>   4. `automation/resume_corpus/README.md` (style anchor source)
+
+---
 
 ## Why this file exists
 

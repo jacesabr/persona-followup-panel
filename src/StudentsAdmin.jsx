@@ -359,9 +359,9 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
         </div>
         {starterFiles.length > 0 && (
           <p className="text-sm text-stone-800">
-            On submit, the dev is emailed and manually triggers AI auto-fill of the
-            intake form and auto-creation of the resume, SOP, and LOR drafts —
-            usually within ~1 hour, faster if the dev is online.
+            On submit, the dev is notified and runs the automation script
+            from Claude Code. The student's intake form, resume, SOP, and
+            LOR drafts land once that run completes.
           </p>
         )}
       </div>
@@ -374,8 +374,9 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
 // IELTS slip, etc.), dropping them here routes the form through
 // /api/students/with-docs instead of the plain create endpoint. The
 // uploads are attached to the new student row in one transaction and
-// the AI pipeline picks the row up on its next hourly tick — the
-// student's intake form lands pre-filled by the time they log in.
+// land in the AI pending queue. The dev runs the automation script
+// from Claude Code on notification — the student's intake form lands
+// pre-filled by the time they log in.
 function StarterDocsField({ files, onChange }) {
   const onPick = (e) => {
     const picked = Array.from(e.target.files || []);
@@ -397,8 +398,8 @@ function StarterDocsField({ files, onChange }) {
       </p>
       <p className="mt-1 text-sm text-stone-800">
         Drop in marksheets, passport, test slips, certificates — anything you already have.
-        After submit, the dev is emailed and manually triggers AI auto-fill of the intake form
-        and auto-creation of the resume, SOP, and LOR drafts (~1 hour, faster if the dev is online).
+        On submit, the dev is notified and runs the automation script from Claude Code,
+        which auto-fills the intake form and drafts the resume, SOP, and LOR letters.
       </p>
       {files.length > 0 && (
         <ul className="mt-3 space-y-1.5">

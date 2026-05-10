@@ -293,8 +293,11 @@ The frontend renders a structured `<ResumeTemplate>` from
 `content_json`. Aim for that. Fall back to `content_md` only if
 something blocks JSON construction.
 
-JSON shape (see `lib/resumeSchema.js` for the canonical type — currently
-schema_version 2):
+JSON shape — see `automation/resume_schema_v2.md` for the full
+canonical reference (every field, render order, visual language, PDF
+export path, Stealth Mode rules) and
+`automation/example_payloads/sample_resume_v2.json` for a complete
+filled-out example. Quick shape (currently schema_version 2):
 
 ```json
 {
@@ -424,8 +427,9 @@ The dispatch endpoint stamps `manual_ai_requests.processed_at` for
 the most recent unresolved row matching this student_id and sets
 `processed_by_admin_username` from the cookie's admin identity.
 Counsellors poll this status from the create-student banner so the
-"queued — will run within ~1 hour" indicator flips to "fill-in
-complete" without a page reload.
+"queued — dev has been notified to run the automation script from
+Claude Code" indicator flips to "fill-in complete" without a page
+reload.
 
 ---
 

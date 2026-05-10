@@ -1,0 +1,100 @@
+{
+  "schema_version": 2,
+  "name": "Pratham Aggarwal",
+  "headline": "Class XII student, Sat Paul Mittal School, Ludhiana, applying CS undergrad UK / US",
+  "contact": {
+    "show": false,
+    "phone": "",
+    "email": ""
+  },
+  "lede": "Builds CS-adjacent things for school audiences first, real numbers second. Two years running a Python tutoring track for Class 9 and 10, one summer porting a school timetable tool from Excel to a small React app three teachers actually use. Chasing CS programmes that take coursework and project work seriously alongside the marks.",
+  "education": [
+    {
+      "label": "Class XII (CBSE, predicted 2026)",
+      "body": "Sat Paul Mittal School. Predicted 94% across PCM. Top three: Mathematics 99, Physics 96, Computer Science 95.",
+      "meta": "Ludhiana, Punjab",
+      "gpa": "94%"
+    },
+    {
+      "label": "Class X (CBSE, 2024)",
+      "body": "Sat Paul Mittal School. 462/500. Top three: Mathematics 99, Science 98, Social 96. School topper in Mathematics.",
+      "meta": "Ludhiana, Punjab",
+      "gpa": "92.4%"
+    }
+  ],
+  "standardized_tests": [
+    {
+      "label": "IELTS Academic",
+      "body": "Band 7.5 overall. Listening 8.5, Reading 7.0, Writing 7.0, Speaking 7.5. Taken October 2025.",
+      "meta": "Test centre: Chandigarh",
+      "gpa": ""
+    },
+    {
+      "label": "SAT",
+      "body": "1480 / 1600. Math 780, EBRW 700. Taken December 2025.",
+      "meta": "",
+      "gpa": ""
+    }
+  ],
+  "awards": [
+    {
+      "label": "AIR 412, NTSE Stage II",
+      "body": "Top 0.03% across roughly 1.2M candidates nationwide.",
+      "meta": "2024",
+      "gpa": ""
+    },
+    {
+      "label": "School Mathematics topper, Class X",
+      "body": "Highest Mathematics score in a graduating cohort of 218.",
+      "meta": "2024",
+      "gpa": ""
+    }
+  ],
+  "publications": [
+    {
+      "label": "School newsletter — \"Why we ditched the Excel timetable\"",
+      "body": "Op-ed on the build process for the React timetable tool below. Distributed to ~600 students and parents.",
+      "meta": "December 2025",
+      "gpa": ""
+    }
+  ],
+  "internships": [
+    {
+      "label": "Sat Paul Mittal School — IT support intern",
+      "body": "Two-week stint helping the IT team migrate the staff timetable from a 12-tab Excel workbook to a React app. Wrote the conflict-detection logic.",
+      "meta": "May 2025",
+      "gpa": ""
+    }
+  ],
+  "volunteer": [
+    {
+      "label": "Local CBSE prep camp — volunteer tutor",
+      "body": "Eight Saturdays running Mathematics drill sessions for 14 Class IX students preparing for board exams.",
+      "meta": "Aug to Nov 2025",
+      "gpa": ""
+    }
+  ],
+  "activities": [
+    {
+      "label": "School CS Club, President",
+      "body": "30+ active members. Built a Python tutoring track for Class 9 and 10 covering basics through small projects. Wrote the curriculum and ran weekly sessions.",
+      "meta": "2024 to present",
+      "gpa": ""
+    },
+    {
+      "label": "Inter-school Mathematics olympiad team, Captain",
+      "body": "Led a team of four to second place at the Punjab regional round. Designed the 6-week prep schedule.",
+      "meta": "2025",
+      "gpa": ""
+    },
+    {
+      "label": "School newspaper, Tech section editor",
+      "body": "Edited the bi-monthly tech column. Commissioned and edited 11 student-written pieces over the year.",
+      "meta": "2024 to 2025",
+      "gpa": ""
+    }
+  ],
+  "skills": ["Python", "JavaScript", "React", "SQL", "Git", "public speaking"],
+  "languages": ["English (native)", "Hindi (native)", "Punjabi (fluent)"],
+  "closing_note": "Looking for a CS programme that gives students room to ship working things alongside the coursework. Comfortable working alone on a problem for weeks, more comfortable when there's a small team with a deadline."
+}

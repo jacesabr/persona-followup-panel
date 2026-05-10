@@ -7,10 +7,9 @@
 //      jace100233260@gmail.com so the dev gets notified out-of-band.
 //
 //   2. Queued — request open, not yet processed.
-//      Shows a status block: "Request queued — dev will run the AI
-//      pipeline manually within ~1 hour when online. ETA: ~1 hour."
-//      Polls the status endpoint every 60s to flip to "complete"
-//      automatically.
+//      Shows a status block: "Request queued — dev has been notified
+//      to run the automation script from Claude Code." Polls the
+//      status endpoint every 60s to flip to "complete" automatically.
 //
 //   3. Complete — request resolved (processed_at non-null).
 //      Shows a success block: "Fill-in complete — open the student to
@@ -153,7 +152,7 @@ export default function RequestManualFillBanner({
           <p className="font-semibold">Request queued.</p>
           <p>
             Dev has been notified to run the automation script from
-            Claude Code. This banner flips to <em>complete</em> automatically
+            Claude Code. This banner flips to <strong>complete</strong> automatically
             once the run lands.
           </p>
           <a
