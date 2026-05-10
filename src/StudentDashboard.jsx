@@ -961,7 +961,7 @@ function ChapterBlock({ chapter }) {
 // reader can scan top-to-bottom in one column rather than
 // parsing run-on sentences.
 // ============================================================
-export function ChapterSummaryBlock({ chapter, studentId, headless = false }) {
+export function ChapterSummaryBlock({ chapter, studentId, headless = false, hideFilePreviews = false }) {
   return (
     <div className="border border-stone-200 bg-white">
       {!headless && (
@@ -971,14 +971,14 @@ export function ChapterSummaryBlock({ chapter, studentId, headless = false }) {
       )}
       <div className="divide-y divide-stone-100">
         {chapter.pages.map((page) => (
-          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} />
+          <PageSummary key={page.id} page={page} studentId={studentId} hidePageTitle={headless} hideFilePreviews={hideFilePreviews} />
         ))}
       </div>
     </div>
   );
 }
 
-function PageSummary({ page, studentId, hidePageTitle = false }) {
+function PageSummary({ page, studentId, hidePageTitle = false, hideFilePreviews = false }) {
   const fields = page.fields.filter((f) => f.type !== "info" && isAnswered(f.value));
   if (fields.length === 0) return null;
   return (
@@ -990,25 +990,25 @@ function PageSummary({ page, studentId, hidePageTitle = false }) {
       )}
       <dl className={`${hidePageTitle ? "" : "mt-3 "}grid gap-x-8 gap-y-3 sm:grid-cols-[180px_1fr]`}>
         {fields.map((f) => (
-          <SummaryFieldRow key={f.id} field={f} studentId={studentId} />
+          <SummaryFieldRow key={f.id} field={f} studentId={studentId} hideFilePreviews={hideFilePreviews} />
         ))}
       </dl>
     </div>
   );
 }
 
-function SummaryFieldRow({ field, studentId }) {
+function SummaryFieldRow({ field, studentId, hideFilePreviews = false }) {
   return (
     <>
       <dt className="text-sm text-stone-700">{field.label}</dt>
       <dd className="text-base text-black">
-        <SummaryFieldValue value={field.value} field={field} studentId={studentId} />
+        <SummaryFieldValue value={field.value} field={field} studentId={studentId} hideFilePreviews={hideFilePreviews} />
       </dd>
     </>
   );
 }
 
-function SummaryFieldValue({ value, field, studentId }) {
+function SummaryFieldValue({ value, field, studentId, hideFilePreviews = false }) {
   if (value == null || value === "") {
     return <span className="text-stone-400">—</span>;
   }
@@ -1017,7 +1017,10 @@ function SummaryFieldValue({ value, field, studentId }) {
   }
   // File slot — filename + status pill, plus a mini preview of the
   // actual file (image inline, PDF link-card) so the student can read
-  // each upload right where its values are summarised.
+  // each upload right where its values are summarised. In the staff
+  // slide-by-slide review we suppress the preview because the next
+  // slide (ExtractionStep) renders the same file alongside its AI
+  // analysis — drawing it here too is a duplicate.
   if (value && typeof value === "object" && !Array.isArray(value) && "status" in value) {
     return (
       <div>
@@ -1030,7 +1033,9 @@ function SummaryFieldValue({ value, field, studentId }) {
             <span className="text-stone-600">({value.status})</span>
           )}
         </span>
-        <MiniFilePreview slot={value} studentId={studentId} fieldId={field?.id} />
+        {!hideFilePreviews && (
+          <MiniFilePreview slot={value} studentId={studentId} fieldId={field?.id} />
+        )}
       </div>
     );
   }
@@ -1043,7 +1048,7 @@ function SummaryFieldValue({ value, field, studentId }) {
       <ol className="list-decimal space-y-3 pl-5 marker:text-stone-500">
         {value.map((row, i) => (
           <li key={i}>
-            <RepeaterRowSummary row={row} itemFields={itemFields} studentId={studentId} />
+            <RepeaterRowSummary row={row} itemFields={itemFields} studentId={studentId} hideFilePreviews={hideFilePreviews} />
           </li>
         ))}
       </ol>
@@ -1059,7 +1064,7 @@ function SummaryFieldValue({ value, field, studentId }) {
   return <span>{String(value)}</span>;
 }
 
-function RepeaterRowSummary({ row, itemFields, studentId }) {
+function RepeaterRowSummary({ row, itemFields, studentId, hideFilePreviews = false }) {
   if (!row || typeof row !== "object") return <span>{String(row)}</span>;
   const subs = itemFields.length > 0
     ? itemFields
@@ -1071,7 +1076,7 @@ function RepeaterRowSummary({ row, itemFields, studentId }) {
   return (
     <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-[140px_1fr]">
       {filled.map(({ sub, val }) => (
-        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} studentId={studentId} />
+        <SummaryFieldRow key={sub.id} field={{ ...sub, value: val }} studentId={studentId} hideFilePreviews={hideFilePreviews} />
       ))}
     </dl>
   );

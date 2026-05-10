@@ -973,6 +973,7 @@ function StudentDetail({ detail, role, onRefresh }) {
           chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
           studentId={student.student_id}
           headless
+          hideFilePreviews
         />
       )}
       {step?.kind === "empty" && (
