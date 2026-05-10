@@ -1,15 +1,25 @@
 // Pull one file's bytes out of R2 (or the local-disk fallback) and
-// write them to stdout. The Claude Code routine pipes this to a
-// /tmp/file_<id>.bin so the agent's Read tool can render it.
+// write them to a destination file path. The Claude Code routine then
+// reads the destination with the agent's Read tool to render the doc.
 //
 // Usage:
-//   node server/scripts/ai/fetch-file.js <file_id> > /tmp/file_<id>.bin
+//   node server/scripts/ai/fetch-file.js <file_id> <dest_path>
+//
+// We write directly to the destination path with fs.createWriteStream
+// rather than piping through process.stdout. Earlier versions used
+// stdout redirection (`> /tmp/file.bin`), which silently corrupted
+// every binary download whenever any module in the import graph did
+// a console.log at boot — the log text got prepended to the bytes and
+// downstream image/PDF readers rejected the file with "could not
+// process image". Writing to a real file path keeps stdout free for
+// status output and makes that corruption impossible.
 //
 // Stderr carries the metadata header so the caller can sniff
 // mime-type without parsing the bytes:
 //   STDERR: { id, original_name, mime_type, size }
 
 import "dotenv/config";
+import fs from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import pool from "../../db.js";
@@ -17,8 +27,9 @@ import { getStorage } from "../../storage.js";
 
 async function main() {
   const fileId = process.argv[2];
-  if (!fileId) {
-    console.error("Usage: fetch-file.js <file_id>");
+  const destPath = process.argv[3];
+  if (!fileId || !destPath) {
+    console.error("Usage: fetch-file.js <file_id> <dest_path>");
     process.exit(1);
   }
 
@@ -47,9 +58,28 @@ async function main() {
   }));
 
   const storage = await getStorage();
-  const stream = await storage.openReadStream({ key: file.storage_path });
+  const stream = await storage.openReadStream(file.storage_path);
   const nodeStream = stream instanceof Readable ? stream : Readable.from(stream);
-  await pipeline(nodeStream, process.stdout);
+  const out = fs.createWriteStream(destPath);
+  await pipeline(nodeStream, out);
+  // Sanity-check: the bytes we just wrote should start with a real
+  // file magic, not text. If they don't, something upstream poisoned
+  // the stream and we want the caller to see it loudly instead of
+  // discovering it later as a "could not process image" 400.
+  const head = await fs.promises.open(destPath, "r");
+  try {
+    const buf = Buffer.alloc(8);
+    await head.read(buf, 0, 8, 0);
+    if (buf[0] === 0x5b /* '[' */ || buf[0] === 0x7b /* '{' */) {
+      const peek = buf.toString("utf8");
+      throw new Error(
+        `[fetch-file] destination starts with ASCII (${JSON.stringify(peek)}) — ` +
+        `expected binary. Some imported module is writing to the wrong stream.`
+      );
+    }
+  } finally {
+    await head.close();
+  }
   await pool.end();
 }
 

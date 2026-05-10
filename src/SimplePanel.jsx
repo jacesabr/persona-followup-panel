@@ -7,6 +7,7 @@ import IeltsPanel from "./IeltsPanel.jsx";
 import ApplicationsPanel from "./ApplicationsPanel.jsx";
 import RequiredDocsPanel from "./RequiredDocsPanel.jsx";
 import OutstandingMarksheetsPanel from "./OutstandingMarksheetsPanel.jsx";
+import AiQueuePanel from "./AiQueuePanel.jsx";
 import { api } from "./api.js";
 
 const TAB_KEY = "persona_simple_tab";
@@ -16,7 +17,7 @@ function loadTab(role) {
   try {
     const t = sessionStorage.getItem(TAB_KEY);
     if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents" || t === "marksheets") return t;
-    if (t === "counsellors" && role === "admin") return t;
+    if ((t === "counsellors" || t === "ai-queue") && role === "admin") return t;
     // team-{counsellorId} tabs for supervisor views
     if (typeof t === "string" && t.startsWith("team-")) return t;
   } catch {
@@ -130,6 +131,13 @@ export default function SimplePanel({
           />
           {role === "admin" && (
             <FolderTab
+              label="AI Queue"
+              active={tab === "ai-queue"}
+              onClick={() => setTab("ai-queue")}
+            />
+          )}
+          {role === "admin" && (
+            <FolderTab
               label="Counsellors"
               active={tab === "counsellors"}
               onClick={() => setTab("counsellors")}
@@ -198,6 +206,11 @@ export default function SimplePanel({
       {tab === "marksheets" && (
         <OutstandingMarksheetsPanel
           role={role}
+          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+        />
+      )}
+      {tab === "ai-queue" && role === "admin" && (
+        <AiQueuePanel
           onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
         />
       )}

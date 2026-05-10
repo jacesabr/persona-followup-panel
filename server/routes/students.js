@@ -222,6 +222,231 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
   }
 });
 
+// POST /api/students/with-docs — staff signs a student up AND attaches
+// a batch of starter documents in one shot. Drives the "counsellor
+// already has the marksheets / passport / test slips on hand" flow:
+// the AI pipeline picks the row up on its next hourly tick and
+// pre-fills the intake form + drafts the resume / SOP / LOR letters
+// before the student ever logs in.
+//
+// multipart/form-data:
+//   username       (required) — same rules as POST /api/students
+//   counsellor_id  (required for admin, ignored for counsellor sessions)
+//   display_name   (optional)
+//   files          (one or more) — PDF / JPEG / PNG / WebP
+//
+// Returns the same { student_id, username, password } shape as
+// POST /api/students plus { uploaded_count } so the UI can confirm
+// every file landed.
+//
+// Implementation note: this is a mostly-mechanical splice of the
+// account-create handler above and the per-file upload handler below
+// (multer + sharp orient/resize + storage backend + transactional
+// insert). The handlers diverge enough on validation surface +
+// transactional shape that DRYing them up would be more confusing
+// than the duplication. If you change either, check the other.
+//
+// uploadManyMw is a lazy wrapper: multerStorage is declared further
+// down the file (next to the single-file uploader) and is in the TDZ
+// at this point in module load. Constructing the multer instance
+// inside the function defers the reference until the first HTTP
+// request, by which time the module is fully loaded.
+let _uploadMany = null;
+function uploadManyMw(req, res, next) {
+  if (!_uploadMany) {
+    _uploadMany = multer({
+      storage: multerStorage,
+      limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: 30 },
+    }).array("files");
+  }
+  _uploadMany(req, res, (err) => {
+    if (err && err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: `one or more files exceed ${MAX_FILE_MB} MB limit` });
+    }
+    if (err && err.code === "LIMIT_FILE_COUNT") {
+      return res.status(413).json({ error: "too many files (max 30)" });
+    }
+    if (err) return next(err);
+    next();
+  });
+}
+router.post("/with-docs", requireStaff, uploadManyMw, async (req, res, next) => {
+  // Multer parses the multipart body into req.body for text fields and
+  // req.files for the uploads. The caller may submit zero files (the
+  // form falls back to the plain create path in that case, but defend
+  // against direct callers who post the route with no files).
+  const stagedPaths = (req.files || []).map((f) => f.path);
+  const cleanupStaged = () => {
+    for (const p of stagedPaths) {
+      try { fs.unlinkSync(p); } catch {}
+    }
+  };
+  try {
+    const { username, counsellor_id: bodyCounsellorId, display_name } = req.body || {};
+    if (!isString(username) || username.trim().length < 3 || username.length > 50) {
+      cleanupStaged();
+      return res.status(400).json({ error: "username must be 3-50 characters" });
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(username.trim())) {
+      cleanupStaged();
+      return res.status(400).json({ error: "username may only contain letters, digits, _ . -" });
+    }
+    if (!/[a-zA-Z0-9]/.test(username.trim())) {
+      cleanupStaged();
+      return res.status(400).json({ error: "username must contain at least one letter or digit" });
+    }
+    if (display_name != null && (!isString(display_name) || display_name.length > 200)) {
+      cleanupStaged();
+      return res.status(400).json({ error: "display_name must be a string up to 200 chars" });
+    }
+
+    // Validate every staged file's magic bytes BEFORE any DB work — if
+    // even one file is junk we reject the whole batch rather than
+    // creating a half-attached student.
+    const validated = [];
+    for (const f of req.files || []) {
+      const accept = "application/pdf,image/jpeg,image/png,image/webp";
+      const v = validateUploadedFile(f.path, accept);
+      if (!v.ok) {
+        cleanupStaged();
+        return res.status(400).json({ error: `file ${f.originalname}: ${v.error}` });
+      }
+      validated.push({ file: f, actualType: v.actualType });
+    }
+
+    // Owning counsellor — same rules as POST /api/students.
+    let counsellorId;
+    if (req.user.kind === "counsellor") {
+      counsellorId = req.user.counsellorId;
+    } else {
+      counsellorId = bodyCounsellorId || null;
+      if (counsellorId) {
+        const ck = await pool.query(`SELECT 1 FROM counsellors WHERE id = $1`, [counsellorId]);
+        if (ck.rows.length === 0) {
+          cleanupStaged();
+          return res.status(400).json({ error: "counsellor_id does not exist" });
+        }
+      }
+    }
+
+    const cleanUsername = username.trim();
+    const password = generatePassword();
+    const password_hash = hashPassword(password);
+    const studentId = newStudentId();
+    const store = await getStorage();
+
+    // EXIF orientation bake + resize for image uploads, mirroring the
+    // /me/upload path. Done outside the DB transaction so a slow sharp
+    // pipeline doesn't hold the row lock; the storage.save call below
+    // is also pre-transaction so a network blip on R2 surfaces as a
+    // clean 5xx instead of an orphan row.
+    for (const v of validated) {
+      const f = v.file;
+      if (v.actualType === "image/jpeg" || v.actualType === "image/png") {
+        const baked = `${f.path}.oriented`;
+        try {
+          await sharp(f.path)
+            .rotate()
+            .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+            .withMetadata({ orientation: undefined })
+            .toFile(baked);
+          fs.renameSync(baked, f.path);
+        } catch (e) {
+          // Fall through to the raw upload — same forgiving approach
+          // as /me/upload. A sideways image is better than a 500.
+          console.warn(`[with-docs] sharp pipeline failed for ${f.originalname}:`, e.message);
+          try { fs.unlinkSync(baked); } catch {}
+        }
+      }
+    }
+
+    // Push validated bytes to storage. If any save fails, attempt to
+    // delete every blob we already wrote so we don't leak orphans.
+    const savedKeys = [];
+    try {
+      for (const v of validated) {
+        const saved = await store.save({
+          tmpPath: v.file.path,
+          scope: studentId,
+          originalName: v.file.originalname,
+          mimeType: v.actualType,
+        });
+        savedKeys.push({ ...v, saved });
+      }
+    } catch (e) {
+      for (const k of savedKeys) {
+        await store.deleteIfExists(k.saved.key).catch(() => {});
+      }
+      cleanupStaged();
+      throw e;
+    }
+
+    // Atomic create + attach. If the username collides, roll back and
+    // clean up the storage blobs we just wrote.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // ai_eligible_via_pre_upload flips the AI pipeline candidate
+      // query so list-pending picks this row up despite intake_phase
+      // still being 'intake'.
+      const studentRow = await client.query(
+        `INSERT INTO intake_students
+           (student_id, username, password_hash, password_plain, counsellor_id, display_name, ai_eligible_via_pre_upload)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+         RETURNING student_id, username, display_name, counsellor_id, created_at`,
+        [studentId, cleanUsername, password_hash, password, counsellorId, display_name || null]
+      );
+      // Each starter document gets a generic field_id of "starter_doc"
+      // with a sequential row_index. The AI pipeline's vision pass
+      // doesn't care about the field_id; it just needs the bytes and
+      // the original_name to identify what each file is. Once it
+      // emits ai_extracted, the autofill stage maps each value to
+      // its canonical answer key.
+      let rowIdx = 0;
+      for (const k of savedKeys) {
+        await client.query(
+          `INSERT INTO intake_files
+             (student_id, field_id, row_index, original_name, storage_path, size, mime_type)
+           VALUES ($1, 'starter_doc', $2, $3, $4, $5, $6)`,
+          [studentId, rowIdx, k.file.originalname, k.saved.key, k.saved.size, k.actualType]
+        );
+        rowIdx += 1;
+      }
+      await client.query("COMMIT");
+      const row = studentRow.rows[0];
+      audit(req, {
+        table: "intake_students",
+        id: row.student_id,
+        action: "create_with_docs",
+        diff: {
+          username: row.username,
+          counsellor_id: row.counsellor_id,
+          display_name: row.display_name,
+          uploaded_count: savedKeys.length,
+        },
+      });
+      cleanupStaged();
+      res.status(201).json({ ...row, password, uploaded_count: savedKeys.length });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      // Roll back storage too.
+      for (const k of savedKeys) {
+        await store.deleteIfExists(k.saved.key).catch(() => {});
+      }
+      cleanupStaged();
+      if (e.code === "23505") {
+        return res.status(409).json({ error: "username already taken" });
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    cleanupStaged();
+    next(e);
+  }
+});
+
 // POST /api/students/:student_id/reset-password — staff regenerates a
 // student's password. Returns the new plaintext one-time. Useful when
 // the student loses their credentials.
@@ -500,7 +725,7 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
     );
     const resumesRes = await pool.query(
       `SELECT id, label, length_pages, length_words, style, domain,
-              status, content_md, content_html, pdf_file_id,
+              status, content_md, content_html, content_json, pdf_file_id,
               cost_cents, error, source_snapshot, created_at, updated_at
          FROM intake_resumes WHERE student_id = $1
          ORDER BY created_at DESC`,
@@ -1447,7 +1672,7 @@ router.get("/me/resumes", requireStudent, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, label, length_pages, length_words, style, domain,
-              example_ids, status, content_md, content_html, error,
+              example_ids, status, content_md, content_html, content_json, error,
               cost_cents, source_snapshot, created_at, updated_at
          FROM intake_resumes
         WHERE student_id = $1
@@ -1466,6 +1691,7 @@ router.get("/me/resumes", requireStudent, async (req, res, next) => {
         status: r.status,
         contentMd: r.content_md,
         contentHtml: r.content_html,
+        contentJson: r.content_json,
         error: r.error,
         costCents: r.cost_cents,
         sourceSnapshot: r.source_snapshot,
@@ -1487,7 +1713,7 @@ router.get("/me/resumes/:id", requireStudent, async (req, res, next) => {
     }
     const { rows } = await pool.query(
       `SELECT id, student_id, label, length_pages, length_words, style, domain,
-              example_ids, status, content_md, content_html, error,
+              example_ids, status, content_md, content_html, content_json, error,
               cost_cents, source_snapshot, created_at, updated_at
          FROM intake_resumes WHERE id = $1`,
       [Number(req.params.id)]
@@ -1508,6 +1734,7 @@ router.get("/me/resumes/:id", requireStudent, async (req, res, next) => {
       status: row.status,
       contentMd: row.content_md,
       contentHtml: row.content_html,
+      contentJson: row.content_json,
       error: row.error,
       costCents: row.cost_cents,
       sourceSnapshot: row.source_snapshot,

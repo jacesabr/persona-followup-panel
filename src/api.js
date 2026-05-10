@@ -153,6 +153,34 @@ export const api = {
   // to themselves server-side.
   createStudent: ({ username, counsellor_id, display_name } = {}) =>
     request("POST", "/api/students", { username, counsellor_id, display_name }),
+  // Bulk-upload sibling of createStudent. When the counsellor already
+  // has documents on hand, this route creates the row AND attaches the
+  // uploads in one transaction, flagging the row for the AI pipeline
+  // to pick up on its next hourly tick (so the intake form lands
+  // pre-filled and the resume + SOP drafts are ready before the
+  // student logs in). Plain multipart/form-data — no JSON wrapping —
+  // so the global request() helper would lose the FormData; we hit
+  // fetch directly here.
+  createStudentWithDocs: async ({ username, counsellor_id, display_name } = {}, files = []) => {
+    const fd = new FormData();
+    fd.append("username", username || "");
+    if (counsellor_id) fd.append("counsellor_id", counsellor_id);
+    if (display_name) fd.append("display_name", display_name);
+    for (const file of files) fd.append("files", file);
+    const res = await fetch("/api/students/with-docs", {
+      method: "POST",
+      credentials: "same-origin",
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail;
+      try { detail = await res.json(); } catch { detail = { error: res.statusText }; }
+      const err = new Error(detail.error || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  },
   // Generate a fresh password for an existing student. Returns the
   // new plaintext one-time.
   resetStudentPassword: (studentId) =>
@@ -233,6 +261,21 @@ export const api = {
   // { counsellor: { id, name, email } | null }. Used by the Application
   // status tab to surface ownership (and flag "not assigned yet").
   getMyCounsellor: () => request("GET", "/api/students/me/counsellor"),
+  // AI artifact pipeline — manual-fill request workflow.
+  // Counsellor clicks "Request manual fill" on the create-student
+  // banner; this inserts a row into manual_ai_requests so Jace sees
+  // the queue and triggers the routine. Idempotent — repeated calls
+  // for the same student return the existing pending row.
+  requestManualAiFill: (student_id, notes) =>
+    request("POST", "/api/admin/ai/request-manual-fill", { student_id, notes: notes || null }),
+  // Banner polls this every minute to flip "queued" → "complete"
+  // once the dispatch endpoint resolves the request.
+  getManualAiRequestStatus: (student_id) =>
+    request("GET", `/api/admin/ai/request-status/${encodeURIComponent(student_id)}`),
+  // Admin queue view — every pending (or all-time) request, with
+  // student + counsellor join.
+  listManualAiRequests: ({ status = "pending" } = {}) =>
+    request("GET", `/api/admin/ai/manual-requests?status=${encodeURIComponent(status)}`),
   // Student: read own non-archived applications (status + deadline, no notes).
   listMyApplications: () => request("GET", "/api/applications/me"),
   // Student: create a new application against own account. Always lands

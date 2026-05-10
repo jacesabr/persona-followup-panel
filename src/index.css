@@ -25,3 +25,31 @@ textarea::placeholder {
 .prose :where(p, li, ul, ol, h1, h2, h3, h4, h5, h6, strong, em, a, blockquote, code, td, th):not(:where([class~="not-prose"] *)) {
   color: #000;
 }
+
+/* Print rules for the structured resume template (src/ResumeTemplate.jsx).
+   Triggered by window.print() from the "Download PDF" button on the
+   staff + student resume views. Strategy: hide everything outside the
+   .resume-print element, then let the resume itself flow as a single
+   page A4-ish document. The browser's "Save as PDF" target picks up
+   these rules and yields a clean, chrome-free PDF that mirrors the
+   on-screen render exactly. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .resume-print, .resume-print * {
+    visibility: visible;
+  }
+  .resume-print {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0.6in 0.7in;
+    max-width: none;
+    background: #fff;
+  }
+  /* Avoid awkward mid-bullet page breaks. */
+  .resume-print li, .resume-print h2 {
+    break-inside: avoid;
+  }
+}

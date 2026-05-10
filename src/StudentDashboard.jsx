@@ -33,6 +33,7 @@ import remarkGfm from "remark-gfm";
 import { loadRecord, listMyFiles, listResumes, uploadFile } from "./intakeFiles.js";
 import { CHAPTERS, isFieldVisible } from "../lib/intakeSchema.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
+import ResumeTemplate from "./ResumeTemplate.jsx";
 import { api } from "./api.js";
 
 const POLL_INTERVAL_MS = 4000;
@@ -601,9 +602,28 @@ function ResumeView({ latest }) {
       </div>
     );
   }
-  // Succeeded → render markdown. /me/resumes returns camelCase
-  // (contentMd); admin /api/students/:id resumes use snake_case
-  // (content_md). Try both.
+  // Succeeded → prefer the structured JSON payload (new pipeline,
+  // designed single-column template) and fall back to legacy markdown
+  // for older rows that haven't been regenerated. /me/resumes returns
+  // camelCase (contentJson, contentMd); admin /api/students/:id uses
+  // snake_case (content_json, content_md). Try both.
+  const json = latest.contentJson || latest.content_json;
+  if (json) {
+    return (
+      <div>
+        <div className="mb-3 flex justify-end print:hidden">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
+          >
+            Download PDF
+          </button>
+        </div>
+        <ResumeTemplate payload={json} />
+      </div>
+    );
+  }
   const md = latest.contentMd || latest.content_md || "(empty resume)";
   return <ResumeMarkdown>{md}</ResumeMarkdown>;
 }

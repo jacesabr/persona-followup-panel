@@ -3,8 +3,9 @@ import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle,
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
+import ResumeTemplate from "./ResumeTemplate.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
-import NextAiRunTimer from "./NextAiRunTimer.jsx";
+import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -236,6 +237,7 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [counsellorId, setCounsellorId] = useState("");
+  const [starterFiles, setStarterFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -254,15 +256,25 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
     setErr(null);
     setSubmitting(true);
     try {
-      const account = await api.createStudent({
+      const payload = {
         username: username.trim(),
         display_name: displayName.trim() || null,
         counsellor_id: isAdmin ? counsellorId || null : null,
-      });
+      };
+      // When the counsellor has dropped starter documents in, route
+      // through the bulk-upload endpoint so the row lands with the
+      // ai_eligible_via_pre_upload flag set and the AI pipeline picks
+      // it up on the next hourly tick. Empty file list falls through to
+      // the lightweight create-only path so signups without documents
+      // keep their existing single-shot behaviour.
+      const account = starterFiles.length > 0
+        ? await api.createStudentWithDocs(payload, starterFiles)
+        : await api.createStudent(payload);
       onCreated(account);
       setUsername("");
       setDisplayName("");
       setCounsellorId("");
+      setStarterFiles([]);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -278,7 +290,7 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
         Sign up a new student
       </p>
-      <NextAiRunTimer className="mb-4" />
+      <RequestManualFillBanner className="mb-4" />
       <div className={`grid grid-cols-1 gap-4 ${isAdmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
         <label className="block">
           <span className="text-[10px] uppercase tracking-[0.15em] text-black">
@@ -326,6 +338,7 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
           </label>
         )}
       </div>
+      <StarterDocsField files={starterFiles} onChange={setStarterFiles} />
       <div className="mt-4 flex items-center gap-3">
         <button
           type="submit"
@@ -333,7 +346,7 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
           className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
         >
           {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
-          {submitting ? "Creating…" : "Create account"}
+          {submitting ? (starterFiles.length > 0 ? "Uploading…" : "Creating…") : "Create account"}
         </button>
         {err && (
           <span className="inline-flex items-center gap-1 text-xs text-red-700">
@@ -342,6 +355,69 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
         )}
       </div>
     </form>
+  );
+}
+
+// Optional multi-file picker on the create-student form. When the
+// counsellor has documents on hand at signup time (marksheets, passport,
+// IELTS slip, etc.), dropping them here routes the form through
+// /api/students/with-docs instead of the plain create endpoint. The
+// uploads are attached to the new student row in one transaction and
+// the AI pipeline picks the row up on its next hourly tick — the
+// student's intake form lands pre-filled by the time they log in.
+function StarterDocsField({ files, onChange }) {
+  const onPick = (e) => {
+    const picked = Array.from(e.target.files || []);
+    if (picked.length === 0) return;
+    // Append to whatever's already selected — multi-stage picking is
+    // common on mobile (camera roll, then a fresh document scan).
+    // Reset the input so re-selecting the same file fires the change.
+    onChange([...files, ...picked]);
+    e.target.value = "";
+  };
+  const removeAt = (idx) => {
+    onChange(files.filter((_, i) => i !== idx));
+  };
+  const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+  return (
+    <div className="mt-5 border-t border-stone-200 pt-4">
+      <p className="text-[10px] uppercase tracking-[0.15em] text-black">
+        Starter documents (optional)
+      </p>
+      <p className="mt-1 text-sm text-stone-800">
+        Drop in marksheets, passport, test slips, certificates — anything you already have.
+        The AI will read them, fill in the intake form, and draft a resume + SOP before the student logs in.
+      </p>
+      {files.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {files.map((f, idx) => (
+            <li key={`${f.name}-${idx}`} className="flex items-center justify-between gap-3 border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-xs text-black">
+              <span className="truncate">{f.name} <span className="text-stone-700">({Math.round((f.size || 0) / 1024)} KB)</span></span>
+              <button
+                type="button"
+                onClick={() => removeAt(idx)}
+                className="text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:text-red-700"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+          <li className="text-[11px] text-stone-700">
+            {files.length} file{files.length === 1 ? "" : "s"} · {Math.round(totalBytes / 1024)} KB total
+          </li>
+        </ul>
+      )}
+      <label className="mt-3 inline-flex cursor-pointer items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700">
+        <input
+          type="file"
+          multiple
+          accept="application/pdf,image/jpeg,image/png,image/webp"
+          onChange={onPick}
+          className="hidden"
+        />
+        {files.length === 0 ? "Add documents" : "Add more"}
+      </label>
+    </div>
   );
 }
 
@@ -440,6 +516,19 @@ function CredentialsModal({ account, onClose }) {
         <CredField label="Username" value={account.username} onCopy={() => copy(account.username, "username")} copied={copied === "username"} />
         <CredField label="Password" value={account.password} onCopy={() => copy(account.password, "password")} copied={copied === "password"} mono />
         <CredField label="Login link" value={loginUrl} onCopy={() => copy(loginUrl, "url")} copied={copied === "url"} />
+
+        {/* If the student has a student_id (always true on fresh
+            creation; absent on password-reset flows where account is
+            re-fetched without it), surface the AI-fill request banner
+            so the counsellor can queue it before they close. */}
+        {account.student_id && (
+          <div className="mt-4 border-t border-stone-200 pt-4">
+            <RequestManualFillBanner
+              studentId={account.student_id}
+              studentDisplayName={account.display_name || account.username}
+            />
+          </div>
+        )}
 
         {/* Three send paths — each opens the user's preferred channel
             with a fully-formed message prefilled (login link + creds +
@@ -948,7 +1037,20 @@ function ResumesStep({ resumes, student, regen, onRegen }) {
                 ⚠ {snapshot.length_warning}
               </p>
             )}
-            {r.content_md ? (
+            {r.content_json ? (
+              <div className="max-h-[600px] overflow-auto bg-white">
+                <div className="flex justify-end px-3 pt-3 print:hidden">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
+                  >
+                    Download PDF
+                  </button>
+                </div>
+                <ResumeTemplate payload={r.content_json} />
+              </div>
+            ) : r.content_md ? (
               <div className="max-h-[600px] overflow-auto bg-white px-4 py-3">
                 <ResumeMarkdown>{r.content_md}</ResumeMarkdown>
               </div>

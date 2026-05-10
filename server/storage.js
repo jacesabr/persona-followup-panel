@@ -161,7 +161,11 @@ export async function getStorage() {
   } else {
     _instance = makeLocal();
   }
-  console.log(`[storage] backend = ${_instance.name}`);
+  // stderr, not stdout: scripts like fetch-file.js stream binary bytes
+  // through process.stdout, and any module that writes to stdout at
+  // import/first-call time prepends text to those bytes and corrupts
+  // every download.
+  console.error(`[storage] backend = ${_instance.name}`);
   return _instance;
 }
 

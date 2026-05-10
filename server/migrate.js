@@ -233,9 +233,23 @@ CREATE INDEX IF NOT EXISTS idx_intake_students_active     ON intake_students(upd
 -- resume / SOP draft / LOR & internship drafts / per-file
 -- descriptions / autofilled answers, and stamps NOW() when done.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS ai_artifacts_generated_at TIMESTAMPTZ;
+-- Bulk-upload-at-signup flag. When a counsellor signs a student up via
+-- the "starter documents" multi-upload, the row lands with
+-- intake_phase='intake' (the student still needs to log in and finish
+-- the form themselves) BUT with this flag = TRUE so the AI pipeline
+-- treats them like a 'done'-phase row — descriptions, autofilled
+-- answers, resume, SOP, LOR drafts all run on the next hourly tick.
+-- Default FALSE means the standard intake flow is unchanged.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS ai_eligible_via_pre_upload BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_intake_students_ai_pending
   ON intake_students(updated_at DESC)
   WHERE ai_artifacts_generated_at IS NULL AND is_archived = FALSE AND intake_phase = 'done';
+-- Companion partial index for the pre-upload-eligible cohort. The
+-- list-pending query unions the two so a single hourly tick covers
+-- both done-phase and pre-upload students.
+CREATE INDEX IF NOT EXISTS idx_intake_students_ai_pending_pre_upload
+  ON intake_students(updated_at DESC)
+  WHERE ai_artifacts_generated_at IS NULL AND is_archived = FALSE AND ai_eligible_via_pre_upload = TRUE;
 
 CREATE TABLE IF NOT EXISTS intake_files (
   id            BIGSERIAL PRIMARY KEY,
@@ -269,6 +283,49 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_files_one_active
 -- intake answers.
 ALTER TABLE intake_files ADD COLUMN IF NOT EXISTS ai_description TEXT;
 ALTER TABLE intake_files ADD COLUMN IF NOT EXISTS ai_extracted JSONB;
+
+-- ============================================================
+-- manual_ai_requests: counsellor-triggered "please run AI fill on
+-- this student" queue. The AI pipeline routine
+-- (trig_01BTTjNjGDpdGyywLqBTtk1a) runs manually instead of on a cron
+-- — when a counsellor signs up a new student and uploads docs, they
+-- click "Request manual fill" which inserts a row here. The dev
+-- (Jace) sees the queue on the admin panel + via email, opens
+-- claude.ai/code/routines/<id> and clicks Run. That run picks up
+-- candidates whose ai_artifacts_generated_at is NULL, including
+-- this student.
+--
+-- Lifecycle:
+--   pending  → row inserted, processed_at NULL
+--   resolved → processed_at set + processed_by_admin_username +
+--              resolved_resume_id (the intake_resumes.id created)
+--
+-- One row per (student, requested_at) — no UNIQUE on student because
+-- the same student might legitimately need multiple re-fills (data
+-- updated, want a re-run). The pending queue collapses by student
+-- on the read side.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS manual_ai_requests (
+  id                BIGSERIAL PRIMARY KEY,
+  student_id        TEXT NOT NULL REFERENCES intake_students(student_id) ON DELETE CASCADE,
+  requested_by_kind TEXT NOT NULL CHECK (requested_by_kind IN ('admin', 'counsellor')),
+  requested_by_id   TEXT,
+  requested_by_admin_username TEXT,
+  notes             TEXT,
+  requested_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at      TIMESTAMPTZ,
+  processed_by_admin_username TEXT
+);
+-- Link a resolved request back to the resume row the dispatch run
+-- created. ON DELETE SET NULL so deleting the resume (rare, manual)
+-- doesn't break the request history. Idempotent ALTER for older
+-- deploys that pre-date this column.
+ALTER TABLE manual_ai_requests ADD COLUMN IF NOT EXISTS resolved_resume_id BIGINT
+  REFERENCES intake_resumes(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_pending
+  ON manual_ai_requests(requested_at DESC) WHERE processed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_student
+  ON manual_ai_requests(student_id, requested_at DESC);
 
 -- Auto-extraction was retired in favour of manual entry on the
 -- doc-review screen. Drop the table + its indexes if present so the
@@ -327,6 +384,13 @@ CREATE TABLE IF NOT EXISTS intake_resumes (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Structured resume payload. The original content_md path is preserved
+-- for older rows; new resumes write content_json instead and the
+-- frontend's <ResumeTemplate> renders it as a designed single-column
+-- layout. Schema is documented in lib/resumeSchema.js — see that file
+-- for field-by-field semantics. Legacy rows (content_md only) keep
+-- rendering through the markdown path until they're regenerated.
+ALTER TABLE intake_resumes ADD COLUMN IF NOT EXISTS content_json JSONB;
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_student ON intake_resumes(student_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_active  ON intake_resumes(student_id, status);
 
