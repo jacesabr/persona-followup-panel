@@ -3,23 +3,25 @@
 The master command for the AI artifact pipeline. The persona-followup
 counsellor team triggers this **manually** when a new student is signed
 up (with or without pre-uploaded documents). Jace receives a queued
-request, opens the routine page, and clicks **Run now**.
+request via email + the AI Queue tab on the admin panel, opens Claude
+Code locally on this repo, and runs the script end-to-end.
 
-This file is the runbook the agent (a Claude Code session running the
-routine) reads cold. It contains every step, every prompt, every DB
-write target, and the manual-fill request workflow.
+This file is the runbook the agent (a Claude Code session) reads cold.
+It contains every step, every prompt, every DB write target, and the
+manual-fill request workflow.
 
-There is **no scheduled cron**. Routine ID:
-`trig_01BTTjNjGDpdGyywLqBTtk1a` — open at
-https://claude.ai/code/routines/trig_01BTTjNjGDpdGyywLqBTtk1a and click
-"Run now" whenever the request queue has pending entries (counsellor
-clicks "Request manual fill" on the create-student form, which inserts
-a row into `manual_ai_requests`).
+There is **no scheduled cron and no remote routine.** The pipeline
+runs locally from Claude Code on the dev's machine — terminal `claude`,
+the desktop app, or VS Code Claude Code, whichever surface the dev is
+in front of. Trigger when the request queue has pending entries
+(counsellor clicks "Request manual AI fill" on the credentials modal,
+which inserts a row into `manual_ai_requests`).
 
-The agent that runs this **is** the LLM (a Claude Max session in the
-remote routine). There is no Gemini / Anthropic API call — the agent
+The agent that runs this **is** the LLM (a Claude Max session via
+Claude Code). There is no Gemini / Anthropic API call — the agent
 reads context, authors text in its own head, and writes results back
-via the `/api/admin/ai/dispatch` HTTP endpoint.
+via the `/api/admin/ai/dispatch` HTTP endpoint on the deployed
+persona-followup-panel service.
 
 ---
 
@@ -291,21 +293,27 @@ The frontend renders a structured `<ResumeTemplate>` from
 `content_json`. Aim for that. Fall back to `content_md` only if
 something blocks JSON construction.
 
-JSON shape (see `lib/resumeSchema.js` for the canonical type):
+JSON shape (see `lib/resumeSchema.js` for the canonical type — currently
+schema_version 2):
 
 ```json
 {
+  "schema_version": 2,
   "name": "Pratham Aggarwal",
-  "headline": "Class 12 student, Ludhiana — applying CS undergrad UK/US",
+  "headline": "Class 12 student, Ludhiana, applying CS undergrad UK/US",
   "lede": "Two-paragraph opener anchored to lived experience…",
   "education": [
-    { "label": "Class X (CBSE, 2023)", "body": "Satpaul Mittal School. 462/500 (92.4%). …", "meta": "Ludhiana" }
+    { "label": "Class X (CBSE, 2023)", "body": "Satpaul Mittal School. 462/500. Top three: Maths 99, Science 98, Social 96.", "meta": "Ludhiana", "gpa": "92.4%" }
   ],
   "standardized_tests": [
-    { "label": "IELTS", "body": "Band 7.5 overall (Listening 8.5, Reading 7.0, Writing 7.0, Speaking 7.5). Taken Oct 2025." }
+    { "label": "IELTS", "body": "Band 7.5 overall. Listening 8.5, Reading 7.0, Writing 7.0, Speaking 7.5. Taken Oct 2025." }
   ],
+  "awards": [
+    { "label": "AIR 412, NTSE Stage II", "body": "Top 0.03% across 1.2M candidates.", "meta": "2024" }
+  ],
+  "publications": [],
   "activities": [
-    { "label": "School CS Club — President", "body": "30+ active members; built a Python tutoring track for Class 9–10 …" }
+    { "label": "School CS Club, President", "body": "30+ active members. Built a Python tutoring track for Class 9 and 10." }
   ],
   "internships": [],
   "volunteer": [],
@@ -314,6 +322,16 @@ JSON shape (see `lib/resumeSchema.js` for the canonical type):
   "closing_note": "Optional one-line sign-off."
 }
 ```
+
+Section rules:
+- `education` items SHOULD carry `gpa` when the marksheet shows one
+  (use the document's own scale: "92.4%", "9.4/10 CGPA", "4.0/4.0 GPA").
+- `awards` is the home for distinctions that previously got buried in
+  activities — Olympiad ranks, NTSE / KVPY, scholarships, debate cups.
+  Quantify with denominators when the source has them.
+- `publications` covers any published / accepted paper, op-ed, or talk.
+  Empty array if none — do not pad.
+- Stealth Mode applies to every body string in every section.
 
 Length target: **300–450 words across all visible text fields**.
 Stealth Mode rules apply:
@@ -438,15 +456,15 @@ submit, a button appears: **"Request manual AI fill"**. Clicking it:
    `{ student_id, notes? }`.
 2. Server inserts a row into `manual_ai_requests` and returns OK.
 3. The button collapses to a status banner:
-   *"Request queued — dev will run the AI pipeline within ~1 hour
-   when online. ETA: ~1 hour."*
+   *"Request queued — dev has been notified to run the automation
+   script from Claude Code."*
 4. The banner also offers a `mailto:` link with prefilled subject /
    body addressed to **jace100233260@gmail.com**, so the counsellor
-   can optionally also send an email — server-side email isn't wired
-   yet (see section B for setup).
+   can optionally also send an email — server-side email isn't wired,
+   the mailto bridge is the notification path.
 
-The counsellor's UI polls the request status every minute. Once Jace
-runs the routine and the dispatch resolves it, the banner flips to
+The counsellor's UI polls the request status every minute. Once the
+dev runs the script and the dispatch resolves it, the banner flips to
 *"Fill-in complete — open the student to view the new resume / SOP /
 LOR drafts."*
 
@@ -454,28 +472,34 @@ LOR drafts."*
 
 ## Section B — How Jace runs a manual fill (the actual flow)
 
-When you (the dev) get a request:
+The pipeline runs **locally from Claude Code on the dev's machine**.
+There is no scheduled cron and no cloud routine. When you (the dev)
+get a request:
 
-1. **Open the routine page** — https://claude.ai/code/routines/trig_01BTTjNjGDpdGyywLqBTtk1a
-2. Click **"Run now"**. The routine spawns a fresh Claude Max session
-   in Anthropic Cloud, clones the repo, reads this file, and runs the
-   pipeline above.
-3. The agent processes up to 5 students (the
-   `manual_ai_requests` queue + any `intake_phase='done'` /
-   `ai_eligible_via_pre_upload=TRUE` student that's not yet been
-   processed).
-4. Watch the run stream on the routine page. Final summary lands at
-   the bottom.
-5. Verify in the staff panel: the affected students show new resumes,
+1. Open Claude Code locally on the `persona-followup-panel` repo
+   (terminal `claude`, the desktop app, or a VS Code session — any
+   Claude Code surface works, since the script is just curl + Read
+   tool calls).
+2. Tell Claude: *"Follow `automation/instructions_autofill_plus_generate.md`
+   end-to-end."* The session reads this file, logs in as admin via
+   `/api/auth/login`, walks Step 1 → Step 4, and processes up to 5
+   students (the `manual_ai_requests` queue + any
+   `intake_phase='done'` / `ai_eligible_via_pre_upload=TRUE` student
+   that's not yet been processed).
+3. Watch the run inline. The final summary block lands at the end.
+4. Verify in the staff panel: the affected students show new resumes,
    SOP drafts, LOR drafts; their files have `ai_description` /
-   `ai_extracted` populated.
+   `ai_extracted` populated; their `manual_ai_requests` row(s) flip to
+   `processed_at = NOW()` and the counsellor banner shows "complete".
 
 If the run fails partway, the unresolved students stay in the queue —
-hit "Run now" again.
+re-run the script. The dispatch endpoint is idempotent: file
+descriptions overwrite (re-runs improve), answers no-overwrite, drafts
+no-overwrite unless `force=true`.
 
 If you want to run a single specific student manually (skip the queue
 gate), set `ai_artifacts_generated_at = NULL` for that student first,
-then trigger the routine:
+then re-run:
 
 ```sql
 UPDATE intake_students SET ai_artifacts_generated_at = NULL WHERE student_id = '<id>';

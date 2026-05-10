@@ -1,28 +1,27 @@
 // Admin-only view of the manual_ai_requests queue. Counsellors file
 // requests via <RequestManualFillBanner> on the create-student
 // credentials modal; this panel surfaces those requests so the dev
-// (Jace) can see what's outstanding before triggering the routine.
+// (Jace) can see what's outstanding before running the script.
 //
 // Two states per row:
-//   - pending  → row needs a routine run; "Open routine" jumps to
-//                claude.ai/code/routines/<id>
+//   - pending  → row still needs the dev to run the script locally
+//                from Claude Code (per
+//                automation/instructions_autofill_plus_generate.md)
 //   - resolved → row was processed; resolved_resume_id links to the
 //                resume that came out (filtered out of the default
-//                view; show via the "Show all" toggle)
+//                view; show via the "Show resolved" toggle)
 //
 // The dispatch endpoint stamps processed_at + processed_by +
-// resolved_resume_id when the routine runs, so resolved rows here
+// resolved_resume_id when the script runs, so resolved rows here
 // are an audit trail of "who fired what, when."
 //
 // onViewStudent: SimplePanel's cross-tab handoff — clicking a row
 // jumps to the Students tab and auto-expands that student's modal.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, ExternalLink, Send, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCw, Terminal, Send, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
-
-const ROUTINE_URL = "https://claude.ai/code/routines/trig_01BTTjNjGDpdGyywLqBTtk1a";
 
 export default function AiQueuePanel({ onViewStudent = () => {} }) {
   const [showAll, setShowAll] = useState(false);
@@ -67,14 +66,6 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
         </h2>
         <div className="flex items-center gap-2">
           {loading && <Loader2 className="h-4 w-4 animate-spin text-black" />}
-          <a
-            href={ROUTINE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.15em] text-white transition hover:bg-[#b86a4f]"
-          >
-            <ExternalLink className="h-3 w-3" /> Open routine
-          </a>
           <label className="inline-flex cursor-pointer items-center gap-2 border border-stone-300 bg-white px-2.5 py-1.5 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700">
             <input
               type="checkbox"
@@ -99,12 +90,19 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
         </p>
       )}
 
-      <p className="mb-4 text-sm text-stone-800">
-        Counsellors file these from the credentials modal after signing a student
-        up. The routine processes pending students (any with intake done OR
-        starter docs uploaded) and stamps the matching request resolved when it
-        commits. Click <strong>Open routine</strong> above to fire a run.
-      </p>
+      <div className="mb-4 flex items-start gap-2 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">
+        <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-stone-700" />
+        <div>
+          <p>
+            Counsellors file these from the credentials modal after signing a
+            student up. To process the queue: open Claude Code locally on the
+            persona-followup-panel repo and run the script per
+            <code className="mx-1 border border-stone-300 bg-white px-1 text-[11px]">automation/instructions_autofill_plus_generate.md</code>
+            (it covers candidate selection, vision pass, draft authoring, and
+            dispatch). The run resolves matching pending rows automatically.
+          </p>
+        </div>
+      </div>
 
       {!loading && requests.length === 0 && (
         <p className="mt-6 text-sm text-stone-700">

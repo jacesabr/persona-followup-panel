@@ -45,6 +45,8 @@ export default function ResumeTemplate({ payload }) {
 
       <Section title="Education" items={data.education} />
       <Section title="Standardized tests" items={data.standardized_tests} />
+      <Section title="Awards & recognitions" items={data.awards} />
+      <Section title="Publications" items={data.publications} />
       <Section title="Internships" items={data.internships} />
       <Section title="Volunteer work" items={data.volunteer} />
       <Section title="Co-curricular profile" items={data.activities} />
@@ -89,6 +91,11 @@ function Section({ title, items }) {
           <li key={idx} className="text-base leading-relaxed text-black">
             {it.label && (
               <span className="font-semibold text-black">{it.label}.</span>
+            )}
+            {it.gpa && (
+              <span className="ml-2 inline-flex items-center border border-stone-700 px-1.5 py-0.5 align-middle text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-900">
+                {it.gpa}
+              </span>
             )}
             {it.label && it.body && " "}
             {it.body}

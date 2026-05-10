@@ -37,14 +37,11 @@ function buildMailtoUrl({ studentId, displayName, counsellorName }) {
     counsellorName ? `Requesting counsellor: ${counsellorName}` : null,
     `Requested at: ${new Date().toISOString()}`,
     ``,
-    `To run:`,
-    `  1. Open https://claude.ai/code/routines/trig_01BTTjNjGDpdGyywLqBTtk1a`,
-    `  2. Click "Run now"`,
-    ``,
-    `The routine will pick this student up via /api/admin/ai/pending`,
-    `(intake_phase='done' OR ai_eligible_via_pre_upload=TRUE), draft`,
-    `the artifacts, and POST to /api/admin/ai/dispatch — which stamps`,
-    `the matching manual_ai_requests row as processed.`,
+    `To run: open Claude Code locally on the persona-followup-panel`,
+    `repo and follow automation/instructions_autofill_plus_generate.md.`,
+    `The script picks this student up via /api/admin/ai/pending,`,
+    `drafts the artifacts, and POSTs /api/admin/ai/dispatch — which`,
+    `stamps the matching manual_ai_requests row as processed.`,
   ].filter(Boolean).join("\n");
   return `mailto:${DEV_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -66,7 +63,7 @@ export default function RequestManualFillBanner({
         <Clock className="h-4 w-4 text-stone-700" />
         <span>
           After creating the student, you can request a manual AI fill —
-          dev runs the pipeline manually within ~1 hour.
+          the dev runs the automation script from Claude Code when notified.
         </span>
       </div>
     );
@@ -155,8 +152,9 @@ export default function RequestManualFillBanner({
         <div>
           <p className="font-semibold">Request queued.</p>
           <p>
-            Dev will run the AI pipeline manually within ~1 hour when
-            online. <span className="text-amber-800">ETA: ~1 hour.</span>
+            Dev has been notified to run the automation script from
+            Claude Code. This banner flips to <em>complete</em> automatically
+            once the run lands.
           </p>
           <a
             href={buildMailtoUrl({ studentId, displayName: studentDisplayName, counsellorName })}
@@ -178,7 +176,8 @@ export default function RequestManualFillBanner({
       <div className="min-w-0 flex-1">
         <p>
           Ready to AI-fill this student's resume, SOP, LOR drafts and
-          file descriptions. The dev runs the pipeline manually.
+          file descriptions. The dev runs the automation script from
+          Claude Code when notified.
         </p>
         <button
           type="button"
@@ -190,8 +189,8 @@ export default function RequestManualFillBanner({
           Request manual AI fill
         </button>
         <p className="mt-1 text-xs text-stone-600">
-          Notifies dev via email at {DEV_EMAIL}. Status updates here once
-          the run completes (~1 hour).
+          Notifies dev via email at {DEV_EMAIL}. This banner updates
+          automatically once the run lands.
         </p>
       </div>
     </div>
