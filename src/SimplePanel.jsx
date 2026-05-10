@@ -131,7 +131,7 @@ export default function SimplePanel({
           />
           {role === "admin" && (
             <FolderTab
-              label="AI Queue"
+              label="Automation runs"
               active={tab === "ai-queue"}
               onClick={() => setTab("ai-queue")}
             />

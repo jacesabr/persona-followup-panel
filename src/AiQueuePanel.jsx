@@ -1,37 +1,39 @@
-// Admin-only view of the manual_ai_requests queue. Counsellors file
-// requests via <RequestManualFillBanner> on the create-student
-// credentials modal; this panel surfaces those requests so the dev
-// (Jace) can see what's outstanding before running the script.
+// Admin-only run log for the manual_ai_requests table. Counsellors
+// file requests via <RequestManualFillBanner> on the create-student
+// credentials modal; this panel is the audit trail of who asked for
+// what, when each was sent, and when each was resolved.
 //
-// Two states per row:
+// Default view: full history (newest first), with still-pending rows
+// highlighted amber so the dev can triage at a glance. Toggle
+// "Pending only" to filter to outstanding work.
+//
+// Per row:
 //   - pending  → row still needs the dev to run the script locally
 //                from Claude Code (per
 //                automation/instructions_autofill_plus_generate.md)
 //   - resolved → row was processed; resolved_resume_id links to the
-//                resume that came out (filtered out of the default
-//                view; show via the "Show resolved" toggle)
+//                resume that came out
 //
 // The dispatch endpoint stamps processed_at + processed_by +
-// resolved_resume_id when the script runs, so resolved rows here
-// are an audit trail of "who fired what, when."
+// resolved_resume_id when the script runs.
 //
 // onViewStudent: SimplePanel's cross-tab handoff — clicking a row
 // jumps to the Students tab and auto-expands that student's modal.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Terminal, Send, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCw, Send, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
 
 export default function AiQueuePanel({ onViewStudent = () => {} }) {
-  const [showAll, setShowAll] = useState(false);
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
-      const out = await api.listManualAiRequests({ status: showAll ? "all" : "pending" });
+      const out = await api.listManualAiRequests({ status: pendingOnly ? "pending" : "all" });
       setRequests(out.requests || []);
       setError(null);
     } catch (e) {
@@ -39,7 +41,7 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
     } finally {
       setLoading(false);
     }
-  }, [showAll]);
+  }, [pendingOnly]);
 
   useEffect(() => {
     setLoading(true);
@@ -57,7 +59,7 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
     <div>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
-          AI Queue
+          Automation runs
           {pendingCount > 0 && (
             <span className="ml-2 inline-flex items-center gap-1 rounded-none border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-normal uppercase tracking-[0.15em] text-amber-900">
               <Clock className="h-3 w-3" /> {pendingCount} pending
@@ -69,11 +71,11 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
           <label className="inline-flex cursor-pointer items-center gap-2 border border-stone-300 bg-white px-2.5 py-1.5 text-[11px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700">
             <input
               type="checkbox"
-              checked={showAll}
-              onChange={(e) => setShowAll(e.target.checked)}
+              checked={pendingOnly}
+              onChange={(e) => setPendingOnly(e.target.checked)}
               className="h-3 w-3"
             />
-            Show resolved
+            Pending only
           </label>
           <button
             onClick={() => { setLoading(true); refresh(); }}
@@ -90,23 +92,9 @@ export default function AiQueuePanel({ onViewStudent = () => {} }) {
         </p>
       )}
 
-      <div className="mb-4 flex items-start gap-2 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">
-        <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-stone-700" />
-        <div>
-          <p>
-            Counsellors file these from the credentials modal after signing a
-            student up. To process the queue: open Claude Code locally on the
-            persona-followup-panel repo and run the script per
-            <code className="mx-1 border border-stone-300 bg-white px-1 text-[11px]">automation/instructions_autofill_plus_generate.md</code>
-            (it covers candidate selection, vision pass, draft authoring, and
-            dispatch). The run resolves matching pending rows automatically.
-          </p>
-        </div>
-      </div>
-
       {!loading && requests.length === 0 && (
         <p className="mt-6 text-sm text-stone-700">
-          {showAll ? "No requests yet." : "No pending requests. You're caught up."}
+          {pendingOnly ? "No pending requests. You're caught up." : "No requests yet."}
         </p>
       )}
 
