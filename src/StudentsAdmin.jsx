@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Eye, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -46,10 +46,6 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
   // future concern (we only return the row count up to a few hundred).
   const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
-  // "View as student" overlay — preloaded { student, files, resumes }
-  // shape from the staff detail endpoint. Lets admin/counsellor see
-  // exactly what the student sees on their own dashboard.
-  const [viewAsStudent, setViewAsStudent] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -157,7 +153,6 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
             role={role}
             onOpen={() => setModalStudentId(s.student_id)}
             onResetPassword={(account) => setCredentialsModal(account)}
-            onViewAs={(detail) => setViewAsStudent(detail)}
           />
         ))}
       </div>
@@ -169,13 +164,6 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
         />
       )}
 
-      {viewAsStudent && (
-        <ViewAsStudentModal
-          detail={viewAsStudent}
-          onClose={() => setViewAsStudent(null)}
-        />
-      )}
-
       {modalStudentId && (
         <StudentDetailModal
           studentId={modalStudentId}
@@ -183,91 +171,6 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
           onClose={() => setModalStudentId(null)}
         />
       )}
-    </div>
-  );
-}
-
-// ============================================================
-// ViewAsStudentModal — full-screen overlay that renders the
-// post-intake StudentDashboard against a pre-loaded staff payload.
-// Lets admin/counsellor see the student's own view without logging
-// in as them.
-//
-// Tab layout mirrors the student-facing PanelTabs (Overview / Your
-// documents / Required documents / Your resume) so admins see what
-// the student sees, not a single tall vertical scroll of every
-// section concatenated. Without the section filter, StudentDashboard
-// in staffPreview mode renders all four sections at once — which is
-// the bug we hit before this rewrite.
-// ============================================================
-const VIEW_AS_TABS = [
-  { id: "overview", label: "Overview", section: "summary" },
-  { id: "documents", label: "Your documents", section: "documents" },
-  { id: "required-docs", label: "Required documents", section: "required-docs" },
-  { id: "resume", label: "Your resume", section: "resume" },
-];
-
-function ViewAsStudentModal({ detail, onClose }) {
-  const [activeTab, setActiveTab] = useState("overview");
-
-  // Lock body scroll while the overlay is open so the underlying
-  // admin panel doesn't scroll behind the dashboard view.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, []);
-
-  const activeSection = VIEW_AS_TABS.find((t) => t.id === activeTab)?.section || "summary";
-
-  return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/40"
-      onClick={onClose}
-    >
-      <div
-        className="mx-auto my-6 max-w-5xl border border-stone-300 bg-[#f4f0e6] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 border-b border-stone-300 bg-[#f4f0e6]/95 backdrop-blur">
-          <div className="flex items-center justify-between gap-3 px-5 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
-              <Eye className="mr-2 inline-block h-3 w-3" />
-              Viewing as {detail.student?.display_name || detail.student?.username}
-            </p>
-            <button
-              onClick={onClose}
-              className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
-            >
-              <X className="h-3 w-3" /> Close
-            </button>
-          </div>
-          <nav className="flex flex-wrap items-center gap-2 px-5 pb-3">
-            {VIEW_AS_TABS.map((t) => {
-              const isActive = t.id === activeTab;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setActiveTab(t.id)}
-                  className={`whitespace-nowrap border px-4 py-2 text-sm transition ${
-                    isActive
-                      ? "border-[#cc785c] bg-[#cc785c] text-white"
-                      : "border-stone-300 bg-white text-black hover:border-stone-900"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-        <StudentDashboard
-          key={activeTab}
-          staffPreview={detail}
-          section={activeSection}
-        />
-      </div>
     </div>
   );
 }
@@ -672,9 +575,7 @@ function ProgressLabel({ row }) {
 // ============================================================
 // StudentRow — collapsed roster row + expandable detail view.
 // ============================================================
-function StudentRow({ row, role, onOpen, onResetPassword, onViewAs }) {
-  const [viewAsBusy, setViewAsBusy] = useState(false);
-
+function StudentRow({ row, role, onOpen, onResetPassword }) {
   const resetPassword = async (e) => {
     e.stopPropagation();
     if (!confirm(`Reset password for "${row.username}"? The new password will be shown once.`)) return;
@@ -683,20 +584,6 @@ function StudentRow({ row, role, onOpen, onResetPassword, onViewAs }) {
       onResetPassword(account);
     } catch (e) {
       alert(`Reset failed: ${e.message}`);
-    }
-  };
-
-  const openViewAs = async (e) => {
-    e.stopPropagation();
-    if (viewAsBusy) return;
-    setViewAsBusy(true);
-    try {
-      const d = await api.getStudent(row.student_id);
-      onViewAs(d);
-    } catch (err) {
-      alert(`Couldn't open student view: ${err?.message || "unknown error"}`);
-    } finally {
-      setViewAsBusy(false);
     }
   };
 
@@ -736,15 +623,6 @@ function StudentRow({ row, role, onOpen, onResetPassword, onViewAs }) {
           )}
         </div>
         <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
-          <button
-            onClick={openViewAs}
-            disabled={viewAsBusy}
-            title="Open this student's panel — the same page they see after intake"
-            className="inline-flex items-center gap-1 border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black disabled:opacity-50"
-          >
-            {viewAsBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
-            View as
-          </button>
           <button
             onClick={resetPassword}
             className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black"
@@ -1098,9 +976,6 @@ function StudentDetail({ detail, role, onRefresh }) {
       )}
       {step?.kind === "review" && (
         <div className="space-y-4">
-          <div className="border-2 border-[#cc785c] bg-[#fdf4ef] px-5 py-4 text-lg font-bold text-[#cc785c]">
-            This is the summary. The next {step.fileCount} {step.fileCount === 1 ? "slide" : "slides"} show each document with its AI analysis.
-          </div>
           <ChapterSummaryBlock
             chapter={{ id: step.page.id, title: step.chapterTitle, pages: [step.page] }}
             studentId={student.student_id}
@@ -1108,6 +983,9 @@ function StudentDetail({ detail, role, onRefresh }) {
             hideFiles
             autofilledKeys={autofilledKeys}
           />
+          <div className="border-2 border-[#cc785c] bg-[#fdf4ef] px-5 py-4 text-lg font-bold text-[#cc785c]">
+            This is the summary. The next {step.fileCount} {step.fileCount === 1 ? "slide" : "slides"} show each document with its AI analysis.
+          </div>
         </div>
       )}
       {step?.kind === "doc-only" && (
