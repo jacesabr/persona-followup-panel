@@ -54,6 +54,13 @@ const styles = StyleSheet.create({
     color: COLOR.ink,
     letterSpacing: 1.1,
     textTransform: "uppercase",
+    // Explicit lineHeight so the line box always reserves descender
+    // space — uppercase masks the problem here (no g/y/p descenders
+    // in caps) but the same styling oversight broke Modern and Bold
+    // where the name's "g" punched into the headline below. Defensive
+    // so a future tweak (sentence case, mixed-case last names) can't
+    // reintroduce the overlap.
+    lineHeight: 1.25,
   },
   // Headline is intentionally NOT rendered in this template — under
   // a big centered serif name, a long headline either wraps to two

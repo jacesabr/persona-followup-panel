@@ -48,9 +48,14 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     color: COLOR.ink,
     letterSpacing: -0.4,
+    // Explicit lineHeight so the line box fully contains descenders
+    // ("g", "y" in names like "Aggarwal"). Without this, react-pdf
+    // sometimes ignores the page-level lineHeight for single-line
+    // Text and the descender punches into the headline below.
+    lineHeight: 1.25,
   },
   headline: {
-    marginTop: 3,
+    marginTop: 6,
     fontSize: 10.5,
     color: COLOR.navy,
     fontWeight: 400,
