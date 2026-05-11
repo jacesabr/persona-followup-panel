@@ -3,8 +3,16 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { createRequire } from "node:module";
 import sharp from "sharp";
-import archiver from "archiver";
+
+// archiver is a CommonJS module without a default ESM export, so a
+// bare `import archiver from "archiver"` throws "does not provide an
+// export named 'default'" at boot on Node 20. createRequire gives us
+// the same value via the CJS resolver. Used by the batch-download
+// ZIP route below.
+const require = createRequire(import.meta.url);
+const archiver = require("archiver");
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
