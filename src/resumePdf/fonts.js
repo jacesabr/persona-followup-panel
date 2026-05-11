@@ -4,7 +4,15 @@
 // at runtime — react-pdf's #1 reported bug is fonts hanging the
 // usePDF instance when an external CDN is slow / blocked. Bundling
 // makes the URLs same-origin and synchronous-ish (Vite serves the
-// woff2 from /assets/ at build time).
+// font binaries from /assets/ at build time).
+//
+// Format: .woff, NOT .woff2. fontkit (the parser react-pdf uses
+// internally) decompresses .woff2 via Brotli and that path is the
+// source of the "Offset is outside the bounds of the DataView"
+// crash that broke the PDF preview on the new deployment. .woff
+// uses gzip / zlib decompression which fontkit handles reliably,
+// at the cost of ~25-30% larger asset size — acceptable since these
+// files are still small (single-digit KB each, latin subset only).
 //
 // Each weight registers as its own variant; react-pdf falls back to
 // the closest weight if a requested fontWeight isn't registered, so
@@ -16,20 +24,20 @@
 
 import { Font } from "@react-pdf/renderer";
 
-import garamondRegular from "@fontsource/eb-garamond/files/eb-garamond-latin-400-normal.woff2?url";
-import garamondItalic  from "@fontsource/eb-garamond/files/eb-garamond-latin-400-italic.woff2?url";
-import garamondBold    from "@fontsource/eb-garamond/files/eb-garamond-latin-700-normal.woff2?url";
+import garamondRegular from "@fontsource/eb-garamond/files/eb-garamond-latin-400-normal.woff?url";
+import garamondItalic  from "@fontsource/eb-garamond/files/eb-garamond-latin-400-italic.woff?url";
+import garamondBold    from "@fontsource/eb-garamond/files/eb-garamond-latin-700-normal.woff?url";
 
-import interRegular from "@fontsource/inter/files/inter-latin-400-normal.woff2?url";
-import interBold    from "@fontsource/inter/files/inter-latin-700-normal.woff2?url";
+import interRegular from "@fontsource/inter/files/inter-latin-400-normal.woff?url";
+import interBold    from "@fontsource/inter/files/inter-latin-700-normal.woff?url";
 
-import robotoLight   from "@fontsource/roboto/files/roboto-latin-300-normal.woff2?url";
-import robotoRegular from "@fontsource/roboto/files/roboto-latin-400-normal.woff2?url";
-import robotoBold    from "@fontsource/roboto/files/roboto-latin-700-normal.woff2?url";
+import robotoLight   from "@fontsource/roboto/files/roboto-latin-300-normal.woff?url";
+import robotoRegular from "@fontsource/roboto/files/roboto-latin-400-normal.woff?url";
+import robotoBold    from "@fontsource/roboto/files/roboto-latin-700-normal.woff?url";
 
-import latoRegular from "@fontsource/lato/files/lato-latin-400-normal.woff2?url";
-import latoItalic  from "@fontsource/lato/files/lato-latin-400-italic.woff2?url";
-import latoBold    from "@fontsource/lato/files/lato-latin-700-normal.woff2?url";
+import latoRegular from "@fontsource/lato/files/lato-latin-400-normal.woff?url";
+import latoItalic  from "@fontsource/lato/files/lato-latin-400-italic.woff?url";
+import latoBold    from "@fontsource/lato/files/lato-latin-700-normal.woff?url";
 
 Font.register({
   family: "EB Garamond",

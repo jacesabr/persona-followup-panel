@@ -199,6 +199,15 @@ app.use(
         // included for the rare path where pdf.js bootstraps via a
         // blob: URL on Safari.
         "worker-src": ["'self'", "blob:"],
+        // @react-pdf/renderer's font loader fetches each registered
+        // font URL, then re-reads it through Fetch from an internal
+        // data: URL it builds from the buffer. Helmet's default
+        // connect-src 'self' blocks that re-fetch, which leaves the
+        // font buffer empty and crashes fontkit on the first glyph
+        // encode with "RangeError: Offset is outside the bounds of
+        // the DataView" (txe._addGlyph → txe.encode → ZP.embed). Allow
+        // data: and blob: in connect-src so font + image embeds work.
+        "connect-src": ["'self'", "data:", "blob:"],
       },
     },
   })
