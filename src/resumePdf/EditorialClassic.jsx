@@ -55,29 +55,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     textTransform: "uppercase",
   },
-  // Headline reads as a quiet subtitle under the name. Was italic in
-  // an earlier pass, but back-to-back with the italic lede below it
-  // formed a monotonous two-block "Both are italic" feel that made
-  // the top of the page look washed out. Roman + meta color reads
-  // as supporting text, not a second voice. Centered to mirror the
-  // name's centring above.
-  headline: {
-    marginTop: 5,
-    fontSize: 10,
-    color: COLOR.meta,
-    textAlign: "center",
-    lineHeight: 1.35,
-  },
+  // Headline is intentionally NOT rendered in this template — under
+  // a big centered serif name, a long headline either wraps to two
+  // lines (orphaning words like "computing") or sits as a pale gray
+  // ribbon that competes with the italic lede below. The lede itself
+  // opens with school + city + track, so dropping the headline costs
+  // nothing in information density. Other templates (Modern, Bold)
+  // still render headline; the field stays in the schema.
   contact: {
     marginTop: 3,
     fontSize: 9.5,
     color: COLOR.meta,
   },
   // Lede stays italic — it's the "voice" paragraph and the only
-  // italic block on the page after the headline change, so it now
-  // reads as a deliberate accent rather than competing with the
-  // headline. Left-aligned (was justify); justify with such a short
-  // block produced uneven word spacing.
+  // italic block on the page, so it reads as a deliberate accent.
+  // Left-aligned (was justify); justify with such a short block
+  // produced uneven word spacing.
   lede: {
     marginTop: 14,
     fontSize: 10.5,
@@ -214,7 +207,6 @@ export default function EditorialClassic({ payload }) {
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.name}>{data.name || "(unnamed)"}</Text>
-          {data.headline ? <Text style={styles.headline}>{data.headline}</Text> : null}
           {showContact ? (
             <Text style={styles.contact}>
               {[data.contact.phone, data.contact.email].filter(Boolean).join("  ·  ")}
