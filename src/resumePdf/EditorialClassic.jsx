@@ -25,56 +25,62 @@ const COLOR = {
 };
 
 const styles = StyleSheet.create({
+  // Layout tuned to fit a Class XI–XII undergrad applicant (~300-450
+  // words across all visible text) onto a single A4 page. Page padding
+  // and inter-section spacing were generous in the original template
+  // and pushed Pratham's content onto a second page; tightening here
+  // brings the rendered page count to 1 for typical payloads while
+  // still reading as breathable typography.
   page: {
     backgroundColor: "#FFFFFF",
-    paddingTop: 54,
-    paddingBottom: 54,
-    paddingHorizontal: 60,
+    paddingTop: 42,
+    paddingBottom: 42,
+    paddingHorizontal: 50,
     fontFamily: "EB Garamond",
     fontSize: 10.5,
     color: COLOR.body,
-    lineHeight: 1.45,
+    lineHeight: 1.38,
   },
   header: {
     alignItems: "center",
-    paddingBottom: 14,
+    paddingBottom: 10,
     borderBottomWidth: 0.75,
     borderBottomColor: COLOR.rule,
   },
   name: {
     fontFamily: "EB Garamond",
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 700,
     color: COLOR.ink,
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
   headline: {
-    marginTop: 6,
-    fontSize: 11,
+    marginTop: 4,
+    fontSize: 10.5,
     fontStyle: "italic",
     color: COLOR.body,
   },
   contact: {
-    marginTop: 4,
+    marginTop: 3,
     fontSize: 9.5,
     color: COLOR.meta,
   },
   lede: {
-    marginTop: 18,
+    marginTop: 12,
     fontSize: 10.5,
     fontStyle: "italic",
     color: COLOR.body,
     textAlign: "justify",
-    lineHeight: 1.55,
+    lineHeight: 1.5,
   },
   section: {
-    marginTop: 18,
+    marginTop: 12,
   },
   sectionHeadingRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   sectionHeading: {
     fontSize: 9.5,
@@ -90,14 +96,21 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.rule,
   },
   item: {
-    marginBottom: 8,
+    marginBottom: 10,
   },
   itemHeader: {
     flexDirection: "row",
     alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  itemHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexShrink: 1,
   },
   label: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: 700,
     color: COLOR.ink,
   },
@@ -106,20 +119,19 @@ const styles = StyleSheet.create({
     color: COLOR.body,
   },
   meta: {
-    marginTop: 2,
     fontSize: 9.5,
     fontStyle: "italic",
     color: COLOR.meta,
+    marginLeft: 12,
   },
   gpaChip: {
     marginLeft: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderWidth: 0.5,
-    borderColor: COLOR.chip,
-    fontSize: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: COLOR.chip,
+    fontSize: 8.5,
     fontWeight: 700,
-    color: COLOR.chip,
+    color: "#FFFFFF",
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
@@ -128,15 +140,15 @@ const styles = StyleSheet.create({
     color: COLOR.body,
   },
   closing: {
-    marginTop: 22,
-    paddingTop: 14,
+    marginTop: 14,
+    paddingTop: 10,
     borderTopWidth: 0.75,
     borderTopColor: COLOR.rule,
     fontSize: 10.5,
     fontStyle: "italic",
     color: COLOR.body,
     textAlign: "justify",
-    lineHeight: 1.55,
+    lineHeight: 1.5,
   },
 });
 
@@ -151,11 +163,13 @@ function Section({ title, items }) {
       {items.map((it, i) => (
         <View key={i} style={styles.item} wrap={false}>
           <View style={styles.itemHeader}>
-            {it.label ? <Text style={styles.label}>{it.label}.</Text> : null}
-            {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            <View style={styles.itemHeaderLeft}>
+              {it.label ? <Text style={styles.label}>{it.label}.</Text> : null}
+              {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            </View>
+            {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
           </View>
           {it.body ? <Text style={styles.body}>{it.body}</Text> : null}
-          {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
         </View>
       ))}
     </View>

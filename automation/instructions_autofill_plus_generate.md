@@ -523,7 +523,35 @@ If you find yourself adding a row to "fill out" a section, that is
 the signal to leave the section empty instead. Resumes are graded
 on signal density, not section count.
 
-Length target: **300–450 words across all visible text fields**.
+Length target: **300–450 words across all visible text fields, and
+the rendered resume MUST fit on a single A4 page** in every one of
+the three PDF templates (`EditorialClassic`, `ModernConfident`,
+`ConfidentBold`). One page is a hard rule for undergrad applicants —
+this cohort. Two-page resumes get cut at admissions intake.
+
+The PDF templates are tuned so a payload in the 300-450-word band
+fits on one page. If your draft exceeds 450 words across visible
+text, the renderer will overflow regardless of template choice;
+trim at source before dispatch. The likely overflow culprits:
+
+- `lede` longer than ~60 words. Trim to two short sentences (~40-50
+  words) that name the identity, the anchoring direction fact, and
+  the one specific everyone needs to know up front.
+- `body` strings that read as paragraphs. Each item body in
+  `education` / `awards` / `activities` / etc. should be 25-40 words,
+  fact-dense. If a single body needs more than 40 words, split into
+  two items if the source supports it, or compress.
+- `closing_note` set when it doesn't add unique signal. Empty string
+  is the right answer most of the time — the closing block is
+  optional, not a slot you need to fill.
+
+You can confirm a payload is in band by summing `headline` + `lede`
++ every `label`/`body`/`meta`/`gpa` across `education`,
+`standardized_tests`, `awards`, `publications`, `activities`,
+`internships`, `volunteer` + `skills` (1 word each) + `languages`
+(1 word each) + `closing_note`. Aim for the upper-300s; that's the
+comfort zone with the current template geometry.
+
 Stealth Mode rules apply — the canonical, fully-fleshed-out version
 lives in [`automation/resume_schema_v2.md`](resume_schema_v2.md)
 under "Stealth Mode rules." Quick reference, with the additions
@@ -740,10 +768,14 @@ notes where verbatim transcription is the point. The audit:
    identity letter"), not by its uploaded filename. The slide UI
    ([`src/StudentsAdmin.jsx`](../src/StudentsAdmin.jsx) `docNameFor()`)
    does the same on its side; treat it as a parallel discipline.
-5. **Word-count check.** SOP 400-500 words, hard cap 500. Each LOR /
-   LOR-suggestion draft 200-300 words. Each Internship draft 150-250
-   words. Resume aggregate across visible-text fields 300-450 words.
-   Sections beyond these bounds get trimmed locally before dispatch.
+5. **Word-count check (a proxy for the 1-page resume rule).** SOP
+   400-500 words, hard cap 500. Each LOR / LOR-suggestion draft
+   200-300 words. Each Internship draft 150-250 words. Resume
+   aggregate across visible-text fields 300-450 words AND the
+   rendered PDF MUST fit on a single A4 page in every one of the
+   three templates — overflow past one page is a hard failure for
+   undergrad applicants and means the lede or longest item bodies
+   need trimming at source before dispatch.
 6. **Voice continuity check.** Read the SOP first sentence and the
    resume `lede` one after the other. Same identity (Class XII
    student, Ludhiana, quantitative bias, etc.), same anchoring

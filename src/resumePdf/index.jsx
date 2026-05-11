@@ -215,11 +215,11 @@ export default function ResumePdfPicker({ payload, studentName, compact = false 
         <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-700">
           Preview · {selected.label}
         </p>
-        <div className="mx-auto max-w-md border border-stone-300 bg-white">
+        <div className="mx-auto max-w-2xl border border-stone-300 bg-white">
           <PDFViewer
             key={selected.id}
             width="100%"
-            height="520"
+            height="780"
             showToolbar={false}
             style={{ display: "block", border: 0 }}
           >

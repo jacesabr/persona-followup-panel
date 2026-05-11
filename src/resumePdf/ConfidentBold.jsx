@@ -25,69 +25,73 @@ const COLOR = {
 };
 
 const styles = StyleSheet.create({
+  // Tuned for single-page A4 fit at ~300-450 visible words. If a
+  // payload still overflows, content is too long — trim at source
+  // (lede or longest body strings) rather than retuning the
+  // geometry; the runbook's pre-dispatch self-audit owns that bar.
   page: {
     backgroundColor: "#FFFFFF",
-    paddingTop: 44,
-    paddingBottom: 44,
-    paddingHorizontal: 48,
+    paddingTop: 40,
+    paddingBottom: 40,
+    paddingHorizontal: 46,
     fontFamily: "Lato",
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.4,
+    lineHeight: 1.38,
   },
   header: {
-    marginBottom: 4,
+    marginBottom: 2,
   },
   name: {
     fontFamily: "Roboto",
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 700,
     color: COLOR.ink,
     letterSpacing: -0.5,
   },
   headline: {
-    marginTop: 4,
+    marginTop: 3,
     fontFamily: "Lato",
-    fontSize: 11,
+    fontSize: 10.5,
     color: COLOR.terracotta,
     fontWeight: 700,
   },
   contact: {
-    marginTop: 6,
+    marginTop: 4,
     fontSize: 9,
     color: COLOR.meta,
     fontWeight: 300,
     letterSpacing: 0.3,
   },
   ledeBlock: {
-    marginTop: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     backgroundColor: COLOR.cream,
   },
   lede: {
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.5,
+    lineHeight: 1.45,
     fontStyle: "italic",
   },
   section: {
-    marginTop: 18,
+    marginTop: 12,
   },
   sectionHeadingRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   sectionHeadingBar: {
     width: 4,
-    height: 12,
+    height: 11,
     backgroundColor: COLOR.terracotta,
     marginRight: 8,
   },
   sectionHeading: {
     fontFamily: "Roboto",
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: 700,
     color: COLOR.ink,
     letterSpacing: 1.4,
@@ -100,13 +104,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.rule,
   },
   item: {
-    marginBottom: 8,
+    marginBottom: 6,
     paddingLeft: 12,
   },
   itemHeader: {
     flexDirection: "row",
     alignItems: "baseline",
+    justifyContent: "space-between",
     marginBottom: 1,
+  },
+  itemHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexShrink: 1,
   },
   label: {
     fontFamily: "Lato",
@@ -117,23 +127,22 @@ const styles = StyleSheet.create({
   body: {
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.4,
+    lineHeight: 1.38,
   },
   meta: {
-    marginTop: 1,
     fontSize: 9,
     color: COLOR.meta,
     fontWeight: 300,
+    marginLeft: 12,
   },
   gpaChip: {
     marginLeft: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderWidth: 1,
-    borderColor: COLOR.terracotta,
-    fontSize: 7.5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: COLOR.terracotta,
+    fontSize: 8,
     fontWeight: 700,
-    color: COLOR.terracotta,
+    color: "#FFFFFF",
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
@@ -143,13 +152,13 @@ const styles = StyleSheet.create({
     color: COLOR.body,
   },
   closing: {
-    marginTop: 22,
-    paddingTop: 14,
+    marginTop: 14,
+    paddingTop: 10,
     borderTopWidth: 2,
     borderTopColor: COLOR.terracotta,
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.5,
+    lineHeight: 1.45,
     fontStyle: "italic",
   },
 });
@@ -166,11 +175,13 @@ function Section({ title, items }) {
       {items.map((it, i) => (
         <View key={i} style={styles.item} wrap={false}>
           <View style={styles.itemHeader}>
-            {it.label ? <Text style={styles.label}>{it.label}</Text> : null}
-            {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            <View style={styles.itemHeaderLeft}>
+              {it.label ? <Text style={styles.label}>{it.label}</Text> : null}
+              {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            </View>
+            {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
           </View>
           {it.body ? <Text style={styles.body}>{it.body}</Text> : null}
-          {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
         </View>
       ))}
     </View>

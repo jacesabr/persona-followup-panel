@@ -23,18 +23,22 @@ const COLOR = {
 };
 
 const styles = StyleSheet.create({
+  // Tuned for single-page A4 fit at ~300-450 visible words. If a
+  // payload still overflows, content is too long — trim at source
+  // (lede or longest body strings) rather than retuning the
+  // geometry; the runbook's pre-dispatch self-audit owns that bar.
   page: {
     backgroundColor: "#FFFFFF",
-    paddingTop: 44,
-    paddingBottom: 44,
-    paddingHorizontal: 50,
+    paddingTop: 40,
+    paddingBottom: 40,
+    paddingHorizontal: 48,
     fontFamily: "Inter",
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.4,
+    lineHeight: 1.38,
   },
   header: {
-    paddingBottom: 14,
+    paddingBottom: 10,
     borderBottomWidth: 1.5,
     borderBottomColor: COLOR.navy,
   },
@@ -46,25 +50,25 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
   headline: {
-    marginTop: 4,
-    fontSize: 11,
+    marginTop: 3,
+    fontSize: 10.5,
     color: COLOR.navy,
     fontWeight: 400,
   },
   contact: {
-    marginTop: 6,
+    marginTop: 4,
     fontSize: 9,
     color: COLOR.meta,
     letterSpacing: 0.2,
   },
   lede: {
-    marginTop: 16,
+    marginTop: 12,
     fontSize: 10,
     color: COLOR.body,
-    lineHeight: 1.5,
+    lineHeight: 1.45,
   },
   section: {
-    marginTop: 16,
+    marginTop: 12,
   },
   sectionHeading: {
     fontSize: 10,
@@ -72,18 +76,24 @@ const styles = StyleSheet.create({
     color: COLOR.navy,
     letterSpacing: 1.5,
     textTransform: "uppercase",
-    paddingBottom: 4,
+    paddingBottom: 3,
     borderBottomWidth: 0.75,
     borderBottomColor: COLOR.sage,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   item: {
-    marginBottom: 7,
+    marginBottom: 6,
   },
   itemHeader: {
     flexDirection: "row",
     alignItems: "baseline",
+    justifyContent: "space-between",
     marginBottom: 1,
+  },
+  itemHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexShrink: 1,
   },
   label: {
     fontSize: 10.5,
@@ -96,9 +106,9 @@ const styles = StyleSheet.create({
     lineHeight: 1.4,
   },
   meta: {
-    marginTop: 1,
     fontSize: 9,
     color: COLOR.meta,
+    marginLeft: 12,
   },
   gpaChip: {
     marginLeft: 8,
@@ -134,11 +144,13 @@ function Section({ title, items }) {
       {items.map((it, i) => (
         <View key={i} style={styles.item} wrap={false}>
           <View style={styles.itemHeader}>
-            {it.label ? <Text style={styles.label}>{it.label}</Text> : null}
-            {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            <View style={styles.itemHeaderLeft}>
+              {it.label ? <Text style={styles.label}>{it.label}</Text> : null}
+              {it.gpa ? <Text style={styles.gpaChip}>{it.gpa}</Text> : null}
+            </View>
+            {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
           </View>
           {it.body ? <Text style={styles.body}>{it.body}</Text> : null}
-          {it.meta ? <Text style={styles.meta}>{it.meta}</Text> : null}
         </View>
       ))}
     </View>
