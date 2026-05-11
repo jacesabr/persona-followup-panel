@@ -206,16 +206,20 @@ export default function ResumePdfPicker({ payload, studentName, compact = false 
           sees exactly what their download will look like. Keyed by
           style id so React tears down + re-mounts the viewer when
           the picked style changes; the alternative is the iframe
-          flashing the previous PDF for a beat before updating. */}
-      <div className="border-t border-stone-200 bg-stone-50 px-5 py-5">
-        <p className="mb-3 text-[11px] uppercase tracking-[0.2em] text-stone-700">
+          flashing the previous PDF for a beat before updating.
+          Container constrained to A4-ish width and centred so wide
+          screens don't blow the preview up to display-eyeball size;
+          the staff reviewer wants to see the PDF at roughly print
+          scale, not a stretched poster. */}
+      <div className="border-t border-stone-200 bg-stone-50 px-4 py-4">
+        <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-700">
           Preview · {selected.label}
         </p>
-        <div className="border border-stone-300 bg-white">
+        <div className="mx-auto max-w-md border border-stone-300 bg-white">
           <PDFViewer
             key={selected.id}
             width="100%"
-            height="700"
+            height="520"
             showToolbar={false}
             style={{ display: "block", border: 0 }}
           >

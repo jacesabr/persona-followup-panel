@@ -891,13 +891,22 @@ function StudentDetail({ detail, role, onRefresh }) {
           return;
         }
         if (pageFiles.length === 1) {
+          // Single-doc page: use the page title (e.g. "Aadhar Card",
+          // "Class 10 Marks Sheet"). Earlier UI used the raw filename
+          // here, which exposed UIDAI / portal-generated names like
+          // "EAadhaar_0656…_page-0001 (1).jpg (1).jpeg". Files uploaded
+          // by the system (Aadhaar PDFs, exported marksheets, scanned
+          // photos) carry unhelpful names; the field/page label is the
+          // reliable anchor for a single-doc slide. (Multi-doc pages
+          // still use docNameFor() because activity proofs etc. are
+          // student-named and the user-typed labels are useful.)
           out.push({
             kind: "page-with-doc",
             chapterTitle: chapter.title,
             page,
             file: pageFiles[0],
             eyebrow: `${chapter.title} · ${page.title}`,
-            title: docNameFor(pageFiles[0]),
+            title: page.title,
           });
           return;
         }
