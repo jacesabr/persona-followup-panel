@@ -782,20 +782,38 @@ function StudentDetailModal({ studentId, role, onClose }) {
         className="m-0 flex min-h-screen w-full max-w-6xl flex-col border-x border-stone-300 bg-[#f4f0e6] shadow-2xl sm:my-4 sm:min-h-[calc(100vh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-4 backdrop-blur">
+        <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-4 backdrop-blur">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">
               Student detail
             </p>
             <p className="truncate font-serif text-2xl text-black">{headerName}</p>
           </div>
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
-          >
-            <X className="h-4 w-4" /> Close
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Batch ZIP of every active uploaded document for this student.
+                Visible on every slide so the reviewer doesn't have to scroll
+                back to a "first page" affordance — clicking triggers a
+                browser save dialog via Content-Disposition: attachment on
+                /api/students/<sid>/files/all.zip. fileCount > 0 gate hides
+                the button when there's nothing to download. */}
+            {(detail?.files || []).some((f) => !f.superseded_at) && (
+              <a
+                href={`/api/students/${studentId}/files/all.zip`}
+                title="Download every active uploaded document for this student as a single ZIP"
+                className="inline-flex shrink-0 items-center gap-2 bg-stone-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-stone-700"
+              >
+                <Download className="h-4 w-4" />
+                Batch download all uploaded documents
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              title="Close (Esc)"
+              className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
+            >
+              <X className="h-4 w-4" /> Close
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">

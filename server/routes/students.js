@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import sharp from "sharp";
+import archiver from "archiver";
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
@@ -1380,6 +1381,92 @@ router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
       return res.status(403).json({ error: "not your student" });
     }
     return streamStoredFile(req, res, next, doc);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/students/:student_id/files/all.zip — staff
+// Streams every ACTIVE (superseded_at IS NULL) uploaded file for the
+// student as a single ZIP. Same auth + scoping as the single-file
+// download: admin sees any student's files; counsellor sees only
+// students assigned to them. Filename is the student's display name
+// slugified plus the date, so opening the ZIP later the reviewer
+// knows whose docs are in it without unzipping.
+//
+// Inside the zip, each entry is named "<NN>-<original_name>" where NN
+// is a 2-digit sequence in upload order. Original filenames vary in
+// quality (UIDAI's "EAadhaar_065…_page-0001 (1).jpg.jpeg" vs the
+// student's own "Class 11 Report card.pdf"); duplicates inside a
+// student's slot history are handled by the active-only filter.
+router.get("/:student_id/files/all.zip", requireStaff, async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    // Verify the student exists, get display name + counsellor scope.
+    const studentRes = await pool.query(
+      `SELECT student_id, display_name, counsellor_id,
+              data->'answers'->>'name' AS typed_name
+         FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    const student = studentRes.rows[0];
+    if (!student) return res.status(404).json({ error: "student not found" });
+    if (req.user.kind === "counsellor" && student.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
+    }
+
+    const filesRes = await pool.query(
+      `SELECT id, original_name, storage_path, size, mime_type
+         FROM intake_files
+        WHERE student_id = $1 AND superseded_at IS NULL
+        ORDER BY field_id, created_at ASC, id ASC`,
+      [sid]
+    );
+    if (filesRes.rows.length === 0) {
+      return res.status(404).json({ error: "no active files for this student" });
+    }
+
+    const slug = (student.typed_name || student.display_name || sid)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "student";
+    const today = new Date().toISOString().slice(0, 10);
+    const zipName = `${slug}-uploaded-documents-${today}.zip`;
+
+    res.set("Content-Type", "application/zip");
+    res.set("Content-Disposition", `attachment; filename="${zipName}"`);
+    res.set("Cache-Control", "private, no-store");
+
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("warning", (err) => {
+      if (err.code !== "ENOENT") console.error("[zip] warning:", err.message);
+    });
+    archive.on("error", (err) => {
+      console.error("[zip] error:", err.message);
+      // If headers already flushed, all we can do is destroy the socket;
+      // if not, fall back to a 500 JSON.
+      if (res.headersSent) res.destroy(err);
+      else next(err);
+    });
+    archive.pipe(res);
+
+    const store = await getStorage();
+    let seq = 0;
+    for (const f of filesRes.rows) {
+      seq += 1;
+      if (!(await store.exists(f.storage_path))) {
+        // Skip silently — better to deliver N-1 files than to 500 the
+        // whole batch because one R2 object went missing.
+        console.error(`[zip] missing in storage: file ${f.id} key=${f.storage_path}`);
+        continue;
+      }
+      const stream = await store.openReadStream(f.storage_path);
+      const safeName = String(f.original_name || `file-${f.id}`).replace(/[/\\:*?"<>|]/g, "_");
+      const entryName = `${String(seq).padStart(2, "0")}-${safeName}`;
+      archive.append(stream, { name: entryName });
+    }
+    await archive.finalize();
   } catch (e) {
     next(e);
   }

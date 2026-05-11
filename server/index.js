@@ -295,9 +295,30 @@ app.use("/api/admin/ai", requireAuth, autoAudit("intake_students"), adminAiRoute
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");
-app.use(express.static(distPath));
+// Hashed-asset / HTML cache split. Vite emits assets under /assets/
+// with a content hash in the filename so they can be cached forever
+// — if the content changes, the hash changes and the URL changes
+// with it. The index.html that references them must NOT be cached
+// or a returning user keeps loading the previous asset bundle for
+// weeks. Reported by a counsellor on 2026-05-11: code change shipped
+// two days earlier, they still saw the pre-slide-review vertical
+// layout on first page-load today.
+app.use(express.static(distPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (filePath.endsWith("index.html")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+  },
+}));
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api/")) return res.status(404).json({ error: "not found" });
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.sendFile(path.join(distPath, "index.html"));
 });
 
