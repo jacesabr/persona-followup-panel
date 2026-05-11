@@ -1092,11 +1092,19 @@ function ResumesStep({ resumes, student }) {
     <div className="space-y-3">
       {resumes.map((r) => {
         const snapshot = parseSnapshot(r.source_snapshot);
+        // Stale = student data was edited AFTER the resume's last write.
+        // Compare against r.updated_at (not r.created_at) because the
+        // dispatch endpoint UPSERTs — one resume row per student means
+        // re-runs advance updated_at but preserve created_at. Pre-fix,
+        // every re-dispatch left the chip on because student.updated_at
+        // was always slightly past the original resume.created_at even
+        // though the resume row was just rewritten.
+        const resumeRefTs = r.updated_at || r.created_at;
         const stale =
           r.status === "succeeded" &&
           student?.updated_at &&
-          r.created_at &&
-          new Date(student.updated_at).getTime() > new Date(r.created_at).getTime() + 5_000;
+          resumeRefTs &&
+          new Date(student.updated_at).getTime() > new Date(resumeRefTs).getTime() + 5_000;
         return (
           <div key={r.id} className="border border-stone-200 bg-white">
             <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-3 py-2">
@@ -1112,11 +1120,20 @@ function ResumesStep({ resumes, student }) {
                 )}
               </span>
               <span className="text-[10px] uppercase tracking-[0.15em] text-black">
-                {snapshot?.actual_words && snapshot?.target_words
-                  ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
-                      {snapshot.actual_words}w / {snapshot.target_words}w target
-                    </span>
-                  : r.length_words ? `${r.length_words}w` : r.length_pages ? `${r.length_pages}p` : ""}
+                {/* Prefer r.length_words (live column, set by every UPSERT
+                    in /api/admin/ai/dispatch via countWordsInResumeJson).
+                    source_snapshot can carry a stale actual_words from a
+                    prior generator run — UPSERTs don't refresh it, so we
+                    used to display the old number even after a fresh
+                    re-dispatch. Fall back to snapshot only when there's
+                    no length_words column populated. */}
+                {r.length_words
+                  ? `${r.length_words}w`
+                  : snapshot?.actual_words
+                    ? <span title={snapshot.length_warning || ""} className={snapshot.length_warning ? "text-amber-700" : ""}>
+                        {snapshot.actual_words}w{snapshot.target_words ? ` / ${snapshot.target_words}w target` : ""}
+                      </span>
+                    : r.length_pages ? `${r.length_pages}p` : ""}
                 {" · "}
                 <span className={
                   r.status === "succeeded" ? "text-emerald-700"
