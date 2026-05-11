@@ -316,12 +316,9 @@ CREATE TABLE IF NOT EXISTS manual_ai_requests (
   processed_at      TIMESTAMPTZ,
   processed_by_admin_username TEXT
 );
--- Link a resolved request back to the resume row the dispatch run
--- created. ON DELETE SET NULL so deleting the resume (rare, manual)
--- doesn't break the request history. Idempotent ALTER for older
--- deploys that pre-date this column.
-ALTER TABLE manual_ai_requests ADD COLUMN IF NOT EXISTS resolved_resume_id BIGINT
-  REFERENCES intake_resumes(id) ON DELETE SET NULL;
+-- (FK to intake_resumes added below, after intake_resumes is created
+-- — keeping the ALTER co-located here would fail on a fresh DB
+-- bootstrap because intake_resumes isn't declared until further down.)
 CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_pending
   ON manual_ai_requests(requested_at DESC) WHERE processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_student
@@ -393,6 +390,15 @@ CREATE TABLE IF NOT EXISTS intake_resumes (
 ALTER TABLE intake_resumes ADD COLUMN IF NOT EXISTS content_json JSONB;
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_student ON intake_resumes(student_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intake_resumes_active  ON intake_resumes(student_id, status);
+
+-- Deferred FK from manual_ai_requests.resolved_resume_id → intake_resumes(id).
+-- Declared down here (rather than next to the table itself) because
+-- intake_resumes doesn't exist when manual_ai_requests is created.
+-- ON DELETE SET NULL so deleting the resume (rare, manual) doesn't
+-- break the request history. ADD COLUMN IF NOT EXISTS is idempotent
+-- — re-runs skip the column and its inline constraint entirely.
+ALTER TABLE manual_ai_requests ADD COLUMN IF NOT EXISTS resolved_resume_id BIGINT
+  REFERENCES intake_resumes(id) ON DELETE SET NULL;
 
 -- ============================================================
 -- intake_audit_log: append-only history of mutations on the

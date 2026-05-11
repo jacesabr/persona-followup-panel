@@ -345,6 +345,13 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
         // FK: file must belong to this student. The WHERE clause
         // enforces it; UPDATE silently no-ops if the file is
         // someone else's.
+        // Sanity cap, well above the runbook's expected 5-10k chars per
+        // Section 1-5 description. The original 4000-char cap dated from
+        // when this column held "2-3 sentence prose blurbs"; the runbook
+        // now explicitly rejects that shape and asks for full verbatim
+        // transcription + structured tables, which routinely runs 5-9k
+        // chars for marksheets. Keep the cap only to bound model
+        // run-away — TEXT in Postgres can hold up to 1 GB.
         const r = await client.query(
           `UPDATE intake_files
               SET ai_description = $2,
@@ -352,7 +359,7 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
             WHERE id = $1 AND student_id = $4`,
           [
             fd.file_id,
-            fd.description.slice(0, 4000),
+            fd.description.slice(0, 50000),
             fd.extracted ? JSON.stringify(fd.extracted) : null,
             studentId,
           ]

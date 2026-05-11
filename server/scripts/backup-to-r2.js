@@ -79,7 +79,12 @@ async function dumpAllTables() {
       JOIN pg_sequences p ON p.sequencename = s.sequence_name
      WHERE s.sequence_schema = 'public'
   `);
-  for (const r of seqRows) dump.sequences[r.sequence_name] = String(r.last_value);
+  // pg_sequences.last_value is NULL for never-advanced sequences; store
+  // those as null rather than the string "null" so restore can detect.
+  for (const r of seqRows) {
+    dump.sequences[r.sequence_name] =
+      r.last_value == null ? null : String(r.last_value);
+  }
   dump.counts.sequences = Object.keys(dump.sequences).length;
 
   return dump;

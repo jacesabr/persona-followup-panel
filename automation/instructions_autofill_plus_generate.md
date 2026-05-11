@@ -61,7 +61,7 @@ candidate query never resurfaces this student.
 ## Preconditions
 
 - Routine running in Anthropic Cloud, repo cloned to its sandbox.
-- Deployed prod API at `https://persona-followup-panel.onrender.com`
+- Deployed prod API at `https://persona-y9pt.onrender.com`
   is the agent's interface — no DB credentials needed.
 - Admin login: username `admin123`, password `admin123` (both fields
   the same string; see `EXTRA_ADMINS` env var on Render for the named
@@ -75,7 +75,7 @@ candidate query never resurfaces this student.
 ```bash
 curl -s -c /tmp/cookies.txt -X POST -H 'Content-Type: application/json' \
   -d '{"username":"admin123","password":"admin123"}' \
-  https://persona-followup-panel.onrender.com/api/auth/login
+  https://persona-y9pt.onrender.com/api/auth/login
 ```
 
 The `Set-Cookie: persona_session=<uuid>` is captured into
@@ -89,7 +89,7 @@ If login fails: stop, print the error, exit 0.
 ## Step 2 — Pull candidates (cap 5)
 
 ```bash
-curl -s -b /tmp/cookies.txt 'https://persona-followup-panel.onrender.com/api/admin/ai/pending?limit=5'
+curl -s -b /tmp/cookies.txt 'https://persona-y9pt.onrender.com/api/admin/ai/pending?limit=5'
 ```
 
 Returns:
@@ -114,7 +114,7 @@ If the array is empty: print `[ai-pipeline] no candidates` and exit 0.
 Also pull the open manual-fill request queue for context:
 
 ```bash
-curl -s -b /tmp/cookies.txt 'https://persona-followup-panel.onrender.com/api/admin/ai/manual-requests?status=pending'
+curl -s -b /tmp/cookies.txt 'https://persona-y9pt.onrender.com/api/admin/ai/manual-requests?status=pending'
 ```
 
 A counsellor-initiated request has a row here; processing the matched
@@ -131,9 +131,9 @@ continue with the next.
 ### 3a. Load full context
 
 ```bash
-curl -s -b /tmp/cookies.txt https://persona-followup-panel.onrender.com/api/students/<student_id>
-curl -s -b /tmp/cookies.txt https://persona-followup-panel.onrender.com/api/required-docs/student/<student_id>
-curl -s -b /tmp/cookies.txt https://persona-followup-panel.onrender.com/api/applications/student/<student_id>
+curl -s -b /tmp/cookies.txt https://persona-y9pt.onrender.com/api/students/<student_id>
+curl -s -b /tmp/cookies.txt https://persona-y9pt.onrender.com/api/required-docs/student/<student_id>
+curl -s -b /tmp/cookies.txt https://persona-y9pt.onrender.com/api/applications/student/<student_id>
 ```
 
 You now have:
@@ -155,7 +155,7 @@ For each active file:
 
 ```bash
 curl -s -b /tmp/cookies.txt -o /tmp/file_<id>.bin \
-  https://persona-followup-panel.onrender.com/api/students/<student_id>/files/<file.id>
+  https://persona-y9pt.onrender.com/api/students/<student_id>/files/<file.id>
 ```
 
 Use the Read tool on `/tmp/file_<id>.bin` (works for images and PDFs
@@ -709,7 +709,7 @@ attributed to the AI for the rest of the student's lifecycle.
 ```bash
 curl -s -b /tmp/cookies.txt -X POST -H 'Content-Type: application/json' \
   --data @/tmp/dispatch_<student_id>.json \
-  https://persona-followup-panel.onrender.com/api/admin/ai/dispatch
+  https://persona-y9pt.onrender.com/api/admin/ai/dispatch
 ```
 
 Body shape:
