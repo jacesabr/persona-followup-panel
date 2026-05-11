@@ -1366,35 +1366,11 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
   }
 });
 
-// Staff-side file download — admin or owning counsellor only.
-router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
-  try {
-    if (!isPositiveInt(req.params.id)) {
-      return res.status(400).json({ error: "Invalid file id." });
-    }
-    const { rows } = await pool.query(
-      `SELECT f.student_id, f.original_name, f.storage_path, f.size, f.mime_type,
-              s.counsellor_id
-         FROM intake_files f
-         JOIN intake_students s ON s.student_id = f.student_id
-        WHERE f.id = $1`,
-      [Number(req.params.id)]
-    );
-    const doc = rows[0];
-    if (!doc) return res.status(404).json({ error: "File not found." });
-    if (doc.student_id !== req.params.student_id) {
-      return res.status(403).json({ error: "File does not belong to this student." });
-    }
-    if (req.user.kind === "counsellor" && doc.counsellor_id !== req.user.counsellorId) {
-      return res.status(403).json({ error: "not your student" });
-    }
-    return streamStoredFile(req, res, next, doc);
-  } catch (e) {
-    next(e);
-  }
-});
-
-// GET /api/students/:student_id/files/all.zip — staff
+// GET /api/students/:student_id/files/all.zip — staff. MUST be
+// registered ABOVE the parameterised /:student_id/files/:id route
+// below; Express matches in registration order and `:id = "all.zip"`
+// would otherwise win the match and 400 on the integer-id validation.
+//
 // Streams every ACTIVE (superseded_at IS NULL) uploaded file for the
 // student as a single ZIP. Same auth + scoping as the single-file
 // download: admin sees any student's files; counsellor sees only
@@ -1452,8 +1428,6 @@ router.get("/:student_id/files/all.zip", requireStaff, async (req, res, next) =>
     });
     archive.on("error", (err) => {
       console.error("[zip] error:", err.message);
-      // If headers already flushed, all we can do is destroy the socket;
-      // if not, fall back to a 500 JSON.
       if (res.headersSent) res.destroy(err);
       else next(err);
     });
@@ -1475,6 +1449,34 @@ router.get("/:student_id/files/all.zip", requireStaff, async (req, res, next) =>
       archive.append(stream, { name: entryName });
     }
     await archive.finalize();
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Staff-side single-file download — admin or owning counsellor only.
+router.get("/:student_id/files/:id", requireStaff, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) {
+      return res.status(400).json({ error: "Invalid file id." });
+    }
+    const { rows } = await pool.query(
+      `SELECT f.student_id, f.original_name, f.storage_path, f.size, f.mime_type,
+              s.counsellor_id
+         FROM intake_files f
+         JOIN intake_students s ON s.student_id = f.student_id
+        WHERE f.id = $1`,
+      [Number(req.params.id)]
+    );
+    const doc = rows[0];
+    if (!doc) return res.status(404).json({ error: "File not found." });
+    if (doc.student_id !== req.params.student_id) {
+      return res.status(403).json({ error: "File does not belong to this student." });
+    }
+    if (req.user.kind === "counsellor" && doc.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
+    }
+    return streamStoredFile(req, res, next, doc);
   } catch (e) {
     next(e);
   }
