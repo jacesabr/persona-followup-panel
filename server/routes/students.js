@@ -6,13 +6,13 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import sharp from "sharp";
 
-// archiver is a CommonJS module without a default ESM export, so a
-// bare `import archiver from "archiver"` throws "does not provide an
-// export named 'default'" at boot on Node 20. createRequire gives us
-// the same value via the CJS resolver. Used by the batch-download
-// ZIP route below.
+// archiver v8 ships only named class exports ({ Archiver, ZipArchive,
+// TarArchive, JsonArchive }) — no default export, and the v6/v7
+// `archiver('zip', opts)` call form no longer works. Pull the
+// ZipArchive class directly via createRequire (the ESM-from-CJS
+// bridge) and instantiate it with `new` in the batch-download route.
 const require = createRequire(import.meta.url);
-const archiver = require("archiver");
+const { ZipArchive } = require("archiver");
 import pool from "../db.js";
 import { hashPassword } from "../../lib/password.js";
 import { requireStaff, requireStudent, SESSION_COOKIE_NAME } from "../middleware/auth.js";
@@ -1422,7 +1422,7 @@ router.get("/:student_id/files/all.zip", requireStaff, async (req, res, next) =>
     res.set("Content-Disposition", `attachment; filename="${zipName}"`);
     res.set("Cache-Control", "private, no-store");
 
-    const archive = archiver("zip", { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on("warning", (err) => {
       if (err.code !== "ENOENT") console.error("[zip] warning:", err.message);
     });

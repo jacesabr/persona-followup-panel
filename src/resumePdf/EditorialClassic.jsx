@@ -49,29 +49,41 @@ const styles = StyleSheet.create({
   },
   name: {
     fontFamily: "EB Garamond",
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: 700,
     color: COLOR.ink,
-    letterSpacing: 1.2,
+    letterSpacing: 1.1,
     textTransform: "uppercase",
   },
+  // Headline reads as a quiet subtitle under the name. Was italic in
+  // an earlier pass, but back-to-back with the italic lede below it
+  // formed a monotonous two-block "Both are italic" feel that made
+  // the top of the page look washed out. Roman + meta color reads
+  // as supporting text, not a second voice. Centered to mirror the
+  // name's centring above.
   headline: {
-    marginTop: 4,
-    fontSize: 10.5,
-    fontStyle: "italic",
-    color: COLOR.body,
+    marginTop: 5,
+    fontSize: 10,
+    color: COLOR.meta,
+    textAlign: "center",
+    lineHeight: 1.35,
   },
   contact: {
     marginTop: 3,
     fontSize: 9.5,
     color: COLOR.meta,
   },
+  // Lede stays italic — it's the "voice" paragraph and the only
+  // italic block on the page after the headline change, so it now
+  // reads as a deliberate accent rather than competing with the
+  // headline. Left-aligned (was justify); justify with such a short
+  // block produced uneven word spacing.
   lede: {
-    marginTop: 12,
+    marginTop: 14,
     fontSize: 10.5,
     fontStyle: "italic",
     color: COLOR.body,
-    textAlign: "justify",
+    textAlign: "left",
     lineHeight: 1.5,
   },
   section: {
