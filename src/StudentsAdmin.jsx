@@ -192,8 +192,24 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
 // post-intake StudentDashboard against a pre-loaded staff payload.
 // Lets admin/counsellor see the student's own view without logging
 // in as them.
+//
+// Tab layout mirrors the student-facing PanelTabs (Overview / Your
+// documents / Required documents / Your resume) so admins see what
+// the student sees, not a single tall vertical scroll of every
+// section concatenated. Without the section filter, StudentDashboard
+// in staffPreview mode renders all four sections at once — which is
+// the bug we hit before this rewrite.
 // ============================================================
+const VIEW_AS_TABS = [
+  { id: "overview", label: "Overview", section: "summary" },
+  { id: "documents", label: "Your documents", section: "documents" },
+  { id: "required-docs", label: "Required documents", section: "required-docs" },
+  { id: "resume", label: "Your resume", section: "resume" },
+];
+
 function ViewAsStudentModal({ detail, onClose }) {
+  const [activeTab, setActiveTab] = useState("overview");
+
   // Lock body scroll while the overlay is open so the underlying
   // admin panel doesn't scroll behind the dashboard view.
   useEffect(() => {
@@ -201,6 +217,8 @@ function ViewAsStudentModal({ detail, onClose }) {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, []);
+
+  const activeSection = VIEW_AS_TABS.find((t) => t.id === activeTab)?.section || "summary";
 
   return (
     <div
@@ -211,19 +229,44 @@ function ViewAsStudentModal({ detail, onClose }) {
         className="mx-auto my-6 max-w-5xl border border-stone-300 bg-[#f4f0e6] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
-            <Eye className="mr-2 inline-block h-3 w-3" />
-            Viewing as {detail.student?.display_name || detail.student?.username}
-          </p>
-          <button
-            onClick={onClose}
-            className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
-          >
-            <X className="h-3 w-3" /> Close
-          </button>
+        <div className="sticky top-0 z-10 border-b border-stone-300 bg-[#f4f0e6]/95 backdrop-blur">
+          <div className="flex items-center justify-between gap-3 px-5 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black">
+              <Eye className="mr-2 inline-block h-3 w-3" />
+              Viewing as {detail.student?.display_name || detail.student?.username}
+            </p>
+            <button
+              onClick={onClose}
+              className="inline-flex items-center gap-1 border border-stone-400 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
+            >
+              <X className="h-3 w-3" /> Close
+            </button>
+          </div>
+          <nav className="flex flex-wrap items-center gap-2 px-5 pb-3">
+            {VIEW_AS_TABS.map((t) => {
+              const isActive = t.id === activeTab;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setActiveTab(t.id)}
+                  className={`whitespace-nowrap border px-4 py-2 text-sm transition ${
+                    isActive
+                      ? "border-[#cc785c] bg-[#cc785c] text-white"
+                      : "border-stone-300 bg-white text-black hover:border-stone-900"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
-        <StudentDashboard staffPreview={detail} />
+        <StudentDashboard
+          key={activeTab}
+          staffPreview={detail}
+          section={activeSection}
+        />
       </div>
     </div>
   );
