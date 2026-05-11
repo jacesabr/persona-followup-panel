@@ -704,6 +704,55 @@ which keys you send — only send a key when the document genuinely
 supports the value, since wrongly autofilled keys will be visibly
 attributed to the AI for the rest of the student's lifecycle.
 
+### 3c2. Pre-dispatch self-audit (MANDATORY before 3d)
+
+Before writing the dispatch JSON to disk, run these checks against
+every student-facing string you authored: every body string in the
+resume (`headline`, `lede`, `closing_note`, every `body`/`label`/`meta`
+in education / standardized_tests / awards / publications / activities
+/ internships / volunteer), the `sop_draft`, every `draft` in
+`lor_drafts` / `internship_drafts` / `lor_suggestions`. Skip
+`file_descriptions[*].description` — those are internal-facing staff
+notes where verbatim transcription is the point. The audit:
+
+1. **Em-dash / semicolon scan (HARD).** `grep -E "—|;"` returns zero
+   matches in every string above. If a sentence breaks with one of
+   these, restructure into two sentences or use a comma.
+2. **Banned-word scan (HARD).** Case-insensitive grep for the words
+   under "Stealth Mode rules" above: `passionate`, `dedicated`,
+   `hardworking`, `ambitious`, `motivated`, `journey`, `leverage`,
+   `foster`, `navigate`, `cultivate`, `embark`, `nurture`, `embraced`,
+   `demonstrated`, `sought`, `curated`, `pivotal`, `transformative`,
+   `holistic`, `robust`, `seamless`, `additionally`, `indeed`. Zero
+   matches.
+3. **Banned bullet-opener scan (HARD).** For every line that starts a
+   sentence or bullet body, the first word is not one of
+   `Spearheaded`, `Pioneered`, `Orchestrated`, `Navigated`,
+   `Cultivated`, `Fostered`, `Leveraged`, `Demonstrated`, `Curated`,
+   `Embarked`. Use the concrete verbs (`Built`, `Wrote`, `Ran`, `Led`,
+   `Won`, `Filed`, `Coded`, `Trained`, `Sold`).
+4. **No file-name reference (HARD).** Resume / SOP / LOR text must
+   never quote a raw uploaded filename (e.g.
+   `"EAadhaar_065623…page-0001 (1).jpg.jpeg"` or
+   `"cisce.org-SSCER-248115896 (1).pdf"`). System-uploaded files
+   carry portal-generated names that read as junk. Reference the
+   document by what it IS ("Class X ICSE marksheet", "Aadhaar
+   identity letter"), not by its uploaded filename. The slide UI
+   ([`src/StudentsAdmin.jsx`](../src/StudentsAdmin.jsx) `docNameFor()`)
+   does the same on its side; treat it as a parallel discipline.
+5. **Word-count check.** SOP 400-500 words, hard cap 500. Each LOR /
+   LOR-suggestion draft 200-300 words. Each Internship draft 150-250
+   words. Resume aggregate across visible-text fields 300-450 words.
+   Sections beyond these bounds get trimmed locally before dispatch.
+6. **Voice continuity check.** Read the SOP first sentence and the
+   resume `lede` one after the other. Same identity (Class XII
+   student, Ludhiana, quantitative bias, etc.), same anchoring
+   direction fact. If they read as two unrelated openings, re-author
+   one to match the other.
+
+If any check fails, fix the offending strings locally and re-run the
+audit. Do NOT dispatch a draft with known violations.
+
 ### 3d. Dispatch (atomic write)
 
 ```bash
