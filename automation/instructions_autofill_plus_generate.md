@@ -624,19 +624,175 @@ counsellor or admissions reader will see together.
 
 #### LOR drafts
 
-For each `kind='lor'` row in `required_docs` whose `staff_draft` is
-NULL: 200–300 words in the recommender's voice. Inputs:
-- `recipient_name` (the recommender)
-- `recipient_role` (their relation to the student)
-- `reason_brief` (the 20-word "why this person" the student wrote)
-- The student's marks / activities / story for specifics.
+For every `kind='lor'` row in `required_docs` whose `staff_draft` is
+NULL — student-typed AND every LOR suggestion you propose below —
+generate a **500–700 word** recommendation letter and write it to
+`staff_draft` (suggestions: via the `draft` field on the suggestion
+object; existing rows: by setting their `staff_draft`).
 
-Format:
-- Header: `Date: [TODAY]`, `To Whom It May Concern:`
-- Two substance paragraphs, one closing line.
-- Sign-off: `Sincerely,` / `[recipient_name]` / `[recipient_role]`.
+**Core principle — admissions read these side by side.** A student
+typically gets 2–4 LORs for the same application. If two letters share
+opening patterns, paragraph order, vocabulary, or rhythm, it reads as
+machine-generated and damages the application. Every LOR you draft in
+the same dispatch run for the same student MUST deliberately diverge
+from its siblings on four axes:
 
-Same Stealth Mode rules in the recommender's voice.
+1. **Voice** — each recommender has a distinct writing persona inferred
+   from their role (see *Voice inference* below).
+2. **Evidence selection** — each letter draws from a *different subset*
+   of the evidence pool. Same anecdote in two letters is a fail.
+3. **Narrative arc** — pick ONE arc per letter (A / B / C / D below).
+   Sibling letters must use different arcs.
+4. **Structural variation** — opening style, paragraph count, sentence
+   rhythm, and which beats run heavy.
+
+**Inputs available**
+- `recipient_name`, `recipient_role`, `reason_brief` (from the row or
+  from your suggestion object).
+- Student: `answers.full_name`, current `grade`, `targetCountry` /
+  `paths_list` if known.
+- The evidence pool from intake + file extractions:
+  - **Strong subject topics** — derived from `answers.subjects_list` and
+    marksheet `ai_description` rows (Section 5 → topics + grades).
+  - **Classroom participation anecdotes** — `ai_description` body of
+    the school-life / activities sections.
+  - **Projects** — `answers.projects_list`, plus project-doc extractions.
+  - **Research papers** — `answers.research_list` if non-empty.
+  - **Other academic activities** — `answers.activities_list` filtered to
+    academic ones (olympiad, fair, club).
+  - **Leadership incidents + peer dynamics** — `answers.activities_list`
+    leadership rows, plus the school-life narrative in extractions.
+
+  Treat each pool as oversupply — pick a *subset* per letter, not the
+  whole list. If a pool is empty, OMIT the matching beat rather than
+  invent one.
+
+**Voice inference (no stored teacher profile)**
+Pick the voice from `recipient_role` before drafting; keep it consistent
+end-to-end:
+- Principal / HOD / titled administrator → *formal-academic*,
+  long-flowing sentences, credentials-first opening.
+- Class teacher / subject teacher → *warm-mentor*, mixed rhythm,
+  anecdote-first or thesis-first opening.
+- Project mentor / external programme lead → *narrative-storyteller*,
+  scene-set opening, expansive paragraphs.
+- Course instructor (online / short programme) → *crisp-analytical*,
+  short-direct sentences, thesis-first opening.
+
+**Output structure — required components, flexible order**
+
+Fixed positions:
+- **Opening must be first.** The recommender introduces themselves
+  (name, designation, duration of association, subject), then signals
+  their thesis about the student in one line.
+- **Round-off must be last.** Summary recommendation + signature block.
+
+Flexible middle — pick ONE narrative arc per letter, and it must differ
+from every sibling LOR in this dispatch run:
+- **Arc A — Academic-led:** topics → participation → project →
+  research → other activity → leadership. (Safest default.)
+- **Arc B — Project-led:** open on the class project as the anchor
+  story; weave topics and participation around it; close on character.
+- **Arc C — Character-led:** open with a leadership / peer anecdote,
+  then show how that character shows up academically.
+- **Arc D — Integrated:** merge academic and character evidence into
+  3–4 thematic paragraphs (e.g. "intellectual curiosity", "rigor under
+  pressure", "influence on peers") rather than separate sections.
+
+**The 8 required content beats** (all must be present in some form,
+regardless of arc):
+1. Recommender self-introduction (name, designation, duration, subject,
+   thesis line on the student).
+2. Academic profile in the subject — 2–4 specific topics drawn from
+   the evidence pool. Each sibling letter picks a *different subset*.
+3. Classroom participation & concept clarity — one anecdote. Different
+   anecdote per sibling letter.
+4. ONE class project, foregrounded. Different project per sibling
+   where possible.
+5. Research paper — if non-empty. Different sibling letters emphasise
+   different angles (methodology / results / independence).
+6. ONE other academic activity. Different pick per sibling.
+7. Leadership & peer position — one incident + one peer observation.
+   Different incident per sibling.
+8. Round-off — summary + program fit (if `targetCountry` / program
+   known) + signature block.
+
+**Section weighting.** Each letter has **1–2 heavy beats** (full
+paragraph with detail) and the rest lighter (a few sentences or
+folded into another beat). Heavy beats MUST differ across siblings:
+e.g. LOR #1 heavy on the class project + research, LOR #2 heavy on
+leadership + classroom participation, LOR #3 heavy on Arc-D thematic
+pair. Mirrors how real teachers write — they emphasise what they
+personally witnessed most.
+
+**Format**
+- Header line: `Date: [TODAY]`
+- Salutation: `To Whom It May Concern,` — or, if `targetCountry` plus
+  a program / university is known, `To the Admissions Committee,
+  <program>,`
+- Body, 500–700 words. **Vary length across sibling LORs by ≥80 words;
+  never hit the same word count twice for the same student.**
+- Sign-off block:
+  ```
+  Sincerely,
+
+  [recipient_name]
+  [recipient_role]
+  ```
+
+**Style rules**
+- UK / Indian English. Warm but professional.
+- Specificity over adjectives — every paragraph carries at least one
+  concrete fact (topic name, project title, incident detail, score,
+  date). Strip vague praise unless it's earned in the same sentence.
+- Lock pronouns from the student's gendered context (`answers.gender`
+  or inferred). Do not drift.
+- All Stealth Mode rules above still apply *in the recommender's voice*
+  — no em-dashes, no semicolons, no banned words / phrases, no
+  transition stacking, sentence-length variance, no "1000 students"
+  generic lines.
+
+**Anti-template checklist — run before writing `staff_draft`.** For
+every new LOR draft, compare against every sibling LOR you've already
+authored in this dispatch run. Fail any check → regenerate that section
+and re-check. Loop until clean:
+
+- [ ] Opening sentence structurally differs from every sibling (not
+      another "I am writing to recommend…" / "It is my pleasure…" /
+      "I have known [student] for…").
+- [ ] Thesis line in the opening uses different adjectives and a
+      different frame.
+- [ ] Closing sentence is different.
+- [ ] No shared phrases longer than 4 words (other than the student's
+      name, subject names, project titles).
+- [ ] Narrative arc differs (A / B / C / D).
+- [ ] Heavy-weighted beats differ.
+- [ ] Different anecdotes drawn from the evidence pool. No two letters
+      tell the same classroom story, leadership story, or peer story.
+- [ ] Topic overlap from the subject pool ≤ 1; 2+ shared topics is a fail.
+- [ ] Word count differs by ≥ 80 words from every sibling.
+- [ ] Sentence rhythm differs (average sentence length and variance).
+- [ ] No repeated transitional phrases across sibling openings or
+      paragraph starters.
+
+**LOR-specific banned phrases** (in addition to the general Stealth
+Mode list above):
+- "It is with great pleasure that I recommend…"
+- "Without hesitation"
+- "In my X years of teaching…"
+- "Top X% of students I have ever taught" (unless explicitly evidenced)
+- "A rare combination of [X] and [Y]"
+- "Stands head and shoulders above peers"
+- "Exemplifies the qualities of…"
+- Strings of three adjectives separated by commas
+  ("bright, hardworking, and dedicated")
+- Generic closers like "I am confident she will be an asset to your
+  program"
+
+**No hallucination.** If the pool lacks evidence for a beat (no
+research paper on file, no leadership incident captured), OMIT the
+beat rather than invent one. Better a 520-word letter that skips
+research than a 650-word letter with a fabricated paper.
 
 #### Internship drafts
 
@@ -675,7 +831,7 @@ scratch when the student accepts:
   "recipient_name": "Rajiv Mehta",
   "recipient_role": "Entrepreneurship & Innovation course mentor, MENTORx Global",
   "reason_brief": "Led 8-week course where student was singled out for excellent performance",
-  "draft": "Date: [TODAY]\n\nTo Whom It May Concern:\n\nI am writing in support of Pratham Aggarwal's application…\n\n[two substance paragraphs grounded in the specific course / class / project that connected this recommender to the student, with at least one verbatim figure or quote from the student's file extractions]\n\nSincerely,\nRajiv Mehta\nEntrepreneurship & Innovation course mentor, MENTORx Global"
+  "draft": "Date: [TODAY]\n\nTo Whom It May Concern,\n\n[500–700 word letter following the LOR drafts spec above: chosen arc (A/B/C/D) that differs from sibling LORs, voice inferred from recipient_role, all 8 required beats present, 1–2 heavy beats grounded in the specific programme / class / project that connected this recommender to the student, verbatim figures or quotes pulled from the file extractions, anti-template checklist clean, banned-phrase scan clean]\n\nSincerely,\n\nRajiv Mehta\nEntrepreneurship & Innovation course mentor, MENTORx Global"
 }
 ```
 
@@ -689,16 +845,13 @@ Rules:
 - `reason_brief` is the same 20-word constraint as student-typed LOR
   briefs. Anchor to the specific accomplishment that this person
   witnessed.
-- **`draft` is now required.** 200–300 words in the recommender's
-  voice, same Stealth Mode rules as the other LOR drafts above.
-  Format: `Date: [TODAY]` header, two substance paragraphs grounded
-  in the specific course / class / project this recommender ran with
-  the student (with at least one verbatim figure or quote pulled from
-  the student's file extractions), one closing line, sign-off with
-  the recommender's name + role on separate lines. The dispatch
-  endpoint writes this to `staff_draft` on the inserted row so the
-  counsellor sees a pre-filled textarea on the Required-documents
-  slide instead of "Awaiting your draft."
+- **`draft` is required.** Follow the full *LOR drafts* spec above
+  — 500–700 words, voice inferred from `recipient_role`, one of arcs
+  A / B / C / D chosen to diverge from sibling LORs in this dispatch,
+  all 8 beats present, anti-template checklist clean, banned-phrase
+  scan clean. The suggestion's `draft` is written verbatim to
+  `staff_draft` on insert, so the counsellor opens the
+  Required-documents slide to a finished letter, not a blank textarea.
 - **Cap at 5 suggestions per student.** More than 5 is noise; the
   student picks 2–3 to actually pursue.
 - **Do not duplicate** recipients the student already entered as
