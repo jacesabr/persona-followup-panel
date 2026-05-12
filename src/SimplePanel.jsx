@@ -81,6 +81,13 @@ export default function SimplePanel({
   // Students tab knows which row to auto-expand on mount. Cleared once
   // the Students tab has consumed it.
   const [pendingStudentId, setPendingStudentId] = useState(null);
+  // Cross-tab navigation for tasks: the Documents tab passes the
+  // student's name when staff clicks "View tasks related to this
+  // student" so the Tasks tab can filter to that student. Stays set
+  // while the user works in Tasks; cleared via the in-tab "Clear
+  // filter" button or by leaving Tasks (CounsellorTasks calls
+  // onClearStudentScope).
+  const [taskScopeStudent, setTaskScopeStudent] = useState(null);
 
   useEffect(() => {
     try {
@@ -168,6 +175,8 @@ export default function SimplePanel({
           adminUsername={adminUsername}
           adminUsernameRaw={adminUsernameRaw}
           adminMirrors={adminMirrors}
+          scopedStudentName={taskScopeStudent}
+          onClearStudentScope={() => setTaskScopeStudent(null)}
         />
       )}
       {tab === "students" && (
@@ -192,7 +201,7 @@ export default function SimplePanel({
           role={role}
           counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
           onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
-          onViewTasks={() => setTab("tasks")}
+          onViewTasks={(_id, name) => { setTaskScopeStudent(name || null); setTab("tasks"); }}
         />
       )}
       {tab === "documents" && (
@@ -200,7 +209,7 @@ export default function SimplePanel({
           role={role}
           counsellors={counsellors || []}
           onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
-          onViewTasks={() => setTab("tasks")}
+          onViewTasks={(_id, name) => { setTaskScopeStudent(name || null); setTab("tasks"); }}
         />
       )}
       {tab === "marksheets" && (
@@ -222,13 +231,24 @@ export default function SimplePanel({
           onCounsellorsChanged={onCounsellorsChanged}
         />
       )}
-      {/* Subordinate task panels — Simran viewing Himani's board */}
+      {/* Subordinate task panels — Simran viewing Himani's board.
+          Must pass the same prop set as the canonical Tasks tab above,
+          otherwise the assignee-column impersonation link disappears
+          (gated on onImpersonate) and the admin-account dropdown loses
+          its accounts list. Earlier this only passed role + scoped id. */}
       {mySupervised.map((sub) =>
         tab === `team-${sub.id}` ? (
           <CounsellorTasks
             key={sub.id}
             role="counsellor"
             scopedCounsellorId={sub.id}
+            onImpersonate={onImpersonate}
+            counsellors={counsellors}
+            adminUsername={adminUsername}
+            adminUsernameRaw={adminUsernameRaw}
+            adminMirrors={adminMirrors}
+            scopedStudentName={taskScopeStudent}
+            onClearStudentScope={() => setTaskScopeStudent(null)}
           />
         ) : null
       )}

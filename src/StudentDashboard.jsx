@@ -5,11 +5,11 @@
 // The resume display + regenerate flow lives in the staff panel; the
 // student-facing view is purely a recap of what they submitted.
 //
-// Two render modes:
-//   1) Default (student logged in) — fetches /me/* endpoints.
-//   2) staffPreview (admin/counsellor "view as student") — receives the
-//      data the staff endpoint already returned, so the same component
-//      doubles as the staff-side preview without duplicating layout.
+// Always fetches from /me/* endpoints — there was previously a
+// `staffPreview` mode that doubled this as the admin "View as student"
+// surface, but that overlay was removed (clicking a student row in
+// the Students tab now opens the canonical slide-by-slide review).
+// The branch lived on as dead code and is gone now.
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import {
@@ -62,66 +62,40 @@ function getDocSummary(fieldId) {
   return DOC_SUMMARIES[leaf] || DOC_SUMMARIES[fieldId] || null;
 }
 
-// `section` (optional) restricts rendering to a single block when set:
+// `section` restricts rendering to a single block (PanelTabs always
+// sets it):
 //   "summary"        — application summary only
 //   "documents"      — uploaded-file previews only
 //   "required-docs"  — LOR / internship / SOP lifecycle only
 //   "resume"         — generated resume only
-// Unset = render everything in sequence (used by staff preview).
-export default function StudentDashboard({ studentName, onExit, staffPreview = null, embedded = false, section = null }) {
-  const isStaffPreview = !!staffPreview;
-
-  const [files, setFiles] = useState(() =>
-    isStaffPreview ? staffPreview.files || [] : null
-  );
-  const [answers, setAnswers] = useState(() =>
-    isStaffPreview ? extractAnswers(staffPreview.student?.data) : null
-  );
-  const [resumes, setResumes] = useState(() =>
-    isStaffPreview ? normalizeStaffResumes(staffPreview.resumes) : null
-  );
+export default function StudentDashboard({ studentName, onExit, embedded = false, section = null }) {
+  const [files, setFiles] = useState(null);
+  const [answers, setAnswers] = useState(null);
+  const [resumes, setResumes] = useState(null);
   const [requiredDocs, setRequiredDocs] = useState(null);
   const [myApplications, setMyApplications] = useState(null);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
 
-  const studentId = staffPreview?.student?.student_id || null;
-
   const load = useCallback(async () => {
     try {
-      if (isStaffPreview && studentId) {
-        const [detail, reqDocs, appsData] = await Promise.all([
-          api.getStudent(studentId),
-          api.listRequiredDocsForStudent(studentId).catch(() => []),
-          api.listApplicationsForStudent(studentId).catch(() => ({ pending: [], active: [], archived: [] })),
-        ]);
-        setFiles(detail.files || []);
-        setAnswers(extractAnswers(detail.student?.data));
-        setResumes(normalizeStaffResumes(detail.resumes));
-        setRequiredDocs(reqDocs);
-        // Per-student endpoint already filters on student_id; no need
-        // to client-filter or merge non-archived buckets — preserve
-        // the same shape the firm-wide path produced for downstream.
-        setMyApplications([...(appsData.pending || []), ...(appsData.active || [])]);
-      } else {
-        const [fileList, record, resumeList, reqDocs, apps] = await Promise.all([
-          listMyFiles(),
-          loadRecord().catch(() => ({ data: {} })),
-          listResumes().catch(() => []),
-          api.listMyRequiredDocs().catch(() => []),
-          api.listMyApplications().catch(() => []),
-        ]);
-        setFiles(fileList);
-        setAnswers(extractAnswers(record?.data));
-        setResumes(resumeList);
-        setRequiredDocs(reqDocs);
-        setMyApplications(apps);
-      }
+      const [fileList, record, resumeList, reqDocs, apps] = await Promise.all([
+        listMyFiles(),
+        loadRecord().catch(() => ({ data: {} })),
+        listResumes().catch(() => []),
+        api.listMyRequiredDocs().catch(() => []),
+        api.listMyApplications().catch(() => []),
+      ]);
+      setFiles(fileList);
+      setAnswers(extractAnswers(record?.data));
+      setResumes(resumeList);
+      setRequiredDocs(reqDocs);
+      setMyApplications(apps);
       setError(null);
     } catch (e) {
       setError(e?.message || "Couldn't load your information.");
     }
-  }, [isStaffPreview, studentId]);
+  }, []);
 
   // Keep `resumes` reachable inside the polling tick without putting
   // it in the effect's deps. The previous version listed `resumes` in
@@ -172,10 +146,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
   // the original filename.
   const fieldIndex = useMemo(() => buildFieldIndex(), []);
 
-  const headerName = staffPreview?.student?.display_name
-    || staffPreview?.student?.username
-    || studentName
-    || "student";
+  const headerName = studentName || "student";
 
   // Embedded mode: rendered inside PanelTabsView (the post-intake tabs
   // wrapper). The wrapper supplies its own brand/sign-out/tabs header,
@@ -189,7 +160,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
       }
       style={embedded ? undefined : { backgroundColor: "#f4f0e6" }}
     >
-      {!isStaffPreview && !embedded && (
+      {!embedded && (
         <header className="border-b border-stone-900/10 bg-[#f4f0e6]/80 px-6 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between">
             <div className="flex items-baseline gap-2">
@@ -210,8 +181,8 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         </header>
       )}
 
-      <main className={`mx-auto ${isStaffPreview ? "max-w-4xl px-2 py-4" : embedded ? "max-w-3xl px-0 py-2" : "max-w-3xl px-6 py-12"}`}>
-        {!isStaffPreview && !section && (
+      <main className={`mx-auto ${embedded ? "max-w-3xl px-0 py-2" : "max-w-3xl px-6 py-12"}`}>
+        {!section && (
           <h1 className="font-serif text-3xl">{headerName}</h1>
         )}
 
@@ -245,7 +216,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
                   <ChapterSummaryBlock
                     key={chapter.id}
                     chapter={chapter}
-                    studentId={isStaffPreview ? studentId : null}
+                    studentId={null}
                   />
                 ))
               )}
@@ -274,28 +245,10 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
                     key={f.id}
                     file={f}
                     fieldIndex={fieldIndex}
-                    studentId={isStaffPreview ? studentId : null}
+                    studentId={null}
                   />
                 ))
               )}
-            </div>
-          </section>
-        )}
-
-        {/* Application status — read-only view of the student's school
-            applications managed by their counsellor. Only rendered in
-            the all-sections (staff-preview) path; PanelTabs has its
-            own dedicated tab for this. */}
-        {!section && myApplications && myApplications.length > 0 && (
-          <section className="mt-10">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Application status</h2>
-            <p className="mt-1 text-sm text-stone-800">
-              Your school applications as tracked by your counsellor.
-            </p>
-            <div className="mt-3 space-y-2">
-              {myApplications.map((app) => (
-                <ApplicationStatusRow key={app.id} app={app} />
-              ))}
             </div>
           </section>
         )}
@@ -308,8 +261,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             </p>
             <RequiredDocsBlock
               docs={requiredDocs}
-              isStaffPreview={isStaffPreview}
-              studentId={isStaffPreview ? studentId : null}
+              studentId={null}
               onAfterChange={load}
             />
           </section>
@@ -318,7 +270,7 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
         {/* Show the LOR suggestions block even when the student has no
             other required-docs yet, so a freshly auto-filled student
             sees the proposed recommenders immediately. */}
-        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && !isStaffPreview && (
+        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && (
           <section className={section ? "" : "mt-10"}>
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Letters of recommendation</h2>
             <p className="mt-1 text-sm text-stone-800">
@@ -326,7 +278,6 @@ export default function StudentDashboard({ studentName, onExit, staffPreview = n
             </p>
             <RequiredDocsBlock
               docs={[]}
-              isStaffPreview={false}
               studentId={null}
               onAfterChange={load}
               showAddCardWhenEmpty
@@ -438,73 +389,13 @@ function UrgentItemsStrip({ items }) {
 }
 
 // ============================================================
-// ApplicationStatusRow — read-only card for one application.
-// Colors mirror the operator's xlsx palette from ApplicationsPanel.jsx.
-// ============================================================
-const APP_STATUS_META = {
-  active:    { label: "Active",                swatch: "#00FF00", tone: "#1c1917" },
-  submitted: { label: "Application submitted", swatch: "#93C47D", tone: "#1c1917" },
-  offer:     { label: "Offer received",        swatch: "#6AA84F", tone: "#ffffff" },
-  ongoing:   { label: "Ongoing",               swatch: "#F5F5F0", tone: "#1c1917", border: "#d6d3d1" },
-  on_hold:   { label: "On hold",               swatch: "#FF9900", tone: "#1c1917" },
-  cancelled: { label: "Cancelled",             swatch: "#FF0000", tone: "#ffffff" },
-};
-
-function fmtAppDate(d) {
-  if (!d) return null;
-  try { return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
-  catch { return d; }
-}
-
-function ApplicationStatusRow({ app }) {
-  const meta = APP_STATUS_META[app.status] || { label: app.status || "—", swatch: "#E7E5E4", tone: "#1c1917" };
-  const isPending = app.pending;
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border border-stone-900/10 bg-white px-4 py-3">
-      {/* Status swatch */}
-      <span
-        className="shrink-0 rounded-sm px-2 py-0.5 text-xs font-medium"
-        style={{
-          background: meta.swatch,
-          color: meta.tone,
-          border: meta.border ? `1px solid ${meta.border}` : undefined,
-        }}
-      >
-        {isPending ? "Awaiting review" : meta.label}
-      </span>
-
-      {/* School info — wraps inline; long names break to a new line
-          rather than getting cut off. */}
-      <span className="text-sm font-medium text-black break-words">{app.university}</span>
-      {app.program && (
-        <span className="text-xs text-black break-words">{app.program}</span>
-      )}
-      {app.country && (
-        <span className="text-xs text-black">{app.country}</span>
-      )}
-
-      {/* Deadline */}
-      {app.deadline && !isPending && (
-        <span className="ml-auto shrink-0 text-xs text-black">
-          Deadline: {fmtAppDate(app.deadline)}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
 // RequiredDocsBlock — splits the doc list into AI-suggested LOR rows
 // (student_accepted_at IS NULL, kind='lor') and the regular accepted
 // flow. Suggestions render as cards with check / X actions; accepted
 // rows render as the existing RequiredDocRow. The "+ add another"
 // button always trails the LOR section so the student can manually
 // add a recommender at any time.
-//
-// In staff preview mode (counsellor / admin "view as student") the
-// suggestion cards are still visible, but the accept / X / + actions
-// are hidden — those are the student's own decisions to make.
-function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, showAddCardWhenEmpty = false }) {
+function RequiredDocsBlock({ docs, studentId, onAfterChange, showAddCardWhenEmpty = false }) {
   const suggestions = (docs || []).filter(
     (d) => d.kind === "lor" && !d.student_accepted_at
   );
@@ -512,7 +403,7 @@ function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, sho
     (d) => !(d.kind === "lor" && !d.student_accepted_at)
   );
   const hasAnyLor = (docs || []).some((d) => d.kind === "lor");
-  const showAddCard = !isStaffPreview && (suggestions.length > 0 || hasAnyLor || showAddCardWhenEmpty);
+  const showAddCard = suggestions.length > 0 || hasAnyLor || showAddCardWhenEmpty;
   return (
     <div className="mt-4 space-y-3">
       {suggestions.length > 0 && (
@@ -524,7 +415,6 @@ function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, sho
             <LorSuggestionCard
               key={d.id}
               doc={d}
-              isStaffPreview={isStaffPreview}
               onAfterChange={onAfterChange}
             />
           ))}
@@ -535,7 +425,6 @@ function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, sho
         <RequiredDocRow
           key={d.id}
           doc={d}
-          isStaffPreview={isStaffPreview}
           onAfterUpload={onAfterChange}
           studentId={studentId}
         />
@@ -548,7 +437,7 @@ function RequiredDocsBlock({ docs, isStaffPreview, studentId, onAfterChange, sho
 // recipient_name + recipient_role + reason_brief from the dispatch
 // payload. Student clicks the check to accept (the row enters the
 // regular drafting lifecycle) or X to delete (the row is removed).
-function LorSuggestionCard({ doc, isStaffPreview, onAfterChange }) {
+function LorSuggestionCard({ doc, onAfterChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const accept = async () => {
@@ -586,29 +475,27 @@ function LorSuggestionCard({ doc, isStaffPreview, onAfterChange }) {
           <span className="text-stone-700">Why. </span>{doc.reason_brief}
         </p>
       )}
-      {!isStaffPreview && (
-        <div className="mt-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={accept}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-800 disabled:opacity-50"
-          >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            Accept
-          </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-red-700 hover:text-red-700 disabled:opacity-50"
-          >
-            <AlertCircle className="h-3 w-3" />
-            Remove
-          </button>
-          {err && <span className="text-xs text-red-700">{err}</span>}
-        </div>
-      )}
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={accept}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-800 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+          Accept
+        </button>
+        <button
+          type="button"
+          onClick={remove}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-red-700 hover:text-red-700 disabled:opacity-50"
+        >
+          <AlertCircle className="h-3 w-3" />
+          Remove
+        </button>
+        {err && <span className="text-xs text-red-700">{err}</span>}
+      </div>
     </div>
   );
 }
@@ -729,7 +616,7 @@ function AddLorCard({ onAfterChange }) {
 // Day 5 — URGENT once we hit the deadline day. Reminders themselves
 // (email / WhatsApp) aren't wired up — just the visual.
 // ============================================================
-function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
+function RequiredDocRow({ doc, onAfterUpload, studentId }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const fileRef = useRef(null);
@@ -753,7 +640,7 @@ function RequiredDocRow({ doc, isStaffPreview, onAfterUpload, studentId }) {
     dayBadge = computeDayBadge(doc.requested_at, doc.deadline_at);
   }
 
-  const canUpload = !isStaffPreview && status === "requested";
+  const canUpload = status === "requested";
   const showStaffDraft = !!doc.staff_draft && (status === "requested" || status === "received" || status === "approved" || status === "drafted_sop");
 
   const onUpload = async (e) => {
@@ -1791,18 +1678,3 @@ function humanSize(b) {
   return `${(b / 1024 ** 2).toFixed(1)} MB`;
 }
 
-// Admin endpoint returns resume rows in snake_case; the student-facing
-// renderer prefers camelCase. Normalise once on entry so downstream
-// code doesn't have to fork.
-function normalizeStaffResumes(rows) {
-  if (!Array.isArray(rows)) return [];
-  return rows.map((r) => ({
-    id: String(r.id),
-    label: r.label,
-    status: r.status,
-    contentMd: r.content_md ?? r.contentMd ?? null,
-    error: r.error,
-    createdAt: r.created_at ?? r.createdAt,
-    updatedAt: r.updated_at ?? r.updatedAt,
-  }));
-}

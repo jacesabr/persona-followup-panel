@@ -51,6 +51,12 @@ export default function CounsellorTasks({
   adminUsername = "",
   adminUsernameRaw = "",
   adminMirrors = [],
+  // Optional per-student filter applied on top of the assignee scope.
+  // Set by SimplePanel when staff clicks "View tasks related to this
+  // student" from the Documents tab — before this prop existed, that
+  // button just jumped to the unfiltered Tasks tab.
+  scopedStudentName = null,
+  onClearStudentScope = () => {},
 }) {
   // When scoped, hide other counsellors' tasks and auto-assign new tasks
   // to this counsellor. Admin sees everything and picks the assignee.
@@ -154,22 +160,33 @@ export default function CounsellorTasks({
   // task without setting assignee, or assignee+lead-counsellor diverge
   // for some reason).
   const visibleTasks = useMemo(() => {
-    if (!isScoped) return tasks;
-    const myLeadIds = new Set(
-      leads
-        .filter((l) => l.counsellor_id === scopedCounsellorId)
-        .map((l) => l.id)
-    );
-    return tasks.filter(
-      (t) =>
-        t.assignee_id === scopedCounsellorId ||
-        (t.lead_id && myLeadIds.has(t.lead_id)) ||
-        // Admin-targeted tasks I created — server returns them so I can
-        // track tasks I sent up; without this clause they'd vanish from
-        // every section in the scoped view.
-        (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
-    );
-  }, [tasks, leads, isScoped, scopedCounsellorId]);
+    let base;
+    if (!isScoped) {
+      base = tasks;
+    } else {
+      const myLeadIds = new Set(
+        leads
+          .filter((l) => l.counsellor_id === scopedCounsellorId)
+          .map((l) => l.id)
+      );
+      base = tasks.filter(
+        (t) =>
+          t.assignee_id === scopedCounsellorId ||
+          (t.lead_id && myLeadIds.has(t.lead_id)) ||
+          // Admin-targeted tasks I created — server returns them so I can
+          // track tasks I sent up; without this clause they'd vanish from
+          // every section in the scoped view.
+          (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
+      );
+    }
+    if (!scopedStudentName) return base;
+    const needle = scopedStudentName.trim().toLowerCase();
+    if (!needle) return base;
+    return base.filter((t) => {
+      const s = (t.lead_name || t.student_name || "").trim().toLowerCase();
+      return s === needle;
+    });
+  }, [tasks, leads, isScoped, scopedCounsellorId, scopedStudentName]);
 
   // Split active vs archived. Archived rows live in a collapsible section
   // at the bottom; the main list is active-only, sorted/grouped by the
@@ -591,6 +608,21 @@ export default function CounsellorTasks({
 
   return (
     <>
+      {scopedStudentName && (
+        <div className="mb-4 flex items-center justify-between gap-3 border border-[#cc785c] bg-[#fdf4ef] px-4 py-3">
+          <p className="text-sm text-black">
+            Showing tasks for student: <span className="font-semibold">{scopedStudentName}</span>
+          </p>
+          <button
+            type="button"
+            onClick={onClearStudentScope}
+            className="inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
+          >
+            <X className="h-3 w-3" /> Clear filter
+          </button>
+        </div>
+      )}
+
       {/* ── My Tasks section ─────────────────────────────────── */}
       <div className="mb-4 flex items-center justify-between border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">

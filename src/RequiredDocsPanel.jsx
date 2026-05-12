@@ -295,7 +295,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                   {onViewTasks && (
                     <button
                       type="button"
-                      onClick={() => onViewTasks(sid)}
+                      onClick={() => onViewTasks(sid, name)}
                       className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
                       <ClipboardList className="h-4 w-4" /> View tasks related to this student

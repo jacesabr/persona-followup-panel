@@ -716,7 +716,7 @@ function ApplicationDetailModal({ row, students, counsellors, role, onClose, onS
                 </button>
               )}
               {onViewTasks && (
-                <button type="button" onClick={() => { onClose(); onViewTasks(); }}
+                <button type="button" onClick={() => { onClose(); onViewTasks(row.student_id, row.student_name || row.student_username); }}
                   className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ClipboardList className="h-4 w-4" /> View tasks for this student
                 </button>
@@ -1153,7 +1153,7 @@ function ReviewModal({ row, students, counsellors, role, onClose, onPromote, onV
                 </button>
               )}
               {onViewTasks && (
-                <button type="button" onClick={() => { onClose(); onViewTasks(); }}
+                <button type="button" onClick={() => { onClose(); onViewTasks(row.student_id, row.student_name || row.student_username); }}
                   className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black hover:border-[#cc785c] hover:text-[#cc785c] transition">
                   <ClipboardList className="h-4 w-4" /> View tasks for this student
                 </button>
