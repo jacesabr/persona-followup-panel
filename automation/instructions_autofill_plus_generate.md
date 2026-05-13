@@ -715,6 +715,27 @@ counsellor or admissions reader will see together.
 
 #### LOR drafts
 
+**BEFORE WRITING ANY SENTENCE — read the LOR corpus.** Same gate as
+the SOP step. The runbook agent MUST read these files in order, every
+dispatch run, before composing the first LOR sentence:
+
+1. `automation/lor_corpus/lor-guideline.md` — the operator's
+   hand-written 8-point structure (introduce self + association →
+   academic characteristics → classroom participation → class project
+   → research paper → academic activity → leadership → round-off).
+   Every LOR hits these eight beats. Order can flex (see *Narrative
+   arc* below) but every beat must land.
+2. `automation/lor_corpus/examples/*.md` — 14 real teacher LORs
+   spanning Physics, Maths, Business Studies, Economics, Political
+   Science, Psychology, Geography, Marketing, IP, Interior, ISH
+   hospitality. The cross-subject coverage exists so the agent can
+   match register to recommender role — physics-teacher voice is not
+   marketing-teacher voice. Skim every example; use them as voice +
+   density anchors. **Never copy a sentence.**
+
+The corpus is the canonical spec. The rules below sit *underneath* it
+— apply them inside the structure the corpus dictates.
+
 For every `kind='lor'` row in `required_docs` whose `staff_draft` is
 NULL — student-typed AND every LOR suggestion you propose below —
 generate a **500–700 word** recommendation letter and write it to

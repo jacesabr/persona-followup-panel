@@ -21,7 +21,7 @@ are how those rules play out on real students.
 | `construction-guidelines.docx` | Original Word doc. Kept for reference; the .md is the canonical version the agent reads. |
 | `examples/*.md` | Past student SOPs. Voice / pacing / paragraph balance reference. |
 | `examples/*.docx` | Originals. |
-| `_convert.mjs` | Idempotent helper that re-runs the .docx → .md conversion if new files land. |
+| Re-converting .docx → .md | Run `node automation/scripts/convert-docx-to-md.mjs automation/sop_corpus` after dropping new examples. Idempotent (skips up-to-date .md). |
 
 ## How the agent uses this
 
@@ -42,7 +42,7 @@ The agent never copies sentences. It borrows shape.
 ## Adding a new example
 
 1. Drop the .docx into `examples/`.
-2. Run `node automation/sop_corpus/_convert.mjs` to refresh the .md.
+2. Run `node automation/scripts/convert-docx-to-md.mjs automation/sop_corpus` to refresh the .md.
 3. Commit both files (the .docx is the auditable source; the .md is
    what the agent reads).
 
