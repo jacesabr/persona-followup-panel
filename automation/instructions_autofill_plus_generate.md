@@ -165,7 +165,53 @@ Compose `ai_description` as a markdown block with the five sections
 below in this order. Skip a section only when it would genuinely be
 empty.
 
-**Section 1 — Narrative** (no heading; opens the document)
+#### ID-document carve-out (Aadhaar, passport, PAN, similar)
+
+For pure identity documents the only useful artifact is a transcribed
+fields table. A counsellor reading an Aadhaar slide does not benefit
+from a narrative summary, a verbatim block, a numeric summary, or a
+Conclusions section — those repeat what the table already says and
+clutter the per-doc slide.
+
+For Aadhaar / passport (any page) / PAN / voter ID / driving licence
+/ any other government-issued identity card, emit ONLY:
+- **Section 1 — Fields table**, with one row per legible field.
+
+Skip Sections 2, 3, 4, and 5 entirely. The `ai_extracted` JSON is
+still composed as usual (that drives autofill). Field-vs-intake
+mismatches are handled by the dispatch endpoint's no-overwrite rule;
+do not add a Conclusions flag for them.
+
+Everything below (Sections 1–5) applies to non-ID documents —
+marksheets, certificates, transcripts, internship letters,
+test-score reports, and anything else where narrative context, a
+verbatim transcription, or downstream-narrative signals carry value.
+
+Section order is fixed: Fields → Narrative → Verbatim → Summary →
+Conclusions. The structured table comes first so a counsellor opening
+a per-doc slide sees the transcribed data immediately, not a wall of
+prose. Slower-reading sections (verbatim transcription, numeric
+summary, downstream-signal conclusions) sit underneath. ID docs stop
+after Section 1.
+
+**Section 1 — Fields table** (under a `### Fields` heading)
+
+The structured key-value transcription of every legible data point on
+the document. A markdown table with three columns: `Field | Value |
+Source` where Source is the visible label / location on the document
+(e.g. "Top right header", "Row 3 of marks table"). Lift every distinct
+data point. Every subject row on a marksheet becomes a table row.
+Every Aadhaar field (name, DOB, gender, address line 1, etc.) becomes
+a row.
+
+**Always render this section first** in `ai_description` — the
+counsellor scans this table before reading any prose.
+
+This is the human-readable mirror of `ai_extracted` — staff readers
+scan this table; the autofill pipeline reads `ai_extracted`.
+
+**Section 2 — Narrative** (no heading; opens the prose below the
+fields table)
 
 **Format: bullet points, one logical fact per bullet. 5–10 bullets max.**
 A counsellor must get the full picture in 5–10 seconds. Each bullet is
@@ -182,18 +228,6 @@ one distinct piece of information. Bold the label or the key value.
   belong in Conclusions only.
 - Never use pipeline-meta language: "maps to intake form", "autofill",
   "narrative value", "downstream artifacts", "surfaces", "establishes".
-
-**Good example — Aadhaar:**
-```
-- Government-issued UIDAI identity letter, current as of December 2025
-- **Name**: Pratham Aggarwal
-- **DOB**: 1 June 2008
-- **Gender**: Male
-- **Address**: H NO-5 Orchid Vill, Barewal Road, Rajguru Nagar, Ludhiana, Punjab 141012
-- **Mobile**: 9876212600
-- **Aadhaar No.**: 3935 2631 2028
-- **Father (C/O field)**: Vikas Aggarwal
-```
 
 **Good example — marksheet:**
 ```
@@ -226,30 +260,14 @@ The amount of detail per bullet depends on what the document carries:
   every claim to a number on the source. Name the school/board if
   visible — maps to `schoolName`.
 
-- **Aadhaar card** (the most information-dense identity doc):
-  - Name as printed — maps to `name`.
-  - DOB on the card — maps to `dob`.
-  - Mobile number — maps to `phone` (add +91 prefix if not on card).
-  - 12-digit Aadhaar number formatted `XXXX XXXX XXXX` — maps to `aadhar`.
-  - Address: break into components — house/street block → `address_street`,
-    VTC/locality → `address_area`, district → `address_city`, state →
-    `address_state`, PIN code → `address_pin`.
-  - **C/O field**: if the value is a personal name (e.g. "VIKAS AGGARWAL"),
-    this is the father/guardian's name — maps to `father_name`. Skip if
-    the C/O is a company or organisation name.
-  - Flag every field against existing `answers.*` values and call out
-    any mismatch in Section 5.
-
-- **Passport**:
-  - Name, DOB (ISO YYYY-MM-DD) — maps to `name`, `dob`.
-  - Passport number (alphanumeric) — maps to `passport`.
-  - Expiry date (ISO YYYY-MM-DD) — maps to `passportExpiry`.
-  - Nationality, issue country — describe in narrative, no intake key.
-  - Flag expiry: if within 12 months of application intake year, call it
-    out as an operational flag in Section 5.
-
-- **PAN card**: PAN number (10 chars, e.g. ABCDE1234F) → `pan`.
-  Name and DOB on PAN cross-check against Aadhaar — flag any mismatch.
+- **Aadhaar card / passport / PAN card / any other ID document**:
+  Fields-table-only output per the *ID-document carve-out* above.
+  Drop Sections 2, 3, 4, 5. The autofill keys still map as in the
+  `ai_extracted` registry below (Aadhaar → `name` / `dob` / `phone`
+  / `aadhar` / address components / `father_name` from C/O; passport
+  → `name` / `dob` / `passport` / `passportExpiry`; PAN → `pan`).
+  Field-vs-intake mismatches surface through the dispatch endpoint's
+  no-overwrite logic; do not author Conclusions flags for them.
 
 - **Certificates / completion letters**: What was earned, issuing body,
   programme content, cohort size or rank if visible, how it connects to
@@ -274,11 +292,13 @@ The amount of detail per bullet depends on what the document carries:
   The opening student paragraph is enough. Skip layered detail. Note any
   named signatories if they are plausible LOR sources.
 
-Total Section 1 length: 150–350 words depending on how much the
-document actually carries. A passport bio page is short; a Class XII
-predicted-marks transcript is long.
+Total Section 2 length: 150–350 words depending on how much the
+document actually carries. A Class XII predicted-marks transcript is
+long; an activity certificate is short. ID documents (Aadhaar /
+passport / PAN / similar) skip Section 2 entirely — see the carve-out
+above.
 
-**Section 2 — Verbatim transcription** (under a `### Verbatim`
+**Section 3 — Verbatim transcription** (under a `### Verbatim`
 heading)
 
 Every legible word on the document, in reading order, preserved as
@@ -297,17 +317,6 @@ the table as a markdown table inside this section. Do not collapse it.
 If a value is illegible: `[illegible]`. If you can partially read it:
 best guess + `[?]` (e.g. `Math: 96[?]`). **Never invent values** —
 when in doubt, mark uncertainty.
-
-**Section 3 — Structured table** (under a `### Fields` heading)
-
-A markdown table with three columns: `Field | Value | Source` where
-Source is the visible label / location on the document (e.g. "Top
-right header", "Row 3 of marks table"). Lift every distinct data
-point. Every subject row becomes a table row. Every Aadhar field
-(name, DOB, gender, address line 1, etc.) becomes a row.
-
-This is the human-readable mirror of `ai_extracted` — staff readers
-scan this table; the autofill pipeline reads `ai_extracted`.
 
 **Section 4 — Numeric summary** (under a `### Summary` heading)
 
