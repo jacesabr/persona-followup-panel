@@ -657,15 +657,47 @@ that came out of the May 2026 audit:
 
 #### SOP draft (max 500 words, first-person, three paragraphs)
 
-Aim for 400–500 words. **Hard cap: 500 words.** Anything above that
-gets cut server-side or by the counsellor at review.
+**BEFORE WRITING ANY SENTENCE — read the SOP corpus.** The runbook
+agent MUST read these files in order, every dispatch run, before
+composing the SOP:
 
-1. Why this field, grounded in lived experience (an activity, a
-   class, a moment).
-2. What they've done to test that interest (the activities + marks
-   evidence).
-3. Why this country / program specifically, and what they want to
-   do after.
+1. `automation/sop_corpus/construction-guidelines.md` — the eight-
+   section structural spec the operator hand-edited. It defines the
+   section order (origin of passion → academic background → ECs &
+   exposure → career goals → why this course → why this university →
+   why this country → future plans) and the equal-word-distribution
+   rule. When the word cap is tight (≤ 500), drop "Why this country"
+   first per the explicit instruction at the bottom of that file.
+2. `automation/sop_corpus/examples/*.md` — seven past student SOPs.
+   Skim every one. Use them to calibrate voice, density, and how
+   abstract claims get grounded in specific named artefacts
+   (programmes, books, internships, papers).
+
+The corpus is the canonical spec for SOP shape and voice. The rules
+below sit *underneath* it — apply them inside the structure the
+corpus dictates. Never copy a sentence; borrow the shape.
+
+**Length.** Aim for 400–500 words. **Hard cap: 500 words.** Anything
+above gets cut server-side or by the counsellor at review. When the
+target university supplies a smaller cap (UCAS short answers, common-
+app supplements), honour their cap instead and use the construction
+guidelines' "trim country" carve-out plus shrink the other sections
+proportionally so every retained beat stays balanced.
+
+**Structure (driven by `construction-guidelines.md`).** Use the eight
+sections as the skeleton. At 500 words, that's ~60 words per section
+on average; aim for equal distribution rather than dumping word
+budget into the opener. The examples in `examples/` show this
+distribution playing out — Karan's UCAS short answers in particular
+demonstrate how each block carries its own evidence anchor.
+
+**Anchoring discipline.** Every paragraph names a specific artefact:
+a named course, a named book, a named programme, a named research
+paper, a named internship, or a quantified outcome. Generic claims
+("I am passionate about X") read as machine output. The Karan UCAS
+example anchors on "The Personal MBA / Start with Why → Stacked Up
+Burgers → Master's Union Start-Up Week → IJRAR-published paper" —
+that's the density to match.
 
 Same Stealth Mode banned-word / banned-phrase rules. Same
 no-em-dash / no-semicolon / no-filler rules. Specific to named
