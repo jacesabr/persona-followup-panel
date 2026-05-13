@@ -1234,7 +1234,7 @@ Print at end:
 submit, a button appears: **"Request manual AI fill"**. Clicking it:
 
 1. POSTs to `/api/admin/ai/request-manual-fill` with
-   `{ student_id, notes? }`.
+   `{ student_id, notes?, force_redraft? }`.
 2. Server inserts a row into `manual_ai_requests` and returns OK.
 3. The button collapses to a status banner:
    *"Request queued — dev has been notified to run the automation
@@ -1248,6 +1248,28 @@ The counsellor's UI polls the request status every minute. Once the
 dev runs the script and the dispatch resolves it, the banner flips to
 *"Fill-in complete — open the student to view the new resume / SOP /
 LOR drafts."*
+
+### Redraft requests
+
+If the student already has AI artifacts (the banner is in the
+"complete" state) but a counsellor wants the artifacts rewritten —
+for example, after collecting the actual Class XII Maths teacher's
+name to fill the `[Class XII Mathematics Teacher]` placeholder —
+they click **"Request redraft with notes"**. A textarea appears for
+the human reason (≤1000 chars) and the request lands with
+`force_redraft = TRUE` on `manual_ai_requests`.
+
+When the dev's dispatch run sees a pending request with
+`force_redraft = TRUE`, the dispatch endpoint OR's that into
+`body.force`, so every `setDraft` call inside dispatch runs with
+`force = true` — existing `staff_draft` values are overwritten
+instead of being silently skipped. **The dev's job on a redraft
+request:** read the counsellor's `notes` in the AI Queue audit row
+(the panel renders them inline alongside the "redraft requested"
+amber badge), author drafts that incorporate the counsellor's
+instruction, and dispatch as usual. No special body flag is needed
+on the dev side — the request's `force_redraft` does the work
+server-side.
 
 ---
 

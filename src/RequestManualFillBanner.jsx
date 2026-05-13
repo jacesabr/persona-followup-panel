@@ -54,6 +54,13 @@ export default function RequestManualFillBanner({
   const [status, setStatus] = useState(null); // null | "loading" | request row | "idle"
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState(null);
+  // Redraft-request UI: when the student is past their first pipeline
+  // run (ai_artifacts_generated_at on file), the idle banner shows a
+  // "Request redraft" affordance with a notes textarea. The dispatch
+  // endpoint reads force_redraft on the pending row and passes
+  // force=true to setDraft so existing staff_drafts are overwritten.
+  const [showRedraftForm, setShowRedraftForm] = useState(false);
+  const [redraftNotes, setRedraftNotes] = useState("");
 
   // Pre-submit hint — user hasn't created the student yet.
   if (!studentId) {
@@ -91,12 +98,17 @@ export default function RequestManualFillBanner({
     };
   }, [refresh]);
 
-  const submit = async () => {
+  const submit = async ({ forceRedraft = false } = {}) => {
     setSubmitting(true);
     setErr(null);
     try {
-      await api.requestManualAiFill(studentId, null);
+      await api.requestManualAiFill(studentId, {
+        notes: forceRedraft ? (redraftNotes.trim() || null) : null,
+        force_redraft: forceRedraft,
+      });
       await refresh();
+      setShowRedraftForm(false);
+      setRedraftNotes("");
       // Open the prefilled mailto: in a new tab. The user's mail
       // client picks it up — counsellor reviews and sends.
       const mailto = buildMailtoUrl({
@@ -130,15 +142,60 @@ export default function RequestManualFillBanner({
     );
   }
 
-  // Resolved request → success block
+  // Resolved request → success block (with optional redraft affordance
+  // when the student already has AI artifacts and the counsellor wants
+  // a fresh pass with manual notes).
   if (status && status !== "idle" && status.processed_at) {
     return (
-      <div className={`inline-flex items-center gap-2 border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ${className}`}>
-        <CheckCircle2 className="h-4 w-4" />
-        <span>
-          AI fill-in complete — open the student to view the new resume,
-          SOP, and LOR drafts.
-        </span>
+      <div className={`border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ${className}`}>
+        <div className="inline-flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          <span>
+            AI fill-in complete — open the student to view the new resume,
+            SOP, and LOR drafts.
+          </span>
+        </div>
+        {showRedraftForm ? (
+          <div className="mt-3 border-t border-emerald-200 pt-3">
+            <label className="block text-xs font-semibold uppercase tracking-[0.15em] text-emerald-900">
+              What should the redraft cover? (optional, 1000 chars)
+            </label>
+            <textarea
+              value={redraftNotes}
+              onChange={(e) => setRedraftNotes(e.target.value.slice(0, 1000))}
+              rows={3}
+              placeholder="e.g. Use Mr. Sharma as the Class XII Maths teacher's name and Mrs. Kapoor for Physics. Tighten the SOP to under 480 words."
+              className="mt-1 w-full border border-stone-300 bg-white px-2 py-1.5 text-sm text-black focus:border-[#cc785c] focus:outline-none"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => submit({ forceRedraft: true })}
+                disabled={submitting}
+                className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
+              >
+                {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                Request redraft
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowRedraftForm(false); setRedraftNotes(""); }}
+                disabled={submitting}
+                className="border border-stone-300 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-black hover:border-stone-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowRedraftForm(true)}
+            className="mt-2 inline-flex items-center gap-1 border border-emerald-700 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.15em] text-emerald-900 hover:bg-emerald-50"
+          >
+            <Send className="h-3 w-3" /> Request redraft with notes
+          </button>
+        )}
       </div>
     );
   }
@@ -149,12 +206,22 @@ export default function RequestManualFillBanner({
       <div className={`flex items-start gap-3 border-2 border-orange-600 bg-orange-50 px-4 py-3 text-base text-orange-900 ${className}`}>
         <Clock className="mt-0.5 h-5 w-5 shrink-0" />
         <div>
-          <p className="text-lg font-bold">Request queued.</p>
+          <p className="text-lg font-bold">
+            {status.force_redraft ? "Redraft request queued." : "Request queued."}
+          </p>
           <p>
             <strong>Dev has been notified</strong> to run the automation
             script from <strong>Claude Code</strong>. This banner flips
             to <strong>complete</strong> automatically once the run lands.
           </p>
+          {status.notes && (
+            <p className="mt-2 border border-orange-300 bg-white px-3 py-2 text-sm">
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.15em] text-orange-800">
+                Counsellor notes
+              </span>
+              {status.notes}
+            </p>
+          )}
           <a
             href={buildMailtoUrl({ studentId, displayName: studentDisplayName, counsellorName })}
             target="_blank"

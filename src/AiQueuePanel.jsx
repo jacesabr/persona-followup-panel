@@ -21,7 +21,7 @@
 // jumps to the Students tab and auto-expands that student's modal.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Send, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCw, Send, CheckCircle2, Clock, AlertCircle, RotateCcw } from "lucide-react";
 import { api } from "./api.js";
 import useAutoRefresh from "./useAutoRefresh.js";
 
@@ -135,6 +135,11 @@ function RequestRow({ row, onViewStudent }) {
               {row.student_display_name || row.student_username || row.student_id}
             </button>
             <span className="ml-2 text-stone-700">{requestedBy}</span>
+            {row.force_redraft && (
+              <span className="ml-2 inline-flex items-center gap-1 border border-amber-400 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-amber-900">
+                <RotateCcw className="h-3 w-3" /> redraft requested
+              </span>
+            )}
           </p>
           <p className="mt-0.5 text-xs text-stone-700">
             Requested {requestedWhen}

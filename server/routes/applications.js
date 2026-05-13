@@ -21,6 +21,38 @@ const KNOWN_STATUSES = new Set([
   "cancelled",
 ]);
 
+// POST /api/applications/purge-orphans — admin-only. Hard-deletes every
+// intake_applications row whose student_id IS NULL — these accumulate
+// from the xlsx bulk-import path before any student linking happens.
+// Returns the deleted row count and a sample of the deleted rows so the
+// caller has a receipt. Idempotent — re-running with no orphans returns
+// deleted_count = 0.
+router.post("/purge-orphans", requireStaff, async (req, res, next) => {
+  try {
+    if (req.user.kind !== "admin") return res.status(403).json({ error: "admin only" });
+    const sampleRes = await pool.query(
+      `SELECT id, student_name, university, status, created_at
+         FROM intake_applications
+        WHERE student_id IS NULL
+        ORDER BY id
+        LIMIT 5`
+    );
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM intake_applications WHERE student_id IS NULL`
+    );
+    if (countRes.rows[0].n === 0) {
+      return res.json({ deleted_count: 0, sample_deleted: [] });
+    }
+    const del = await pool.query(
+      `DELETE FROM intake_applications WHERE student_id IS NULL RETURNING id`
+    );
+    res.json({
+      deleted_count: del.rowCount,
+      sample_deleted: sampleRes.rows.map((r) => ({ ...r, id: String(r.id) })),
+    });
+  } catch (e) { next(e); }
+});
+
 // GET /api/applications — returns { pending, active, archived } for the
 // caller's scope. Single round-trip so the panel can render all three
 // sections without coordinating fetches.

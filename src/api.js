@@ -282,8 +282,17 @@ export const api = {
   // banner; this inserts a row into manual_ai_requests so Jace sees
   // the queue and triggers the routine. Idempotent — repeated calls
   // for the same student return the existing pending row.
-  requestManualAiFill: (student_id, notes) =>
-    request("POST", "/api/admin/ai/request-manual-fill", { student_id, notes: notes || null }),
+  // notes: free-text note from the counsellor (e.g. "use Mr Sharma as
+  // Class XII Maths teacher"). force_redraft: pass true to redraft
+  // existing artifacts — the dispatch endpoint reads this and runs
+  // setDraft with force=true so previously-written staff_drafts are
+  // overwritten rather than skipped.
+  requestManualAiFill: (student_id, { notes = null, force_redraft = false } = {}) =>
+    request("POST", "/api/admin/ai/request-manual-fill", {
+      student_id,
+      notes: notes || null,
+      force_redraft: !!force_redraft,
+    }),
   // Banner polls this every minute to flip "queued" → "complete"
   // once the dispatch endpoint resolves the request.
   getManualAiRequestStatus: (student_id) =>

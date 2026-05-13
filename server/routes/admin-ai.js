@@ -115,13 +115,14 @@ router.get("/pending", requireAdmin, async (req, res, next) => {
 
 router.post("/request-manual-fill", requireStaff, express.json(), async (req, res, next) => {
   try {
-    const { student_id, notes } = req.body || {};
+    const { student_id, notes, force_redraft } = req.body || {};
     if (!isString(student_id) || !student_id.startsWith("s_")) {
       return res.status(400).json({ error: "student_id (s_… string) is required" });
     }
     if (notes != null && (!isString(notes) || notes.length > 1000)) {
       return res.status(400).json({ error: "notes must be a string up to 1000 chars" });
     }
+    const wantRedraft = force_redraft === true;
     // Verify the student exists (and, for counsellors, that they own
     // them — same scope rule the rest of the staff endpoints use).
     const sRes = await pool.query(
@@ -159,16 +160,16 @@ router.post("/request-manual-fill", requireStaff, express.json(), async (req, re
     const requested_by_admin_username = req.user.kind === "admin" ? req.user.adminUsername : null;
     const ins = await pool.query(
       `INSERT INTO manual_ai_requests
-         (student_id, requested_by_kind, requested_by_id, requested_by_admin_username, notes)
-       VALUES ($1, $2, $3, $4, $5)
+         (student_id, requested_by_kind, requested_by_id, requested_by_admin_username, notes, force_redraft)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, requested_at`,
-      [student_id, requested_by_kind, requested_by_id, requested_by_admin_username, notes ? notes.trim() : null]
+      [student_id, requested_by_kind, requested_by_id, requested_by_admin_username, notes ? notes.trim() : null, wantRedraft]
     );
     audit(req, {
       table: "manual_ai_requests",
       id: String(ins.rows[0].id),
       action: "create",
-      diff: { student_id, display_name: student.display_name, notes: notes || null },
+      diff: { student_id, display_name: student.display_name, notes: notes || null, force_redraft: wantRedraft },
     });
     res.json({
       ok: true,
@@ -191,7 +192,7 @@ router.get("/manual-requests", requireAdmin, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.student_id, r.requested_at, r.processed_at,
               r.requested_by_kind, r.requested_by_id, r.requested_by_admin_username,
-              r.processed_by_admin_username, r.notes,
+              r.processed_by_admin_username, r.notes, r.force_redraft,
               s.display_name AS student_display_name,
               s.username AS student_username,
               c.name AS counsellor_name,
@@ -229,7 +230,7 @@ router.get("/request-status/:student_id", requireStaff, async (req, res, next) =
     }
     const { rows } = await pool.query(
       `SELECT r.id, r.student_id, r.requested_at, r.processed_at,
-              r.processed_by_admin_username, r.notes,
+              r.processed_by_admin_username, r.notes, r.force_redraft,
               s.ai_artifacts_generated_at
          FROM manual_ai_requests r
          JOIN intake_students s ON s.student_id = r.student_id
@@ -291,7 +292,24 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
     if (!isString(studentId) || !studentId.startsWith("s_")) {
       return res.status(400).json({ error: "student_id (s_… string) is required" });
     }
-    const force = body.force === true;
+    // body.force is the explicit override the agent passes when it
+    // knows it wants to overwrite existing staff_drafts. We OR it with
+    // the most-recent pending manual_ai_requests.force_redraft for
+    // this student — if a counsellor / admin filed a "redraft existing
+    // artifacts" request, the dispatch run should honour that flag
+    // automatically rather than requiring the agent to read the
+    // request notes and decide. The OR'd value is checked again
+    // inside the transaction (after the FOR UPDATE on intake_students)
+    // so a request filed mid-dispatch can't sneak in.
+    const explicitForce = body.force === true;
+    const pendingReqRes = await pool.query(
+      `SELECT force_redraft FROM manual_ai_requests
+        WHERE student_id = $1 AND processed_at IS NULL
+        ORDER BY requested_at DESC LIMIT 1`,
+      [studentId]
+    );
+    const queuedRedraft = pendingReqRes.rows[0]?.force_redraft === true;
+    const force = explicitForce || queuedRedraft;
     const file_descriptions = Array.isArray(body.file_descriptions) ? body.file_descriptions : [];
     const autofill_answers = body.autofill_answers && typeof body.autofill_answers === "object"
       ? body.autofill_answers : {};
