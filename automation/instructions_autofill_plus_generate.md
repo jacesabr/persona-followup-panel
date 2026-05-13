@@ -302,11 +302,17 @@ The amount of detail per bullet depends on what the document carries:
   Field-vs-intake mismatches surface through the dispatch endpoint's
   no-overwrite logic; do not author Conclusions flags for them.
 
-- **Certificates / completion letters**: What was earned, issuing body,
-  programme content, cohort size or rank if visible, how it connects to
-  the student's stated direction. Always check for a named mentor,
-  course leader, or supervisor — that name is a LOR candidate; flag it
-  in Section 5.
+- **Admit card (`admitCardFile`)**: Exam authority + session in the
+  first bullet (e.g. "JEE Main 2026 — Jan session"), then candidate
+  name + roll / application number, exam date + reporting time, exam
+  center with full address, and any standout instructions printed on
+  the card (allowed materials, document-check requirements). Fields
+  table carries the structured values; bullets give the counsellor the
+  context they need to brief the student. If the printed candidate
+  name disagrees with `name`, flag in Conclusions; never overwrite via
+  autofill. The student may have typed free-form context into
+  `admitCardNotes` — surface it as one bullet under the others
+  prefixed `**Student notes**:`.
 
 - **Internship / experience letter**: Employer name, supervisor name,
   period, role, and the 1–2 specific contributions described. No intake
@@ -417,6 +423,7 @@ set; they will be skipped server-side.
 | **Marksheet — Class 10** | `marks10pct` (number, one decimal), `schoolName` (if school name appears on the marksheet) |
 | **Marksheet — Class 11** | `marks11pct` (number, one decimal) |
 | **Marksheet — Class 12** | `marks12pct` (actual %, number), `marks12predicted` (predicted score as text, e.g. "92% predicted") |
+| **Admit card (board / entrance exam)** | Nothing to a known intake key — capture the exam name + session, candidate name, roll / application number, exam date, exam center, and any reporting / instruction notes in the Fields table. If the printed name disagrees with `name`, flag in `summary_notes`; never overwrite. |
 | **UG transcript / consolidated marks** | `cgpa` (as text matching the card's own scale, e.g. "8.5 / 10"), `uniName` (if visible) |
 | **IELTS result** | `ielts_score` (overall band, one decimal, e.g. "7.5"), `ielts_status` = "Already taken" |
 | **TOEFL result** | `toefl_score` (total score as text), `toefl_booked` = true |

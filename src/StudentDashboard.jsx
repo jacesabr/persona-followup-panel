@@ -51,6 +51,7 @@ const DOC_SUMMARIES = {
   marks10sheet: "Class 10 marksheet (CBSE / ICSE / State Board). Official secondary-examination transcript.",
   marks11sheet: "Class 11 report card. Universities use it to confirm progression into Class 12.",
   marks12sheet: "Class 12 marksheet — the qualifying transcript for undergraduate admissions.",
+  admitCardFile: "Entrance / board exam admit card. Carries the candidate's name, photo, exam, roll number, exam date and center; used as an ID proof on exam day and as evidence of registration.",
   cgpaSheet: "Undergraduate transcript / consolidated mark sheet, used for postgraduate applications.",
   ieltsCert: "IELTS Test Report Form (TRF). Confirms English-language proficiency for international universities.",
   testScore: "Standardised test score report (SAT / ACT / GRE / GMAT etc.) attached to the application.",

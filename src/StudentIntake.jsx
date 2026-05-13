@@ -157,6 +157,8 @@ const MOCK = {
   marks12sheet: mockFile("marks_12.pdf", 305712),
   marks12predicted: "92% predicted",
   marks12predictedSheet: mockFile("marks_12_predicted.pdf", 102301),
+  admitCardFile: mockFile("jee_main_admit_card.pdf", 201998),
+  admitCardNotes: "JEE Main 2026 Jan session — exam on 28 Jan, center Ludhiana.",
   passportFrontBack: mockFile("passport_front_back.pdf", 411022),
   passportFront: mockFile("passport_front.pdf", 198332),
   passportLast: mockFile("passport_last.pdf", 187901),
@@ -325,6 +327,8 @@ export function buildStudentRecord(answers, opts = {}) {
         marksheet: fileOut(answers.marks12sheet),
         predicted: answers.marks12predicted || "",
         predictedSheet: fileOut(answers.marks12predictedSheet),
+        admitCard: fileOut(answers.admitCardFile),
+        admitCardNotes: answers.admitCardNotes || "",
       },
       cgpa: answers.cgpa || "",
       transcript: fileOut(answers.transcript),
@@ -554,6 +558,11 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
   const [order, setOrder] = useState(DEFAULT_ORDER);
   // step: -1 = welcome, 0..N-1 = page, N = closing
   const [step, setStep] = useState(-1);
+  // viewMode: 'linear' is the page-by-page intake students walk through.
+  // 'organization' renders every intake chapter stacked vertically on
+  // one scroll — a troubleshooting / preview affordance so staff can eye
+  // the full shape of the form without clicking Next forty times.
+  const [viewMode, setViewMode] = useState("linear");
   // hydration: 'loading' until the backend has answered, then 'ready' or 'error'
   const [hydration, setHydration] = useState("loading");
   // saveState: idle / saving / saved / error
@@ -909,6 +918,23 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
     );
   }
 
+  if (viewMode === "organization") {
+    return (
+      <div
+        className="min-h-screen w-full font-serif text-black"
+        style={{ backgroundColor: "#f4f0e6" }}
+      >
+        <TopBar onExit={onExit} onAutofill={fillMock} saveState={saveState} />
+        <IntakeOrganizationView
+          answers={answers}
+          onChange={setAnswer}
+          onBlur={flushSave}
+          onBackToLinear={() => setViewMode("linear")}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="min-h-screen w-full font-serif text-black"
@@ -930,6 +956,7 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
               onBack={goBack}
               isChapterStart={isChapterStart}
               stepLabel={`Page ${step + 1}`}
+              onShowOrganization={() => setViewMode("organization")}
             />
           )}
           {isClosing && (
@@ -953,6 +980,45 @@ export default function StudentIntake({ studentName = "student", onComplete, onE
         onReorder={reorderTo}
       />
     </div>
+  );
+}
+
+// Vertical-scroll preview of every intake chapter on one page. The
+// linear/horizontal flow is the canonical student experience; this is a
+// troubleshooting affordance so staff testing the intake can see the
+// shape of the form end-to-end without paging through it.
+function IntakeOrganizationView({ answers, onChange, onBlur, onBackToLinear }) {
+  return (
+    <section className="mx-auto max-w-3xl px-6 pt-28 pb-16">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-stone-900/15 pb-4">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-black">
+            ▸ Organization view
+          </p>
+          <p className="mt-1 text-sm text-stone-800">
+            Every intake page on one scroll. Use the page-by-page flow to actually fill it out.
+          </p>
+        </div>
+        <button
+          onClick={onBackToLinear}
+          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-stone-800"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to step-by-step
+        </button>
+      </div>
+      <div className="space-y-12 border border-stone-900/15 bg-white/40 px-8 py-2">
+        {INTAKE_CHAPTERS.map((chapter) => (
+          <PanelChapterEditor
+            key={chapter.id}
+            chapter={chapter}
+            answers={answers}
+            onChange={onChange}
+            onBlur={onBlur}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1359,6 +1425,10 @@ function PageCard({
   // post-intake chapters (LORs, story, target programs) after they've
   // already moved past phase=done.
   hideNav = false,
+  // Linear-flow only — when present, render a small "View organization"
+  // affordance below Back/Next that switches the intake into the
+  // all-pages vertical preview (troubleshooting view).
+  onShowOrganization,
 }) {
   const firstFieldRef = useRef(null);
   useEffect(() => {
@@ -1521,22 +1591,35 @@ function PageCard({
         </div>
       )}
 
-      {!hideNav && <div className="mt-10 flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back
-        </button>
-        <button
-          onClick={onAdvance}
-          disabled={!canAdvance}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          {advanceLabel}
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
-      </div>}
+      {!hideNav && (
+        <div className="mt-10 space-y-3">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-2 border border-stone-900/30 bg-transparent px-4 py-2.5 text-xs uppercase tracking-[0.2em] text-black transition hover:border-stone-900 hover:text-black"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </button>
+            <button
+              onClick={onAdvance}
+              disabled={!canAdvance}
+              className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-5 py-2.5 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {canAdvance ? "Next" : advanceLabel}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {onShowOrganization && (
+            <button
+              type="button"
+              onClick={onShowOrganization}
+              className="text-[10px] uppercase tracking-[0.25em] text-black underline-offset-4 hover:underline"
+            >
+              View organization (all pages, vertical)
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
