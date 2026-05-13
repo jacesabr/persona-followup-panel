@@ -317,6 +317,61 @@ function CreateStudentForm({ role, counsellors, onCreated }) {
   );
 }
 
+// Two-column "ask the student for everything" checklist surfaced on the
+// create-student form. Mirrors UploadEverythingCallout on the student-
+// facing welcome screen — counsellor sees the same list before signing
+// a student up so they remember to request both the profile AND the
+// financial docs in the first conversation. Cuts the back-and-forth
+// that otherwise stalls the file at visa or finance review.
+function GatherEverythingCallout() {
+  return (
+    <div className="border-l-4 border-[#cc785c] bg-[#fdf6ef] px-5 py-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
+        Tell the student to bring everything
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-stone-800">
+        Ask for every document on day one. Counsellor follow-ups, visa paperwork, and
+        financial review all stall on the same thing — missing scans. Drop whatever
+        the student has into "Starter documents" below; the rest they'll upload
+        themselves on the Financial documents and Profile tabs once logged in.
+      </p>
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-700">
+            Profile / student docs
+          </p>
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[13px] text-stone-800 marker:text-stone-400">
+            <li>Aadhar, PAN, passport (front/back/last)</li>
+            <li>Passport-size photo</li>
+            <li>10th / 11th / 12th marksheets</li>
+            <li>12th admit card &amp; predicted scores</li>
+            <li>UG transcripts, final degree, semester sheets</li>
+            <li>IELTS / TOEFL / SAT / ACT / AP results</li>
+            <li>Activity / internship / award certificates</li>
+          </ul>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-700">
+            Financial docs
+          </p>
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[13px] text-stone-800 marker:text-stone-400">
+            <li>3 years of ITRs (each filer)</li>
+            <li>Salary slips, employment letter, Form 16</li>
+            <li>Business registration, GST, 3-year balance sheets</li>
+            <li>Parents PAN &amp; Aadhar</li>
+            <li>Loan sanction + disbursal letters (if any)</li>
+            <li>CA net worth statements</li>
+            <li>Sponsor affidavits (notarised)</li>
+            <li>Bank statements, FD copies + cert, balance cert</li>
+            <li>Bank manager contact (name / email / phone)</li>
+            <li>Student's 10-year international travel history</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Optional multi-file picker on the create-student form. When the
 // counsellor has documents on hand at signup time (marksheets, passport,
 // IELTS slip, etc.), dropping them here routes the form through
@@ -341,13 +396,15 @@ function StarterDocsField({ files, onChange }) {
   const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
   return (
     <div className="mt-5 border-t border-stone-200 pt-4">
-      <p className="text-[10px] uppercase tracking-[0.15em] text-black">
+      <GatherEverythingCallout />
+      <p className="mt-4 text-[10px] uppercase tracking-[0.15em] text-black">
         Starter documents (optional)
       </p>
       <p className="mt-1 text-sm text-stone-800">
-        Drop in marksheets, passport, test slips, certificates — anything you already have.
-        On submit, the dev is notified and runs the automation script from Claude Code,
-        which auto-fills the intake form and drafts the resume, SOP, and LOR letters.
+        Drop in marksheets, passport, test slips, certificates, ITRs, bank statements —
+        anything you already have. On submit, the dev is notified and runs the
+        automation script from Claude Code, which auto-fills the intake form and drafts
+        the resume, SOP, and LOR letters.
       </p>
       {files.length > 0 && (
         <ul className="mt-3 space-y-1.5">

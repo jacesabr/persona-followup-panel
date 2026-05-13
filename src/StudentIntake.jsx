@@ -31,6 +31,7 @@ import {
   transitionPhase,
 } from "./intakeFiles.js";
 import StudentDashboard from "./StudentDashboard.jsx";
+import FinancialDocuments from "./FinancialDocuments.jsx";
 import Frame from "./Frame.jsx";
 import { api } from "./api.js";
 import {
@@ -1158,6 +1159,7 @@ function Welcome({ name, onStart }) {
         We'll walk through your profile a page at a time. We save as you go, so come
         back any time. Skip what doesn't apply.
       </p>
+      <UploadEverythingCallout />
       <div className="mt-10 flex items-center gap-4">
         <button
           onClick={onStart}
@@ -1169,6 +1171,70 @@ function Welcome({ name, onStart }) {
       </div>
 
       <SmartAutofillTrialCard />
+    </div>
+  );
+}
+
+// Advisory block on the welcome screen. Two lists: the financial
+// documents and the student/profile documents we'll ask for. Surfaced
+// at intake start so the student can pull everything together up-front
+// instead of stopping mid-form to scan one more sheet. Counsellor-side
+// "Add student" form re-uses this copy (UploadEverythingAddStudent
+// below) so both sides see the same checklist before kick-off.
+function UploadEverythingCallout() {
+  return (
+    <div className="mt-10 border-l-4 border-[#cc785c] bg-white/60 px-6 py-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
+        Before you start
+      </p>
+      <h2 className="mt-2 font-serif text-2xl leading-tight">
+        Gather every document you can — now.
+      </h2>
+      <p className="mt-2 text-sm leading-relaxed text-stone-800">
+        If you upload everything up front, the rest of this process is dramatically
+        smoother. Counsellor follow-ups, visa paperwork, and university financial
+        review all stall on the same thing: <em className="not-italic font-medium">missing scans</em>.
+        Hours of back-and-forth disappear if you can drop them here on day one.
+      </p>
+      <div className="mt-4 grid gap-5 md:grid-cols-2">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+            Profile / student documents
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-800 marker:text-stone-400">
+            <li>Aadhar &amp; PAN cards</li>
+            <li>Passport — front, back, last page</li>
+            <li>Passport-style photo</li>
+            <li>10th / 11th / 12th marksheets</li>
+            <li>12th admit card &amp; predicted-scores sheet (if any)</li>
+            <li>UG transcripts, final degree, semester sheets</li>
+            <li>IELTS / TOEFL / SAT / ACT / AP results</li>
+            <li>Activity, internship, scholarship, character-reference certificates</li>
+          </ul>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+            Financial documents
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-800 marker:text-stone-400">
+            <li>3 years of ITRs for each filer</li>
+            <li>Salary slips (last 3 months), employment letter, Form 16</li>
+            <li>Business registration, GST, 3 years of audited balance sheets</li>
+            <li>Parent PAN &amp; Aadhar — both parents</li>
+            <li>Loan sanction + disbursal letters (if applicable)</li>
+            <li>CA-certified net worth statements</li>
+            <li>Notarised sponsor affidavits</li>
+            <li>Bank statements (savings + business), FD copies + certificate, balance certificate</li>
+            <li>Bank manager's direct contact (name / email / phone)</li>
+            <li>Student's last 10 years of international travel — country, purpose, dates</li>
+          </ul>
+        </div>
+      </div>
+      <p className="mt-4 text-xs text-stone-700">
+        The financial side lives on the <em className="not-italic font-medium">Financial documents</em> tab
+        after you finish the intake — but if the scans are already at hand, drop them in
+        as you go. Every extra document saved here is a phone call you don't have to take later.
+      </p>
     </div>
   );
 }
@@ -1301,6 +1367,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
+    { id: "financial", label: "Financial documents" },
     { id: "required-docs", label: "Required documents" },
     { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
@@ -1371,6 +1438,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
             <StudentApplicationsStatusTab />
           </div>
         )}
+        {activeTab === "financial" && <FinancialDocuments />}
         {activeChapter && (
           <PanelChapterEditor
             chapter={activeChapter}

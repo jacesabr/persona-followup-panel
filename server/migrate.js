@@ -725,6 +725,27 @@ BEGIN
   END IF;
 END
 $reauth_sessions$;
+
+-- ============================================================
+-- intake_financial_dossier — student's structured financial dossier.
+-- One row per student. The `data` jsonb carries:
+--   - studentName, studentLoanTaken, kycAdditional
+--   - bankManager: { card, email, phone }
+--   - itrPeople / incomePeople / businessPeople / networthPeople /
+--     affidavitPeople: arrays of { id, name, relationship }
+--   - travelTrips: [{ id, country, purpose, from, to }]
+-- File uploads themselves live in intake_files with a 'financial:*'
+-- field_id namespace (financial:itr:<personId>:fy1, etc.). One source
+-- of truth for blob storage; the dossier row only holds structured
+-- metadata + free-text fields. updated_at supports optimistic
+-- concurrency with the same expectedUpdatedAt pattern the intake
+-- form uses.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS intake_financial_dossier (
+  student_id TEXT PRIMARY KEY REFERENCES intake_students(student_id) ON DELETE CASCADE,
+  data       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 `;
 
 export async function migrate() {

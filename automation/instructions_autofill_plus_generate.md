@@ -424,6 +424,16 @@ set; they will be skipped server-side.
 | **Marksheet — Class 11** | `marks11pct` (number, one decimal) |
 | **Marksheet — Class 12** | `marks12pct` (actual %, number), `marks12predicted` (predicted score as text, e.g. "92% predicted") |
 | **Admit card (board / entrance exam)** | Nothing to a known intake key — capture the exam name + session, candidate name, roll / application number, exam date, exam center, and any reporting / instruction notes in the Fields table. If the printed name disagrees with `name`, flag in `summary_notes`; never overwrite. |
+| **ITR (Income Tax Return)** — `fin_itr_*` | Nothing autofills into general intake. Capture: assessment year, PAN, filer name, filing status (original / revised), gross total income, total taxable income, total tax paid, refund or demand, ITR form type (ITR-1/2/3/4). |
+| **Salary slip** — `fin_income_*_slips` | Month + year, employer name, employee ID, designation, gross / net pay, statutory deductions (PF, ESI, TDS), bank account masked digits. |
+| **Employment letter** — `fin_income_*_empLetter` | Employer name + address, employee name, designation, date of joining, current CTC, letter date, signatory + designation. |
+| **Form 16** — `fin_income_*_form16` | Assessment year, employer name + TAN, employee PAN, gross salary, total deductions under Chapter VI-A, total taxable income, tax deducted. |
+| **Business registration / GST / balance sheets** — `fin_business_*` | Legal entity name, registration number (Udyam / CIN / partnership deed #), GSTIN, state of registration, date of incorporation. Balance sheets: financial year, total revenue, net profit, total assets, total liabilities, auditor (CA) name + membership #. |
+| **Parent KYC (PAN / Aadhaar)** — `fin_kyc_*` | Use the existing Aadhaar / PAN extraction rules. Map nothing to intake `father_*` / `mother_*` fields automatically (parent records are filled by the student / counsellor) — but flag a mismatch with existing `father_aadhar` / `mother_aadhar` in `summary_notes`. |
+| **Loan sanction / disbursal letter** — `fin_loan_*` | Lender name + branch, borrower name, sanctioned amount, loan account #, disbursal schedule, ROI, tenure, sanction date. |
+| **CA net worth statement** — `fin_networth_*` | Person name, CA name + membership #, statement date, total assets (broken into immovable / movable), total liabilities, net worth figure. |
+| **Sponsor affidavit** — `fin_affidavit_*` | Sponsor name, relationship to student, declared amount of financial support, stamp paper value + state, notary name + date, witness signatures (if any). |
+| **Bank statement / FD copies / balance certificate** — `fin_banking_*` | Bank + branch name, account holder, account number (masked), statement period, closing balance, average balance, currency. FD copies: certificate #, principal, rate, maturity date, joint holders. Balance certificate: date issued, signatory + designation. |
 | **UG transcript / consolidated marks** | `cgpa` (as text matching the card's own scale, e.g. "8.5 / 10"), `uniName` (if visible) |
 | **IELTS result** | `ielts_score` (overall band, one decimal, e.g. "7.5"), `ielts_status` = "Already taken" |
 | **TOEFL result** | `toefl_score` (total score as text), `toefl_booked` = true |
@@ -1252,7 +1262,8 @@ exact key strings. The dispatch endpoint ignores unknown keys.
 
 Tables the agent reads:
 - `intake_students` — `data.answers`, `intake_phase`, `is_archived`, `ai_eligible_via_pre_upload`, `ai_artifacts_generated_at`
-- `intake_files` — every active upload's metadata + bytes
+- `intake_files` — every active upload's metadata + bytes. Files whose `field_id` starts with `fin_` belong to the student's financial dossier (see below) and follow the per-doc-type extraction rules in Section 3b's table — but no key in those extractions ever maps to `data.answers`; the pipeline writes `ai_description` + `ai_extracted` for those rows like any other file, and stops.
+- `intake_financial_dossier` — read for context only (one jsonb row per student, holding the structured metadata behind the Financial documents tab: people lists, toggles, travel trips, bank manager contact). The pipeline never writes here — it's owned by the student via PUT /api/students/me/financial.
 - `intake_required_docs` — LOR/internship/SOP rows; `staff_draft` is the write target
 - `intake_applications` — context only
 - `manual_ai_requests` — pending queue

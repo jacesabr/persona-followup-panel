@@ -949,6 +949,105 @@ router.put("/me/record", requireStudent, express.json({ limit: "2mb" }), async (
   }
 });
 
+// ============================================================
+// Financial dossier — the post-intake "Financial documents" tab.
+// One row per student in intake_financial_dossier; the actual file
+// uploads live in intake_files under a 'fin_*' field_id namespace
+// (same blob storage + audit path as every other intake upload).
+// ============================================================
+
+// GET /me/financial — full dossier + the active file list. Single
+// round-trip: the client renders every section, including the green-
+// tick "uploaded" UI, without a follow-up request.
+router.get("/me/financial", requireStudent, async (req, res, next) => {
+  try {
+    const studentId = req.user.studentId;
+    const dossierResult = await pool.query(
+      `SELECT data, updated_at FROM intake_financial_dossier WHERE student_id = $1`,
+      [studentId]
+    );
+    const filesResult = await pool.query(
+      `SELECT id, field_id, row_index, original_name, size, mime_type, created_at
+         FROM intake_files
+        WHERE student_id = $1 AND field_id LIKE 'fin\\_%' ESCAPE '\\'
+          AND superseded_at IS NULL
+        ORDER BY field_id, row_index NULLS FIRST, created_at`,
+      [studentId]
+    );
+    res.json({
+      dossier: dossierResult.rows[0]?.data || {},
+      updatedAt: dossierResult.rows[0]?.updated_at || null,
+      files: filesResult.rows.map((r) => ({
+        id: r.id,
+        fieldId: r.field_id,
+        rowIndex: r.row_index,
+        name: r.original_name,
+        size: Number(r.size),
+        mime: r.mime_type,
+        url: `/api/students/me/files/${r.id}`,
+        uploadedAt: r.created_at,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /me/financial — overwrite the dossier jsonb. Same optimistic-
+// concurrency pattern as /me/record: pass the expectedUpdatedAt the
+// client last saw; mismatched → 409 with the latest body so the client
+// can replay its local diff on top.
+router.put("/me/financial", requireStudent, express.json({ limit: "1mb" }), async (req, res, next) => {
+  try {
+    const { data, expectedUpdatedAt } = req.body || {};
+    if (data !== undefined && (data === null || typeof data !== "object" || Array.isArray(data))) {
+      return res.status(400).json({ error: "data must be a JSON object" });
+    }
+    const studentId = req.user.studentId;
+    const payload = JSON.stringify(data || {});
+
+    // No precondition (first save / explicit overwrite) → upsert.
+    if (!expectedUpdatedAt) {
+      const ins = await pool.query(
+        `INSERT INTO intake_financial_dossier (student_id, data, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (student_id) DO UPDATE
+           SET data = EXCLUDED.data, updated_at = NOW()
+         RETURNING updated_at`,
+        [studentId, payload]
+      );
+      audit(req, { table: "intake_financial_dossier", id: studentId, action: "upsert" });
+      return res.json({ updatedAt: ins.rows[0].updated_at });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE intake_financial_dossier
+          SET data = $1::jsonb, updated_at = NOW()
+        WHERE student_id = $2
+          AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $3::timestamptz)
+        RETURNING updated_at`,
+      [payload, studentId, expectedUpdatedAt]
+    );
+    if (rows.length === 0) {
+      const latest = await pool.query(
+        `SELECT data, updated_at FROM intake_financial_dossier WHERE student_id = $1`,
+        [studentId]
+      );
+      return res.status(409).json({
+        error: "stale write — another tab updated this record",
+        latest: {
+          data: latest.rows[0]?.data || {},
+          updatedAt: latest.rows[0]?.updated_at || null,
+        },
+      });
+    }
+    audit(req, { table: "intake_financial_dossier", id: studentId, action: "update" });
+    res.json({ updatedAt: rows[0].updated_at });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // PUT /api/students/me/intake/phase — explicit phase transition.
 //   { phase: "done" } → from 'intake' (general form done, including the
 //                       transcribed values from each upload page).
@@ -1361,6 +1460,57 @@ router.get("/me/files/:id", requireStudent, async (req, res, next) => {
       return res.status(403).json({ error: "Forbidden." });
     }
     return streamStoredFile(req, res, next, doc);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/students/:student_id/financial — staff. Read-only view of
+// the student's financial dossier + the active file list. Mirrors
+// /me/financial but scoped by URL param; counsellor scoping (only your
+// own students) lands through the same requireStaff path the rest of
+// this file uses for staff endpoints.
+router.get("/:student_id/financial", requireStaff, async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    // Counsellor scope check: a counsellor may only read their own
+    // students. Admin sees everyone.
+    if (req.user.kind === "counsellor") {
+      const own = await pool.query(
+        `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+        [sid]
+      );
+      if (own.rows.length === 0) return res.status(404).json({ error: "student not found" });
+      if (own.rows[0].counsellor_id !== req.user.counsellorId) {
+        return res.status(403).json({ error: "this student is not assigned to you" });
+      }
+    }
+    const dossierResult = await pool.query(
+      `SELECT data, updated_at FROM intake_financial_dossier WHERE student_id = $1`,
+      [sid]
+    );
+    const filesResult = await pool.query(
+      `SELECT id, field_id, row_index, original_name, size, mime_type, created_at
+         FROM intake_files
+        WHERE student_id = $1 AND field_id LIKE 'fin\\_%' ESCAPE '\\'
+          AND superseded_at IS NULL
+        ORDER BY field_id, row_index NULLS FIRST, created_at`,
+      [sid]
+    );
+    res.json({
+      dossier: dossierResult.rows[0]?.data || {},
+      updatedAt: dossierResult.rows[0]?.updated_at || null,
+      files: filesResult.rows.map((r) => ({
+        id: r.id,
+        fieldId: r.field_id,
+        rowIndex: r.row_index,
+        name: r.original_name,
+        size: Number(r.size),
+        mime: r.mime_type,
+        url: `/api/students/${sid}/files/${r.id}`,
+        uploadedAt: r.created_at,
+      })),
+    });
   } catch (e) {
     next(e);
   }

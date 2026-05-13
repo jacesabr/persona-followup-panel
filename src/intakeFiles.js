@@ -197,6 +197,37 @@ export async function listMyFiles() {
   return res.json();
 }
 
+// Financial dossier — the post-intake "Financial documents" tab. Same
+// optimistic-concurrency shape as loadRecord / syncRecord: caller passes
+// the expectedUpdatedAt last seen; a 409 surfaces as { code: 'STALE_WRITE',
+// latest } so the panel can refetch + replay its local diff.
+export async function loadFinancial() {
+  const res = await fetch("/api/students/me/financial");
+  if (!res.ok) throw new Error(`Financial load failed (${res.status}).`);
+  return res.json();
+}
+
+export async function saveFinancial({ data, expectedUpdatedAt } = {}) {
+  const res = await fetch("/api/students/me/financial", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: data || {}, expectedUpdatedAt: expectedUpdatedAt || null }),
+  });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body?.error || "stale write");
+    err.code = "STALE_WRITE";
+    err.latest = body?.latest || null;
+    throw err;
+  }
+  if (!res.ok) {
+    let msg = `Financial save failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export async function getResume(id, { signal } = {}) {
   const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}`, { signal });
   if (!res.ok) throw new Error(`Resume lookup failed (${res.status}).`);
