@@ -656,6 +656,50 @@ router.patch("/:student_id/assign-counsellor", requireStaff, express.json(), asy
   } catch (e) { next(e); }
 });
 
+// POST /api/students/:student_id/purge-superseded-files — admin-only.
+// Hard-deletes every intake_files row for this student where
+// superseded_at IS NOT NULL. Returns the deleted rows so the caller
+// can keep an off-DB record. Storage-side blobs are NOT touched here
+// (per the data-persistence rule: R2 / disk blobs stay even when DB
+// rows go). The DB query filters explicitly on the student_id PK to
+// avoid the wrong-student blast radius.
+router.post("/:student_id/purge-superseded-files", requireStaff, async (req, res, next) => {
+  try {
+    if (req.user.kind !== "admin") return res.status(403).json({ error: "admin only" });
+    const sid = req.params.student_id;
+    if (typeof sid !== "string" || !sid.startsWith("s_")) {
+      return res.status(400).json({ error: "student_id must start with s_" });
+    }
+    const exists = await pool.query(`SELECT 1 FROM intake_students WHERE student_id = $1`, [sid]);
+    if (!exists.rows.length) return res.status(404).json({ error: "student not found" });
+    const before = await pool.query(
+      `SELECT id, field_id, row_index, original_name, storage_path, size, mime_type,
+              created_at, superseded_at
+         FROM intake_files
+        WHERE student_id = $1 AND superseded_at IS NOT NULL
+        ORDER BY id`,
+      [sid]
+    );
+    if (before.rows.length === 0) {
+      return res.json({ student_id: sid, deleted_count: 0, deleted_rows: [] });
+    }
+    const del = await pool.query(
+      `DELETE FROM intake_files
+        WHERE student_id = $1 AND superseded_at IS NOT NULL
+        RETURNING id`,
+      [sid]
+    );
+    res.json({
+      student_id: sid,
+      deleted_count: del.rowCount,
+      deleted_rows: before.rows.map((r) => ({
+        ...r,
+        id: String(r.id),
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
 // GET /api/students — list all student accounts (admin sees everyone,
 // counsellor sees only their own creations).
 //
