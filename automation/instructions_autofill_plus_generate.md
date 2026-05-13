@@ -47,7 +47,9 @@ pipeline, generate:
    (aim for 400–500), anchored to the student's own activities and
    answers.
 5. **LOR drafts** — one per `kind='lor'` row in `intake_required_docs`
-   whose `staff_draft` is NULL. Recommender voice, 200–300 words.
+   whose `staff_draft` is NULL. Recommender voice, 500–700 words per
+   letter with ≥80-word divergence between siblings. Full spec in
+   the *LOR drafts* subsection below.
 6. **Internship drafts** — one per `kind='internship'` row whose
    `staff_draft` is NULL. Company voice, 150–250 words.
 
@@ -1138,7 +1140,9 @@ notes where verbatim transcription is the point. The audit:
    does the same on its side; treat it as a parallel discipline.
 5. **Word-count check (a proxy for the 1-page resume rule).** SOP
    400-500 words, hard cap 500. Each LOR / LOR-suggestion draft
-   200-300 words. Each Internship draft 150-250 words. Resume
+   **500-700 words** with ≥80-word divergence between siblings
+   on the same student (full spec in the LOR drafts subsection
+   above). Each Internship draft 150-250 words. Resume
    aggregate across visible-text fields 300-450 words AND the
    rendered PDF MUST fit on a single A4 page in every one of the
    three templates — overflow past one page is a hard failure for
@@ -1180,7 +1184,7 @@ Body shape:
       "recipient_name": "Rajiv Mehta",
       "recipient_role": "Entrepreneurship course mentor, MENTORx Global",
       "reason_brief": "Led 8-week course where student was singled out for excellent performance",
-      "draft": "Date: [TODAY]\n\nTo Whom It May Concern:\n\n[200–300 words in the recommender's voice…]\n\nSincerely,\nRajiv Mehta\nEntrepreneurship course mentor, MENTORx Global"
+      "draft": "Date: [TODAY]\n\nTo Whom It May Concern,\n\n[500–700 words per the LOR drafts spec — arc-divergent vs sibling LORs, voice inferred from recipient_role, 8 required beats, anti-template checklist clean, banned-phrase scan clean]\n\nSincerely,\n\nRajiv Mehta\nEntrepreneurship course mentor, MENTORx Global"
     }
   ],
   "summary_notes": "free-form notes for the audit row (e.g. conflicts you flagged)"

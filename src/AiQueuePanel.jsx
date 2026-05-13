@@ -155,6 +155,16 @@ function RequestRow({ row, onViewStudent }) {
           {row.notes && (
             <p className="mt-1.5 text-sm text-stone-800">{row.notes}</p>
           )}
+          {row.last_dispatch_summary && (
+            <div className="mt-2 border border-amber-300 bg-amber-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-900">
+                Dispatch summary — action items for the counsellor
+              </p>
+              <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-stone-800">
+                {row.last_dispatch_summary}
+              </pre>
+            </div>
+          )}
         </div>
         <div className="shrink-0">
           {isResolved ? (

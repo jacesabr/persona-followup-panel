@@ -233,6 +233,13 @@ CREATE INDEX IF NOT EXISTS idx_intake_students_active     ON intake_students(upd
 -- resume / SOP draft / LOR & internship drafts / per-file
 -- descriptions / autofilled answers, and stamps NOW() when done.
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS ai_artifacts_generated_at TIMESTAMPTZ;
+-- Free-form notes from the most recent dispatch run. Holds the
+-- Names-needed alert (counsellor must collect these teacher / mentor
+-- names from the student before LORs can be sent) plus any other
+-- run-level observations the agent surfaces in summary_notes. Read by
+-- the AI Queue panel so the alert is visible to staff without them
+-- having to hand-query the audit log.
+ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS last_dispatch_summary TEXT;
 -- Bulk-upload-at-signup flag. When a counsellor signs a student up via
 -- the "starter documents" multi-upload, the row lands with
 -- intake_phase='intake' (the student still needs to log in and finish

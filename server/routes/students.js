@@ -656,6 +656,62 @@ router.patch("/:student_id/assign-counsellor", requireStaff, express.json(), asy
   } catch (e) { next(e); }
 });
 
+// POST /api/students/:student_id/hard-delete — admin-only, last-resort
+// purge. Removes every row associated with a student across every
+// related table (intake_files, intake_required_docs, intake_resumes,
+// intake_applications, manual_ai_requests, sessions) and finally
+// intake_students itself, all inside a single transaction. Returns a
+// per-table delete count so the caller has a record of what went.
+// Storage blobs (R2 / disk) are NOT touched, per the data-persistence
+// rule. Intended for shell / test accounts that should never have
+// existed; not for real student records.
+router.post("/:student_id/hard-delete", requireStaff, async (req, res, next) => {
+  try {
+    if (req.user.kind !== "admin") return res.status(403).json({ error: "admin only" });
+    const sid = req.params.student_id;
+    if (typeof sid !== "string" || !sid.startsWith("s_")) {
+      return res.status(400).json({ error: "student_id must start with s_" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const before = await client.query(
+        `SELECT student_id, username, display_name, intake_phase, intake_complete,
+                ai_artifacts_generated_at IS NOT NULL AS pipeline_run,
+                created_at
+           FROM intake_students WHERE student_id = $1`,
+        [sid]
+      );
+      if (before.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "student not found" });
+      }
+      const deleted = {};
+      const r1 = await client.query(`DELETE FROM intake_files WHERE student_id = $1`, [sid]);
+      deleted.intake_files = r1.rowCount;
+      const r2 = await client.query(`DELETE FROM intake_required_docs WHERE student_id = $1`, [sid]);
+      deleted.intake_required_docs = r2.rowCount;
+      const r3 = await client.query(`DELETE FROM intake_resumes WHERE student_id = $1`, [sid]);
+      deleted.intake_resumes = r3.rowCount;
+      const r4 = await client.query(`DELETE FROM intake_applications WHERE student_id = $1`, [sid]);
+      deleted.intake_applications = r4.rowCount;
+      const r5 = await client.query(`DELETE FROM manual_ai_requests WHERE student_id = $1`, [sid]);
+      deleted.manual_ai_requests = r5.rowCount;
+      const r6 = await client.query(`DELETE FROM sessions WHERE student_id = $1`, [sid]);
+      deleted.sessions = r6.rowCount;
+      const r7 = await client.query(`DELETE FROM intake_students WHERE student_id = $1`, [sid]);
+      deleted.intake_students = r7.rowCount;
+      await client.query("COMMIT");
+      res.json({ student_id: sid, profile_before: before.rows[0], deleted });
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) { next(e); }
+});
+
 // POST /api/students/:student_id/purge-superseded-files — admin-only.
 // Hard-deletes every intake_files row for this student where
 // superseded_at IS NOT NULL. Returns the deleted rows so the caller

@@ -1,5 +1,5 @@
-// Admin-only HTTP surface for the AI artifact pipeline (the routine
-// described in manual_opus_generate.md). Two endpoints:
+// Admin-only HTTP surface for the AI artifact pipeline (full spec in
+// automation/instructions_autofill_plus_generate.md). Two endpoints:
 //
 //   GET  /api/admin/ai/pending
 //        → list candidate students who haven't been processed yet.
@@ -11,10 +11,13 @@
 //          ai_artifacts_generated_at on commit so the same student
 //          is never processed twice.
 //
-// The remote Claude Code routine logs in via /api/auth/login as
-// admin, calls /pending, walks each candidate (using the existing
-// admin endpoints to load context + download files), authors the
-// artifacts in-prompt, then POSTs to /dispatch.
+// Trigger model: local-only. The dev opens Claude Code on this repo
+// when a counsellor's manual_ai_requests row needs handling. The
+// agent reads the runbook, logs in via /api/auth/login as admin,
+// calls /pending, walks each candidate (using the existing admin
+// endpoints to load context + download files), authors the artifacts
+// in-prompt, then POSTs to /dispatch. There is no scheduled cron and
+// no remote routine — every run is initiated by a developer.
 //
 // Atomicity: a single transaction wraps every write. If anything
 // fails, nothing lands and the candidate stays in the queue for
@@ -40,7 +43,7 @@ function countWordsInResumeJson(payload) {
   if (!payload || typeof payload !== "object") return 0;
   const buckets = [];
   buckets.push(payload.name || "", payload.headline || "", payload.lede || "", payload.closing_note || "");
-  for (const arr of [payload.education, payload.standardized_tests, payload.activities, payload.internships, payload.volunteer]) {
+  for (const arr of [payload.education, payload.standardized_tests, payload.activities, payload.internships, payload.volunteer, payload.awards, payload.publications]) {
     if (!Array.isArray(arr)) continue;
     for (const it of arr) {
       buckets.push(it?.label || "", it?.body || "", it?.meta || "");
@@ -193,7 +196,8 @@ router.get("/manual-requests", requireAdmin, async (req, res, next) => {
               s.username AS student_username,
               c.name AS counsellor_name,
               c.id AS counsellor_id,
-              s.ai_artifacts_generated_at
+              s.ai_artifacts_generated_at,
+              s.last_dispatch_summary
          FROM manual_ai_requests r
          JOIN intake_students s ON s.student_id = r.student_id
          LEFT JOIN counsellors c ON c.id = s.counsellor_id
@@ -337,21 +341,57 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
         return res.status(404).json({ error: "student not found" });
       }
       const student = sRes.rows[0];
+      summary.warnings = [];
 
       // ── 1. Per-file descriptions + extracted ──────────────────
+      // Field ids the runbook's "picture-only" carve-out applies to —
+      // the dispatch endpoint refuses to write ai_description for
+      // these, mirroring the frontend PHOTO_ONLY_FIELD_IDS set in
+      // src/StudentDashboard.jsx. Defence-in-depth: if an agent
+      // regresses and tries to ship 400 words of "passport-style
+      // headshot, plain white background" for a photoFile, this
+      // catches it server-side rather than letting it land in the
+      // DB and rely on the frontend hiding it.
+      const PHOTO_ONLY_FIELD_IDS = new Set(["photoFile"]);
+      // Practical ceiling for ai_description (well past the runbook's
+      // expected 5-10k chars per Section 1-5 block). We refuse rather
+      // than silently truncate — mid-section truncation would produce
+      // malformed markdown that renders as raw text in the per-doc
+      // slide.
+      const AI_DESCRIPTION_MAX = 50000;
+      // Field-id → row helper, used by the photo-only check below.
+      const fileRowsRes = await client.query(
+        `SELECT id, field_id FROM intake_files WHERE student_id = $1`,
+        [studentId]
+      );
+      const fileIdToFieldId = new Map(fileRowsRes.rows.map((r) => [String(r.id), r.field_id]));
+      const extractFieldRoot = (fid) => {
+        if (!fid) return "";
+        const i = fid.indexOf("[");
+        if (i > 0) {
+          const d = fid.indexOf(".", i);
+          if (d > 0) return fid.slice(d + 1);
+        }
+        return fid;
+      };
+
       for (const fd of file_descriptions) {
         if (!fd || !fd.file_id) continue;
         if (!isString(fd.description) || fd.description.length === 0) continue;
+
+        const fieldId = fileIdToFieldId.get(String(fd.file_id));
+        if (fieldId && PHOTO_ONLY_FIELD_IDS.has(extractFieldRoot(fieldId))) {
+          summary.warnings.push(`file ${fd.file_id} (${fieldId}): description rejected — picture-only carve-out applies, see runbook Skip Rule 1`);
+          continue;
+        }
+        if (fd.description.length > AI_DESCRIPTION_MAX) {
+          return res.status(400).json({
+            error: `ai_description for file ${fd.file_id} is ${fd.description.length} chars (max ${AI_DESCRIPTION_MAX}). Trim Section 3 (Verbatim) or split if the document truly is this large; silent truncation would produce malformed markdown.`,
+          });
+        }
         // FK: file must belong to this student. The WHERE clause
         // enforces it; UPDATE silently no-ops if the file is
         // someone else's.
-        // Sanity cap, well above the runbook's expected 5-10k chars per
-        // Section 1-5 description. The original 4000-char cap dated from
-        // when this column held "2-3 sentence prose blurbs"; the runbook
-        // now explicitly rejects that shape and asks for full verbatim
-        // transcription + structured tables, which routinely runs 5-9k
-        // chars for marksheets. Keep the cap only to bound model
-        // run-away — TEXT in Postgres can hold up to 1 GB.
         const r = await client.query(
           `UPDATE intake_files
               SET ai_description = $2,
@@ -359,7 +399,7 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
             WHERE id = $1 AND student_id = $4`,
           [
             fd.file_id,
-            fd.description.slice(0, 50000),
+            fd.description,
             fd.extracted ? JSON.stringify(fd.extracted) : null,
             studentId,
           ]
@@ -505,48 +545,73 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
       // Each row gets staff_draft set only when currently empty
       // (or when force=true). The doc_id MUST belong to this
       // student — the WHERE clause double-checks via student_id.
+      //
+      // Word-count validation runs BEFORE persistence per the
+      // runbook ("LOR drafts": 500-700; "SOP": 400-500 hard cap 500;
+      // "Internship": 150-250). Out-of-band drafts are rejected with
+      // the row id so the caller can re-author rather than land junk.
+      const countWords = (s) => s.trim().split(/\s+/).filter(Boolean).length;
+      const LIMITS = {
+        sop:        { min: 400, max: 500, label: "SOP" },
+        lor:        { min: 500, max: 700, label: "LOR" },
+        internship: { min: 150, max: 250, label: "Internship" },
+      };
       const setDraft = async (docId, kind, draft) => {
-        if (!docId || !isString(draft) || draft.trim().length === 0) return false;
+        if (!docId || !isString(draft) || draft.trim().length === 0) return { ok: false, reason: "empty" };
+        const limits = LIMITS[kind];
+        if (limits) {
+          const wc = countWords(draft);
+          if (wc < limits.min || wc > limits.max) {
+            summary.warnings.push(`${limits.label} doc_id=${docId}: ${wc} words is outside ${limits.min}-${limits.max}; rejected. Re-author to fit before re-dispatching.`);
+            return { ok: false, reason: "word-count" };
+          }
+        }
         const cur = await client.query(
           "SELECT staff_draft FROM intake_required_docs WHERE id = $1 AND student_id = $2 AND kind = $3",
           [docId, studentId, kind]
         );
-        if (cur.rows.length === 0) return false;
+        if (cur.rows.length === 0) return { ok: false, reason: "no-row" };
         const existing = cur.rows[0].staff_draft;
         const isEmpty = !existing || existing.trim().length === 0;
-        if (!isEmpty && !force) return false;
+        if (!isEmpty && !force) return { ok: false, reason: "already-set" };
         await client.query(
           "UPDATE intake_required_docs SET staff_draft = $2, updated_at = NOW() WHERE id = $1",
           [docId, draft]
         );
-        return true;
+        return { ok: true };
       };
 
       // SOP — playbook sends the draft + we look up the row by
       // (student, kind='sop', seq=1) since there's only ever one
-      // SOP per student.
+      // SOP per student. If no SOP row is provisioned (pre-upload
+      // cohort), surface the gap rather than silently dropping the
+      // draft.
       if (sop_draft) {
         const r = await client.query(
           "SELECT id FROM intake_required_docs WHERE student_id = $1 AND kind = 'sop' AND seq = 1",
           [studentId]
         );
-        if (r.rows.length > 0) {
-          if (await setDraft(r.rows[0].id, "sop", sop_draft)) {
-            summary.sop_set = true;
-          } else {
-            summary.sop_skipped_already_set = true;
-          }
+        if (r.rows.length === 0) {
+          summary.sop_skipped_no_row = true;
+          summary.warnings.push("SOP draft sent but no kind='sop' row exists for this student; ask the counsellor to provision one before re-dispatch, or insert via /api/required-docs/me");
+        } else {
+          const res2 = await setDraft(r.rows[0].id, "sop", sop_draft);
+          if (res2.ok) summary.sop_set = true;
+          else if (res2.reason === "already-set") summary.sop_skipped_already_set = true;
+          else if (res2.reason === "word-count") summary.sop_skipped_word_count = true;
         }
       }
 
       for (const lor of lor_drafts) {
         if (!lor) continue;
-        if (await setDraft(lor.doc_id, "lor", lor.draft)) summary.lors_set++;
+        const res2 = await setDraft(lor.doc_id, "lor", lor.draft);
+        if (res2.ok) summary.lors_set++;
         else summary.lors_skipped++;
       }
       for (const it of internship_drafts) {
         if (!it) continue;
-        if (await setDraft(it.doc_id, "internship", it.draft)) summary.internships_set++;
+        const res2 = await setDraft(it.doc_id, "internship", it.draft);
+        if (res2.ok) summary.internships_set++;
         else summary.internships_skipped++;
       }
 
@@ -559,18 +624,25 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
       // dashboard.
       //
       // Dedupe to keep re-runs idempotent: skip a suggestion if a
-      // kind='lor' row with the same recipient_name (case- and
-      // whitespace-insensitive) already exists for this student.
-      // Same name = same person; we don't want a re-run to multiply
-      // suggestions for "Mr Rajiv Mehta" into N copies.
+      // kind='lor' row with the same (recipient_name, recipient_role)
+      // pair already exists for this student. Pair, not name-only,
+      // so two real recommenders coincidentally sharing a name don't
+      // collapse to one — name + role disambiguates the rare
+      // "Rajiv Mehta at school A" vs "Rajiv Mehta at programme B"
+      // case. Comparison is case- and whitespace-insensitive.
       if (lor_suggestions.length > 0) {
-        const existingNamesRes = await client.query(
-          `SELECT lower(trim(recipient_name)) AS n
+        const existingPairsRes = await client.query(
+          `SELECT lower(trim(coalesce(recipient_name, ''))) AS n,
+                  lower(trim(coalesce(recipient_role, ''))) AS r
              FROM intake_required_docs
-            WHERE student_id = $1 AND kind = 'lor' AND recipient_name IS NOT NULL`,
+            WHERE student_id = $1 AND kind = 'lor'`,
           [studentId]
         );
-        const existingNames = new Set(existingNamesRes.rows.map((r) => r.n).filter(Boolean));
+        const existingPairs = new Set(
+          existingPairsRes.rows
+            .filter((r) => r.n || r.r)
+            .map((r) => `${r.n}||${r.r}`)
+        );
         const seqRes = await client.query(
           `SELECT COALESCE(MAX(seq), 0) AS max_seq
              FROM intake_required_docs
@@ -584,38 +656,55 @@ router.post("/dispatch", requireAdmin, express.json({ limit: "5mb" }), async (re
           const role = isString(sug.recipient_role) ? sug.recipient_role.trim() : "";
           const reason = isString(sug.reason_brief) ? sug.reason_brief.trim() : "";
           if (!name && !role && !reason) continue;
-          const key = name.toLowerCase();
-          if (key && existingNames.has(key)) {
+          const key = `${name.toLowerCase()}||${role.toLowerCase()}`;
+          if ((name || role) && existingPairs.has(key)) {
             summary.lor_suggestions_skipped_duplicate++;
             continue;
           }
           // Optional `draft` on the suggestion lets the agent ship a
-          // ready-to-print LOR alongside the recipient details. The
-          // counsellor sees the draft in the textarea on the
-          // Required-documents slide instead of a placeholder. Empty
-          // string and missing key both fall back to NULL so the
-          // existing "awaiting your draft" state still works for
-          // suggestions the agent didn't draft.
-          const suggestionDraft = isString(sug.draft) && sug.draft.trim()
-            ? sug.draft
-            : null;
+          // ready-to-print LOR alongside the recipient details.
+          // Validated against the LOR word-count band the same way
+          // lor_drafts above are — anything outside 500-700 is
+          // rejected (the suggestion still inserts, but with
+          // staff_draft NULL so the counsellor sees the standard
+          // "awaiting draft" state rather than an out-of-band one).
+          let suggestionDraft = null;
+          if (isString(sug.draft) && sug.draft.trim()) {
+            const wc = sug.draft.trim().split(/\s+/).filter(Boolean).length;
+            if (wc >= LIMITS.lor.min && wc <= LIMITS.lor.max) {
+              suggestionDraft = sug.draft;
+            } else {
+              summary.warnings.push(`LOR suggestion "${name || role}": draft is ${wc} words, outside ${LIMITS.lor.min}-${LIMITS.lor.max}; row inserted with staff_draft NULL so the counsellor can re-author.`);
+            }
+          }
           await client.query(
             `INSERT INTO intake_required_docs
                (student_id, kind, seq, recipient_name, recipient_role, reason_brief, staff_draft, student_accepted_at)
              VALUES ($1, 'lor', $2, $3, $4, $5, $6, NULL)`,
             [studentId, nextSeq, name || null, role || null, reason || null, suggestionDraft]
           );
-          if (key) existingNames.add(key);
+          if (name || role) existingPairs.add(key);
           nextSeq++;
           summary.lor_suggestions_inserted++;
         }
       }
 
-      // ── 5. Mark complete (only if not already marked) ────────
+      // ── 5. Mark complete + persist the latest run's summary_notes
+      //       onto the student row so the AI Queue panel can render
+       //       the Names-needed alert directly. last_dispatch_summary
+      //       is always overwritten on each run (the latest dispatch
+      //       carries the freshest signal); ai_artifacts_generated_at
+      //       only stamps on the first successful run.
+      const summaryNotes = isString(body.summary_notes) ? body.summary_notes.trim() : null;
       if (!student.ai_artifacts_generated_at) {
         await client.query(
-          "UPDATE intake_students SET ai_artifacts_generated_at = NOW(), updated_at = NOW() WHERE student_id = $1",
-          [studentId]
+          "UPDATE intake_students SET ai_artifacts_generated_at = NOW(), last_dispatch_summary = $2, updated_at = NOW() WHERE student_id = $1",
+          [studentId, summaryNotes || null]
+        );
+      } else {
+        await client.query(
+          "UPDATE intake_students SET last_dispatch_summary = $2, updated_at = NOW() WHERE student_id = $1",
+          [studentId, summaryNotes || null]
         );
       }
 

@@ -45,7 +45,7 @@ function countWordsInJson(payload) {
   if (!payload || typeof payload !== "object") return 0;
   const buckets = [];
   buckets.push(payload.name || "", payload.headline || "", payload.lede || "", payload.closing_note || "");
-  for (const arr of [payload.education, payload.standardized_tests, payload.activities, payload.internships, payload.volunteer]) {
+  for (const arr of [payload.education, payload.standardized_tests, payload.activities, payload.internships, payload.volunteer, payload.awards, payload.publications]) {
     if (!Array.isArray(arr)) continue;
     for (const it of arr) {
       buckets.push(it?.label || "", it?.body || "", it?.meta || "");
