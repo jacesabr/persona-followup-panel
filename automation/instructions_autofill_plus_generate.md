@@ -165,34 +165,67 @@ Compose `ai_description` as a markdown block with the five sections
 below in this order. Skip a section only when it would genuinely be
 empty.
 
-#### ID-document carve-out (Aadhaar, passport, PAN, similar)
+#### Skip rules — when NOT to emit `ai_description` (or to emit a stripped form)
 
-For pure identity documents the only useful artifact is a transcribed
-fields table. A counsellor reading an Aadhaar slide does not benefit
-from a narrative summary, a verbatim block, a numeric summary, or a
-Conclusions section — those repeat what the table already says and
-clutter the per-doc slide.
+**General principle:** if the frontend doesn't display analysis for a
+field, the pipeline must not generate it. The per-doc slide
+([`ExtractionStep`](../src/StudentDashboard.jsx)) and the student-facing
+preview ([`DocumentPreview`](../src/StudentDashboard.jsx)) check
+`field_id` against carve-out sets — picture-only slots hide the
+AI-analysis block entirely; ID-doc slots show only the fields table.
+Generating prose the UI hides wastes tokens, clutters the audit row,
+and creates orphaned data that later UI changes will not be able to
+expose without re-running the pipeline. **When you add a new field
+that is "just data" (a picture, a single fact, an autofill-only key),
+update both the frontend carve-out set AND the matching rule below in
+the same change.**
 
-For Aadhaar / passport (any page) / PAN / voter ID / driving licence
-/ any other government-issued identity card, emit ONLY:
+**Rule 1 — Picture-only slots: emit nothing.**
+
+Field ids in this set: `photoFile`, and any future passport-photo /
+applicant-headshot upload slot that exists only to capture an image
+for the application packet (no transcribable data, no autofill keys,
+no LOR / SOP / narrative signal).
+
+For these files, omit the `description` field on the dispatch
+payload entirely — do not author bullets, a verbatim block, a fields
+table, a summary, or conclusions. Send only `{ file_id, extracted: {} }`
+if you must include the row at all, or skip it. The frontend
+`isPhotoOnlyField(field_id)` check (`PHOTO_ONLY_FIELD_IDS` in
+[`src/StudentDashboard.jsx`](../src/StudentDashboard.jsx)) hides any
+AI-analysis block on these slides regardless of stored content, so
+this is purely about not generating waste.
+
+**Rule 2 — ID documents: fields table only.**
+
+Field ids / document types in this set: Aadhaar (`aadharFile`),
+passport bio + address pages, PAN card, voter ID, driving licence,
+and any other government-issued identity card.
+
+For pure identity documents, emit ONLY:
 - **Section 1 — Fields table**, with one row per legible field.
 
-Skip Sections 2, 3, 4, and 5 entirely. The `ai_extracted` JSON is
-still composed as usual (that drives autofill). Field-vs-intake
-mismatches are handled by the dispatch endpoint's no-overwrite rule;
-do not add a Conclusions flag for them.
+Skip Sections 2, 3, 4, and 5 entirely. A counsellor reading an
+Aadhaar slide does not benefit from a narrative summary, a verbatim
+block, a numeric summary, or a Conclusions section — those repeat
+what the table already says and clutter the per-doc slide.
 
-Everything below (Sections 1–5) applies to non-ID documents —
-marksheets, certificates, transcripts, internship letters,
-test-score reports, and anything else where narrative context, a
-verbatim transcription, or downstream-narrative signals carry value.
+The `ai_extracted` JSON is still composed as usual (that drives
+autofill). Field-vs-intake mismatches are handled by the dispatch
+endpoint's no-overwrite rule; do not add a Conclusions flag for them.
+
+**Everything below (Sections 1–5) applies only to non-skip-rule
+documents** — marksheets, certificates, transcripts, internship
+letters, test-score reports, and anything else where narrative
+context, a verbatim transcription, or downstream-narrative signals
+carry value.
 
 Section order is fixed: Fields → Narrative → Verbatim → Summary →
 Conclusions. The structured table comes first so a counsellor opening
 a per-doc slide sees the transcribed data immediately, not a wall of
 prose. Slower-reading sections (verbatim transcription, numeric
 summary, downstream-signal conclusions) sit underneath. ID docs stop
-after Section 1.
+after Section 1; picture-only slots emit no `ai_description` at all.
 
 **Section 1 — Fields table** (under a `### Fields` heading)
 
@@ -284,15 +317,9 @@ The amount of detail per bullet depends on what the document carries:
   specific claims summarised, plus the 1–2 strongest sentences quoted
   verbatim so the SOP / LOR composer can lift them.
 
-- **Student photo / headshot (`photoFile` and similar picture-only
-  upload slots)**: **Skip `ai_description` entirely.** It is just a
-  picture for the application packet — there is nothing to transcribe,
-  no autofill keys, and the frontend hides any AI block on these
-  slides anyway (per [[feedback_doc_extraction_fields_first]] and the
-  photo-only carve-out in [`src/StudentDashboard.jsx`](../src/StudentDashboard.jsx)).
-  Emit nothing for `description` on the dispatch payload; do not
-  generate bullets, conclusions, or summary. The slide will render the
-  image and the title, which is all the reviewer needs.
+- **Student photo / headshot (`photoFile`)**: covered by Skip Rule 1
+  at the top of this section — emit nothing for `description`. Do
+  not duplicate guidance here.
 
 - **Signed declarations, administrative forms, single-purpose pages**:
   The opening student paragraph is enough. Skip layered detail. Note any
