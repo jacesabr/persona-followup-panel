@@ -391,21 +391,95 @@ Each bullet should fit one of these shapes:
 - **Operational fact** — actionable timing or validity. *"Passport
   expires 12 Mar 2027; within the 6-month window for 2026 intake,
   flag for renewal before any 2027 intake."*
-- **LOR-source flag** — when the document names someone who could
-  plausibly write a recommendation (subject teacher whose
-  signature appears, mentor on a certificate, internship
-  supervisor). *"Marksheet signed by Controller of Examinations,
-  Mrs Anjali Verma — not a likely LOR source."* OR *"Entrepreneurship
-  course completion certificate names mentor 'Rajiv Mehta, MENTORx
-  Global' — strong LOR candidate; surface as a suggestion."*
 - **Cross-doc comparison** — when this file's content meaningfully
   agrees / disagrees with another file already on the student.
   *"Class XI Maths 84 vs Class X Maths 99 — 15-point drop; SOP
   should not lean on 'consistently strong in Maths' framing."*
 
-Lead with the actionable signal where one exists. The LOR-source
-flag matters: those names feed a separate suggestion list the
-counsellor uses to nudge the student.
+Lead with the actionable signal where one exists.
+
+**Section 6 — Named people** (under a `### Named People` heading) —
+MANDATORY for every document with any signatory, recommender, or
+named individual. SKIPPED only for documents where named individuals
+are categorically irrelevant (Aadhaar / PAN / passport bio /
+photoFile).
+
+The LOR / SOP / resume drafting steps downstream rely on this section
+to know who the student actually has a relationship with. A missing
+or sloppy Named-people section means the agent will fall back to
+people who happen to have signed a one-time external certificate,
+which is exactly the LOR failure mode we want to prevent.
+
+Output a markdown table with this exact column set:
+
+| Name | Role / title | Association with student | Subjects / topics observed | LOR plausibility |
+|---|---|---|---|---|
+| Mr. Rajiv Mehta | Course mentor, MENTORx Global | 8-week Class IX Foundation Course (2022-23) at Sat Paul Mittal | Entrepreneurship & Innovation cohort work | Weak — single short course, no continued contact |
+| Mrs Anjali Verma | Controller of Examinations, CISCE | Board signatory only | None | Skip — board officer, no teaching relationship |
+
+Rules for filling the table:
+
+- **Name**: full name + honorific exactly as printed on the document.
+  If only a surname is legible from a signature, capture surname only
+  and flag in the LOR-plausibility cell that the first name needs
+  confirmation. If the signature is illegible or the document is
+  expected to carry a name but doesn't have one printed, emit a row
+  with `[name not legible]` or `[name not on document]` in the Name
+  column — do not skip the row, the absence is itself important
+  signal.
+- **Role / title**: their position relative to the student (subject
+  teacher, class teacher, Vice Principal, Principal, mentor on a
+  course, supervisor on an internship, project lead, etc.). Use the
+  document's own wording.
+- **Association with student**: how long, in what capacity, on what
+  programme / class / project, with which dates if visible. A one-time
+  certificate signatory has a very different value from a two-year
+  classroom teacher and the LOR step needs to be able to tell.
+- **Subjects / topics observed**: the specific things this person
+  watched the student do — *"Class XI Mathematics, 91.5 annual"*,
+  *"rotational-dynamics practical, 29/30"*, *"Class IX cohort pitch
+  project, signed off as 'exceptional performance'"*. Anchor to a
+  number or a specific topic from the same document where possible.
+- **LOR plausibility**: one of *strong* / *moderate* / *weak* / *skip*,
+  followed by a one-line reason. The downstream LOR composer will
+  filter by this column.
+
+A worked example for a Class XI / XII CBSE progress report
+(no subject-teacher names are printed in this report format —
+this is the case the agent must recognise and alert on):
+
+| Name | Role / title | Association with student | Subjects / topics observed | LOR plausibility |
+|---|---|---|---|---|
+| Mr. Kanalvi *(first name not legible)* | Principal | Class XI + XII at Guru Nanak International, signed every term remark | Whole-student record, not subject-specific | Strong — sustained two-year sign-off; confirm first name with student |
+| Mr. Bhullon *(first name not legible)* | Vice Principal | Same period as above; co-signed every progress block | Whole-student record | Moderate — administrative role, may be acceptable as second school voice; confirm first name |
+| [name not on document] | Class Teacher | Two-year Class XI + XII period, signature only | Whole-student record | Strong potential — counsellor must collect name directly from student |
+| [name not on document] | Class XII Mathematics teacher | Two-year period (Class XI + XII Maths) | Mathematics 91.5 / 100 Class XI annual | Strong potential — counsellor must collect name directly from student |
+| [name not on document] | Class XII Physics teacher | Two-year period | Physics 91.15 / 100 Class XI annual, practicals 29/30 | Strong potential — counsellor must collect name directly from student |
+
+Note the pattern: even when the document does NOT print the subject
+teachers' names, the agent must enumerate the EXPECTED named roles
+(Class XII Mathematics teacher, Class XII Physics teacher, Class
+Teacher) with `[name not on document]` so the dispatch's
+`summary_notes` field can flag this to the counsellor explicitly.
+
+**Alert in `summary_notes`.** After processing all of a student's
+files, the agent MUST compile a `Names-needed` block in
+`summary_notes` listing every row from any Section 6 where the Name
+column is `[name not legible]` or `[name not on document]`. Format:
+
+```
+Names-needed (counsellor must collect from student / school):
+- Class XII Mathematics teacher (Guru Nanak International) — strong LOR candidate
+- Class XII Physics teacher (Guru Nanak International) — strong LOR candidate
+- Class Teacher 2024–26 (Guru Nanak International) — strong LOR candidate
+- First name of Principal "Kanalvi" — confirm spelling and honorific
+- First name of Vice Principal "Bhullon" — confirm spelling and honorific
+```
+
+This block surfaces directly on the audit row the counsellor reviews
+on the AI Queue panel. A run that produces LOR drafts without this
+list, when the underlying documents had absent or partial names, is
+a failed run — re-do that step before dispatching.
 
 **Then: compose `ai_extracted`**
 
@@ -758,7 +832,36 @@ from its siblings on four axes:
 4. **Structural variation** — opening style, paragraph count, sentence
    rhythm, and which beats run heavy.
 
-**Inputs available**
+**Recipient pool — sourced from the Named-people register, not invented**
+
+The LOR recipients (and the recipients of any LOR suggestions you
+emit) MUST be drawn from the cross-document Named-people register
+you compiled in Section 6 of Section 3b. Filter to rows with LOR
+plausibility *strong* or *moderate*. Prefer recipients who appear
+across multiple documents or who have a sustained-association
+signal (two-year subject teacher, principal across the senior
+years) over one-off external-programme signatories.
+
+If a strong-association role exists in the register but the name
+cell is `[name not legible]` or `[name not on document]` (typical
+case: Class XII Mathematics teacher whose name does not print on
+CBSE reports), draft the LOR anyway with `recipient_name` set to
+a bracketed role placeholder (e.g. `[Class XII Mathematics Teacher]`)
+and ensure the row appears in the `summary_notes` Names-needed
+alert. The counsellor will fill the actual name before sending.
+Body text MUST be written in first person without self-reference by
+name so the placeholder only needs to be replaced in the signature
+block.
+
+NEVER pull LOR recipients from external one-time-course
+signatories (course mentors, workshop leads, certificate
+co-signatories) when sustained-association school staff are
+available in the register. Universities read multiple LORs side by
+side and a letter from a person who saw the student for eight
+weeks two years ago carries less weight than one from the subject
+teacher who taught them for two senior years.
+
+**Other inputs available**
 - `recipient_name`, `recipient_role`, `reason_brief` (from the row or
   from your suggestion object).
 - Student: `answers.full_name`, current `grade`, `targetCountry` /
