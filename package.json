@@ -12,6 +12,7 @@
     "wipe": "node server/wipe.js",
     "import-examples": "node server/scripts/import-examples.js",
     "seed-student": "node server/scripts/seed-test-student.js",
+    "pipeline": "node server/scripts/pipeline.js",
     "test": "node --test lib/*.test.js"
   },
   "dependencies": {

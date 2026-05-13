@@ -7,8 +7,20 @@ cron, no remote routine, no API-side LLM call in the live path.
 
 ## Where to start
 
-If you are a Claude Code agent reading this folder cold to run the
-pipeline:
+If you are the operator running the pipeline for a new student:
+
+1. `npm run pipeline -- pending` — see who's in the AI queue.
+2. `npm run pipeline -- prep <student_id-or-username>` — downloads
+   the student's intake + active files into `tmp/pipeline/<sid>/`,
+   creates a `drafts.json` skeleton, prints next steps.
+3. Open Claude Code in this repo, read the workdir's `README.md`,
+   author the artefacts into `drafts.json`. Follow the runbook
+   ([`instructions_autofill_plus_generate.md`](instructions_autofill_plus_generate.md)),
+   grounded in the SOP / LOR / resume corpora.
+4. `npm run pipeline -- dispatch <student_id>` — POSTs the filled
+   `drafts.json` to `/api/admin/ai/dispatch` atomically.
+
+If you are a Claude Code agent reading this folder cold:
 
 1. Open [`instructions_autofill_plus_generate.md`](instructions_autofill_plus_generate.md)
    and follow it top to bottom. It is the runbook.
