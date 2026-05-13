@@ -8,6 +8,7 @@ import ApplicationsPanel from "./ApplicationsPanel.jsx";
 import RequiredDocsPanel from "./RequiredDocsPanel.jsx";
 import OutstandingMarksheetsPanel from "./OutstandingMarksheetsPanel.jsx";
 import AiQueuePanel from "./AiQueuePanel.jsx";
+import InvoicesAdmin from "./InvoicesAdmin.jsx";
 import { api } from "./api.js";
 
 const TAB_KEY = "persona_simple_tab";
@@ -17,7 +18,7 @@ function loadTab(role) {
   try {
     const t = sessionStorage.getItem(TAB_KEY);
     if (t === "followup" || t === "tasks" || t === "students" || t === "ielts" || t === "applications" || t === "documents" || t === "marksheets") return t;
-    if ((t === "counsellors" || t === "ai-queue") && role === "admin") return t;
+    if ((t === "counsellors" || t === "ai-queue" || t === "invoices") && role === "admin") return t;
     // team-{counsellorId} tabs for supervisor views
     if (typeof t === "string" && t.startsWith("team-")) return t;
   } catch {
@@ -150,6 +151,13 @@ export default function SimplePanel({
               onClick={() => setTab("counsellors")}
             />
           )}
+          {role === "admin" && (
+            <FolderTab
+              label="Invoices"
+              active={tab === "invoices"}
+              onClick={() => setTab("invoices")}
+            />
+          )}
           {/* One tab per supervised counsellor — only visible to supervisors (e.g. Simran sees Himani's Tasks) */}
           {mySupervised.map((sub) => (
             <FolderTab
@@ -230,6 +238,9 @@ export default function SimplePanel({
           error={counsellorsError}
           onCounsellorsChanged={onCounsellorsChanged}
         />
+      )}
+      {tab === "invoices" && role === "admin" && (
+        <InvoicesAdmin />
       )}
       {/* Subordinate task panels — Simran viewing Himani's board.
           Must pass the same prop set as the canonical Tasks tab above,

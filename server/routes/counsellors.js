@@ -100,13 +100,14 @@ function validateCounsellorInput(body, { mode = "create" } = {}) {
 }
 
 // Explicit column list. password_hash is excluded — clients verify via
-// /api/auth/login, not by reading the hash. password_plain IS included:
-// admin + counsellor panels show it directly so support can read out a
-// password without resetting. Tradeoff acknowledged in migrate.js. Exported
-// so server/routes/auth.js can reuse the same allow-list — preventing
+// /api/auth/login, not by reading the hash. password_plain was removed
+// in 2026-05-13's security pass; newly created / reset passwords are
+// returned ONCE in the create / reset API response and displayed in
+// CredentialsModal at that moment, then never read back. Exported so
+// server/routes/auth.js can reuse the same allow-list and prevent
 // drift where one endpoint leaks a column the other hides.
 export const COUNSELLOR_PUBLIC_COLUMNS =
-  "id, name, whatsapp, email, username, password_plain, created_at, supervisor_id";
+  "id, name, whatsapp, email, username, created_at, supervisor_id";
 const PUBLIC_COLUMNS = COUNSELLOR_PUBLIC_COLUMNS;
 
 // GET /api/counsellors/admin-accounts — named admin accounts for the
@@ -138,17 +139,6 @@ router.get("/", async (req, res, next) => {
       : `SELECT ${PUBLIC_COLUMNS} FROM counsellors ORDER BY name ASC`;
     const params = kind === "counsellor" ? [req.user.counsellorId] : [];
     const { rows } = await pool.query(sql, params);
-    // password_plain is shown in admin/self panels for support recovery,
-    // but a counsellor session must not see their supervisor's or
-    // subordinates' plaintext — that would be a one-click takeover of
-    // the people above and below them. Redact for non-self rows on
-    // counsellor sessions; admin still sees the full grid.
-    if (kind === "counsellor") {
-      const me = req.user.counsellorId;
-      for (const row of rows) {
-        if (row.id !== me) row.password_plain = null;
-      }
-    }
     res.json(rows);
   } catch (e) {
     next(e);
@@ -177,10 +167,10 @@ router.post("/", requireAdmin, async (req, res, next) => {
 
     try {
       const { rows } = await pool.query(
-        `INSERT INTO counsellors (id, name, whatsapp, email, username, password_hash, password_plain)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO counsellors (id, name, whatsapp, email, username, password_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING ${PUBLIC_COLUMNS}`,
-        [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password), password]
+        [id, cleanName, cleanWa, cleanEmail, cleanUsername, hashPassword(password)]
       );
       res.status(201).json(rows[0]);
     } catch (e) {
@@ -287,10 +277,6 @@ router.patch("/:id", requireAdmin, async (req, res, next) => {
       values.push(stored);
       setParts.push(`${column} = $${values.length}`);
     });
-    if (fields.includes("password")) {
-      values.push(req.body.password);
-      setParts.push(`password_plain = $${values.length}`);
-    }
     const set = setParts.join(", ");
 
     const passwordChanged = fields.includes("password");
@@ -359,8 +345,8 @@ router.post("/me/change-password", express.json(), async (req, res, next) => {
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE counsellors SET password_hash = $1, password_plain = $2 WHERE id = $3`,
-        [hashPassword(newPassword), newPassword, req.user.counsellorId]
+        `UPDATE counsellors SET password_hash = $1 WHERE id = $2`,
+        [hashPassword(newPassword), req.user.counsellorId]
       );
       await client.query(
         `DELETE FROM sessions

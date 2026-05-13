@@ -194,10 +194,10 @@ router.post("/", requireStaff, express.json(), async (req, res, next) => {
     try {
       const { rows } = await pool.query(
         `INSERT INTO intake_students
-           (student_id, username, password_hash, password_plain, lead_id, counsellor_id, display_name)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+           (student_id, username, password_hash, lead_id, counsellor_id, display_name)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING student_id, username, display_name, lead_id, counsellor_id, created_at`,
-        [studentId, cleanUsername, password_hash, password, lead_id || null, counsellorId, display_name || null]
+        [studentId, cleanUsername, password_hash, lead_id || null, counsellorId, display_name || null]
       );
       const row = rows[0];
       audit(req, {
@@ -401,10 +401,10 @@ router.post("/with-docs", requireStaff, uploadManyMw, async (req, res, next) => 
       // still being 'intake'.
       const studentRow = await client.query(
         `INSERT INTO intake_students
-           (student_id, username, password_hash, password_plain, counsellor_id, display_name, ai_eligible_via_pre_upload)
-         VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+           (student_id, username, password_hash, counsellor_id, display_name, ai_eligible_via_pre_upload)
+         VALUES ($1, $2, $3, $4, $5, TRUE)
          RETURNING student_id, username, display_name, counsellor_id, created_at`,
-        [studentId, cleanUsername, password_hash, password, counsellorId, display_name || null]
+        [studentId, cleanUsername, password_hash, counsellorId, display_name || null]
       );
       // Each starter document gets a generic field_id of "starter_doc"
       // with a sequential row_index. The AI pipeline's vision pass
@@ -501,15 +501,15 @@ router.post("/:student_id/reset-password", requireStaff, async (req, res, next) 
       // Tight window (~ms) but trivial to close.
       const u = await client.query(
         req.user.kind === "counsellor"
-          ? `UPDATE intake_students SET password_hash = $1, password_plain = $2
-               WHERE student_id = $3 AND counsellor_id = $4
+          ? `UPDATE intake_students SET password_hash = $1
+               WHERE student_id = $2 AND counsellor_id = $3
                RETURNING student_id, username`
-          : `UPDATE intake_students SET password_hash = $1, password_plain = $2
-               WHERE student_id = $3
+          : `UPDATE intake_students SET password_hash = $1
+               WHERE student_id = $2
                RETURNING student_id, username`,
         req.user.kind === "counsellor"
-          ? [password_hash, password, req.params.student_id, req.user.counsellorId]
-          : [password_hash, password, req.params.student_id]
+          ? [password_hash, req.params.student_id, req.user.counsellorId]
+          : [password_hash, req.params.student_id]
       );
       if (u.rows.length === 0) {
         await client.query("ROLLBACK");
@@ -767,7 +767,7 @@ router.post("/:student_id/purge-superseded-files", requireStaff, async (req, res
 router.get("/", requireStaff, async (req, res, next) => {
   try {
     let sql = `
-      SELECT s.student_id, s.username, s.password_plain, s.display_name,
+      SELECT s.student_id, s.username, s.display_name,
              s.intake_complete, s.intake_phase, s.data,
              s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
              s.ielts_archived_at,
@@ -2265,8 +2265,8 @@ router.post("/me/change-password", requireStudent, express.json(), async (req, r
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE intake_students SET password_hash = $1, password_plain = $2 WHERE student_id = $3`,
-        [hashPassword(newPassword), newPassword, req.user.studentId]
+        `UPDATE intake_students SET password_hash = $1 WHERE student_id = $2`,
+        [hashPassword(newPassword), req.user.studentId]
       );
       // Drop every session row for this student that isn't the one
       // making the request right now. IS DISTINCT FROM handles NULL

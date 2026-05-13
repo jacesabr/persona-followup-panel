@@ -15,6 +15,7 @@ import studentsRouter from "./routes/students.js";
 import applicationsRouter from "./routes/applications.js";
 import requiredDocsRouter from "./routes/required-docs.js";
 import adminAiRouter from "./routes/admin-ai.js";
+import invoicesRouter from "./routes/invoices.js";
 import { migrate } from "./migrate.js";
 import { initStorage } from "./storage.js";
 import { autoAudit } from "./auditing.js";
@@ -261,6 +262,9 @@ app.use("/api/required-docs", (req, res, next) =>
 app.use("/api/admin/ai", (req, res, next) =>
   req.method === "GET" ? next() : writeLimiter(req, res, next)
 );
+app.use("/api/admin/invoices", (req, res, next) =>
+  req.method === "GET" ? next() : writeLimiter(req, res, next)
+);
 app.use("/api/auth", writeLimiter);
 
 // autoAudit middleware on the pre-merge surfaces (leads/tasks/counsellors)
@@ -292,6 +296,10 @@ app.use("/api/required-docs", requireAuth, autoAudit("intake_required_docs"), re
 // scheduled Claude Code routine that runs manual_opus_generate.md
 // every hour against unprocessed students.
 app.use("/api/admin/ai", requireAuth, autoAudit("intake_students"), adminAiRouter);
+// Invoices: admin-only (each handler calls requireAdmin internally; mount-level
+// requireAuth populates req.user). Audit wrapper logs writes against
+// invoices / company_settings.
+app.use("/api/admin/invoices", requireAuth, autoAudit("invoices"), invoicesRouter);
 app.use("/api/auth", authRouter);
 
 const distPath = path.join(__dirname, "..", "dist");

@@ -46,7 +46,6 @@ async function main() {
       await client.query(
         `UPDATE intake_students
             SET password_hash    = $1,
-                password_plain   = $2,
                 is_archived      = FALSE,
                 archived_at      = NULL,
                 archived_reason  = NULL,
@@ -55,8 +54,8 @@ async function main() {
                 intake_phase     = 'intake',
                 intake_complete  = FALSE,
                 updated_at       = NOW()
-          WHERE student_id = $3`,
-        [password_hash, PASSWORD, sid]
+          WHERE student_id = $2`,
+        [password_hash, sid]
       );
       await client.query(
         `UPDATE intake_files SET superseded_at = NOW()
@@ -82,9 +81,9 @@ async function main() {
   const studentId = `s_${Date.now().toString(36)}_${crypto.randomBytes(6).toString("hex")}`;
   await pool.query(
     `INSERT INTO intake_students
-       (student_id, username, password_hash, password_plain, display_name)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [studentId, USERNAME, password_hash, PASSWORD, DISPLAY_NAME]
+       (student_id, username, password_hash, display_name)
+     VALUES ($1, $2, $3, $4)`,
+    [studentId, USERNAME, password_hash, DISPLAY_NAME]
   );
   console.log(`[seed-student] created student ${studentId} (username="${USERNAME}", password="${PASSWORD}")`);
 }

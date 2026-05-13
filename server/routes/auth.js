@@ -170,11 +170,13 @@ router.post("/login", async (req, res, next) => {
       }
       if (ok) {
         try {
-          // Backfill password_plain at the same time so legacy rows show
-          // up correctly on the admin panel after first login.
+          // Upgrade legacy plaintext rows to a proper hash on first
+          // successful login. password_plain was dropped in the
+          // 2026-05-13 security pass, so we no longer persist a
+          // plaintext copy alongside.
           await pool.query(
-            "UPDATE counsellors SET password_hash = $1, password_plain = COALESCE(password_plain, $2) WHERE id = $3",
-            [hashPassword(password), password, row.id]
+            "UPDATE counsellors SET password_hash = $1 WHERE id = $2",
+            [hashPassword(password), row.id]
           );
         } catch (e) {
           console.error("[auth] password upgrade failed:", e);

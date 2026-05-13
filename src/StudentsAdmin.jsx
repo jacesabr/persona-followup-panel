@@ -667,17 +667,6 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
             {row.lead_name && <> {" · "} from lead: <span className="text-black">{row.lead_name}</span></>}
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
-          {row.password_plain && (
-            <p className="mt-1 text-[11px] text-black">
-              pw:{" "}
-              <span
-                className="select-all font-mono text-black"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {row.password_plain}
-              </span>
-            </p>
-          )}
         </div>
         <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
           <button

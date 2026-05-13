@@ -62,6 +62,18 @@ function makeLocal() {
     async deleteIfExists(key) {
       try { fs.unlinkSync(key); } catch { /* ignore */ }
     },
+    // Write a byte buffer at an explicit (caller-chosen) key. Used by
+    // the invoice backup path which addresses blobs by a meaningful
+    // hierarchy (invoices/{fy}/{number}/...json) rather than the
+    // anonymised content-hash names save() generates. Local backend
+    // writes under uploads/{key}; gitignored.
+    async putBlob({ key, body, contentType }) {
+      const dest = path.join(root, key);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, body);
+      void contentType; // unused on local; recorded by s3 backend
+      return { key, size: body.length };
+    },
   };
 }
 
@@ -146,6 +158,27 @@ async function makeS3() {
       try {
         await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
       } catch { /* ignore */ }
+    },
+    // Explicit-key write. Used by the invoice backup path so backup
+    // blobs land at human-readable hierarchies like
+    // invoices/{fy}/{invoice_number}/{event}-{timestamp}.json. The
+    // HEAD verification mirrors save() — strongly consistent R2 still
+    // reports the wrong byte count if a network proxy mangles the PUT.
+    async putBlob({ key, body, contentType }) {
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType || "application/octet-stream",
+      }));
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+      const reportedSize = Number(head.ContentLength ?? -1);
+      if (reportedSize !== body.length) {
+        throw new Error(
+          `[storage:s3] putBlob HEAD size mismatch: wrote ${body.length}B, R2 reports ${reportedSize}B (key=${key})`
+        );
+      }
+      return { key, size: body.length };
     },
   };
 }

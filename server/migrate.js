@@ -26,12 +26,13 @@ DO $rename_counsellors_password$ BEGIN
     ALTER TABLE counsellors RENAME COLUMN password TO password_hash;
   END IF;
 END $rename_counsellors_password$;
--- Plaintext copy stored alongside the scrypt hash so admin (and the
--- counsellor themselves) can see the password on the panel — explicit
--- product call by the operator. Tradeoff acknowledged: anyone with admin
--- session OR DB read can see all passwords. password_hash stays the
--- source of truth for login.
-ALTER TABLE counsellors ADD COLUMN IF NOT EXISTS password_plain TEXT;
+-- password_plain was a plaintext copy of the scrypt hash for in-panel
+-- support recovery. Removed 2026-05-13 — security tradeoff was reversed.
+-- Newly created / reset counsellor passwords are returned in the create /
+-- reset API response once and shown in CredentialsModal; the panel
+-- no longer surfaces them after the first read. Drop the column so the
+-- DB stops carrying plaintext copies.
+ALTER TABLE counsellors DROP COLUMN IF EXISTS password_plain;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_counsellors_username ON counsellors(username) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS leads (
@@ -175,9 +176,10 @@ CREATE INDEX IF NOT EXISTS idx_intake_students_complete ON intake_students(intak
 -- Per-student account credentials + provenance (lead origin + creating counsellor).
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS username       TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_hash  TEXT;
--- Plaintext counterpart to password_hash — see counsellors.password_plain
--- for the same product-call rationale + tradeoff.
-ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_plain TEXT;
+-- password_plain was a plaintext copy of the scrypt hash for in-panel
+-- support recovery (same shape as counsellors.password_plain above).
+-- Removed 2026-05-13; see that block for the migration rationale.
+ALTER TABLE intake_students DROP COLUMN IF EXISTS password_plain;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS lead_id        TEXT REFERENCES leads(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS counsellor_id  TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS display_name   TEXT;
@@ -326,6 +328,14 @@ CREATE TABLE IF NOT EXISTS manual_ai_requests (
 -- (FK to intake_resumes added below, after intake_resumes is created
 -- — keeping the ALTER co-located here would fail on a fresh DB
 -- bootstrap because intake_resumes isn't declared until further down.)
+-- "Redraft existing artifacts" flag. Set TRUE when a counsellor /
+-- admin files a request specifically to overwrite already-written
+-- staff_drafts (e.g. "use Mr. Sharma as the Class XII Maths teacher,
+-- redraft the LOR"). When the dispatch endpoint runs for a student
+-- whose most-recent pending request has force_redraft=TRUE, every
+-- setDraft call uses force=true so empty-only protections don't
+-- silently skip the new drafts. notes carries the human reason.
+ALTER TABLE manual_ai_requests ADD COLUMN IF NOT EXISTS force_redraft BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_pending
   ON manual_ai_requests(requested_at DESC) WHERE processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_manual_ai_requests_student
@@ -752,6 +762,80 @@ CREATE TABLE IF NOT EXISTS intake_financial_dossier (
   data       JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================
+-- INVOICE GENERATION
+--
+-- Single-row company_settings holds the firm's identity + tax + bank
+-- + brand assets that every invoice header reads from. Logo and
+-- signature are stored as base64 text (small PNGs — typical signature
+-- ~10 KB, logo ~50 KB; well under any sane row limit). They live in
+-- the DB rather than the repo because this repo is public on GitHub
+-- and the values are private (GSTIN, PAN, bank a/c, IFSC, founder
+-- phone, signature image). The id=1 CHECK + PRIMARY KEY constraint
+-- enforces "at most one row" so a buggy POST can't accidentally
+-- create a second config row that drifts from the live one.
+--
+-- invoices rows are mutable while approved=false (draft). Once an
+-- admin signs an invoice (approve endpoint), approved flips true,
+-- approved_at + approved_by_admin are stamped, and the API rejects
+-- further mutations. Numbers are unique within an FY.
+--
+-- Line items use JSONB for the type-specific bits — retail has
+-- (studentName, service, amount); B2B India/LUT has (poNumber,
+-- studentName, course, university, intake, commission); B2B
+-- International adds (siukId, firstName, familyName, tuitionFee,
+-- uniRate, partnerRate, currency). Common identifiers (invoice_id,
+-- position, amount, commission) stay as columns so list + sum
+-- queries don't need to crack JSON.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS company_settings (
+  id              INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  data            JSONB NOT NULL DEFAULT '{}'::jsonb,
+  logo_base64     TEXT,
+  signature_base64 TEXT,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by_admin TEXT
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id              TEXT PRIMARY KEY,
+  invoice_number  TEXT NOT NULL UNIQUE,
+  invoice_type    TEXT NOT NULL CHECK (invoice_type IN ('retail', 'b2b', 'b2b_lut', 'b2b_intl')),
+  invoice_date    DATE NOT NULL,
+  fy              INT NOT NULL,
+  customer        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  currency        TEXT,
+  notes           TEXT,
+  subtotal        NUMERIC(14,2) NOT NULL DEFAULT 0,
+  cgst            NUMERIC(14,2) NOT NULL DEFAULT 0,
+  sgst            NUMERIC(14,2) NOT NULL DEFAULT 0,
+  igst            NUMERIC(14,2) NOT NULL DEFAULT 0,
+  grand_total     NUMERIC(14,2) NOT NULL DEFAULT 0,
+  tax_type        TEXT,
+  lut_n_snapshot  TEXT,
+  lut_date_snapshot TEXT,
+  approved        BOOLEAN NOT NULL DEFAULT FALSE,
+  approved_at     TIMESTAMPTZ,
+  approved_by_admin TEXT,
+  created_by_admin TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_fy ON invoices(fy);
+CREATE INDEX IF NOT EXISTS idx_invoices_type ON invoices(invoice_type);
+CREATE INDEX IF NOT EXISTS idx_invoices_approved ON invoices(approved);
+
+CREATE TABLE IF NOT EXISTS invoice_line_items (
+  id              BIGSERIAL PRIMARY KEY,
+  invoice_id      TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  position        INT NOT NULL,
+  amount          NUMERIC(14,2) NOT NULL DEFAULT 0,
+  commission      NUMERIC(14,2) NOT NULL DEFAULT 0,
+  data            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items(invoice_id, position);
 `;
 
 export async function migrate() {

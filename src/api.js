@@ -313,4 +313,51 @@ export const api = {
     request("POST", `/api/students/${studentId}/ielts-archive`),
   unarchiveStudentIelts: (studentId) =>
     request("POST", `/api/students/${studentId}/ielts-unarchive`),
+
+  // ----------------------------------------------------------------
+  // Invoices (admin only). All routes are gated by requireAdmin on
+  // the server. Company settings (firm identity, GSTIN, bank account,
+  // signature, logo) are the source of truth that every invoice
+  // header reads from. Both the live row AND every mutation are
+  // mirrored to R2 (invoices/{fy}/{number}/{event}-{ts}.json) so the
+  // bucket itself is the audit trail.
+  // ----------------------------------------------------------------
+  getCompanySettings: () => request("GET", "/api/admin/invoices/company-settings"),
+  putCompanySettings: ({ data, logoBase64, signatureBase64 } = {}) =>
+    request("PUT", "/api/admin/invoices/company-settings", { data, logoBase64, signatureBase64 }),
+  listInvoices: ({ from = null, to = null, type = null } = {}) => {
+    const qs = [];
+    if (from) qs.push(`from=${encodeURIComponent(from)}`);
+    if (to) qs.push(`to=${encodeURIComponent(to)}`);
+    if (type) qs.push(`type=${encodeURIComponent(type)}`);
+    return request("GET", `/api/admin/invoices${qs.length ? `?${qs.join("&")}` : ""}`);
+  },
+  getInvoice: (id) => request("GET", `/api/admin/invoices/${id}`),
+  getNextInvoiceNumber: (fy) =>
+    request("GET", `/api/admin/invoices/next-number${fy ? `?fy=${fy}` : ""}`),
+  createInvoice: (data) => request("POST", "/api/admin/invoices", data),
+  updateInvoice: (id, data) => request("PUT", `/api/admin/invoices/${id}`, data),
+  approveInvoice: (id) => request("POST", `/api/admin/invoices/${id}/approve`),
+  revertInvoice: (id) => request("POST", `/api/admin/invoices/${id}/revert`),
+  deleteInvoice: (id) => request("DELETE", `/api/admin/invoices/${id}`),
+  // PDF backup: client renders an approved invoice via @react-pdf/renderer,
+  // POSTs the resulting bytes here so a frozen copy lands in R2 next to
+  // the JSON snapshots. Returns { key, size }. Goes through fetch
+  // directly because the request body is raw bytes, not JSON.
+  uploadInvoicePdf: async (id, pdfBlob) => {
+    const res = await fetch(`/api/admin/invoices/${id}/pdf`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfBlob,
+    });
+    if (!res.ok) {
+      let detail;
+      try { detail = await res.json(); } catch { detail = { error: res.statusText }; }
+      const err = new Error(detail.error || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  },
 };

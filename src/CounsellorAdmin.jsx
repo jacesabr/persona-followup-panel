@@ -3,13 +3,18 @@ import { Loader2, Plus, X, Check, KeyRound } from "lucide-react";
 import { api } from "./api.js";
 
 // Admin-only tab for managing counsellor accounts. Lists every counsellor
-// with their contact + username + plaintext password (the operator
-// explicitly opted in to plain-text visibility on the panel — see the
-// password_plain column comment in migrate.js for the tradeoff).
+// with their contact + username. Passwords are no longer stored in
+// plaintext (password_plain column dropped in the 2026-05-13 security
+// pass) — the row shows "reset to view" instead, and the reset flow
+// returns the new password ONCE in the response so admin can read it
+// out and send it on. After that read it cannot be retrieved.
 // Inline actions:
 //   + New counsellor — name / WhatsApp / email / username / password
-//   Reset password   — opens an inline input on a row; PATCH writes the
-//                      new value but the response still omits it.
+//                      (the entered password is shown once in the
+//                      success toast for the same out-of-band send).
+//   Reset password   — opens an inline input on a row; PATCH writes
+//                      the new value and the response surfaces the
+//                      plaintext one-time for the admin to copy.
 //
 // Counsellors prop is passed from AdminPanel (single source of truth for
 // the counsellor roster). onCounsellorsChanged refetches at the parent
@@ -26,6 +31,11 @@ export default function CounsellorAdmin({
   const [error, setError] = useState(null);
   const [resetRowId, setResetRowId] = useState(null);
   const [resetValue, setResetValue] = useState("");
+  // Once a password is reset (or created), the plaintext is surfaced
+  // ONCE in this in-memory map so the admin can read it out, then it
+  // is cleared when the row is dismissed. The DB no longer stores any
+  // plaintext copy — see the password_plain removal note at the top.
+  const [revealedPasswords, setRevealedPasswords] = useState({});
   const [newC, setNewC] = useState(emptyNewCounsellor());
 
   // Surface either the parent-level fetch error or a local action error.
@@ -49,7 +59,7 @@ export default function CounsellorAdmin({
     setBusy(true);
     setError(null);
     try {
-      await api.createCounsellor({
+      const created = await api.createCounsellor({
         name,
         whatsapp: whatsapp || null,
         email: email || null,
@@ -59,6 +69,12 @@ export default function CounsellorAdmin({
       // Refetch the parent-level list so the assignee dropdown in the
       // Counsellor tasks tab picks up the new counsellor without a reload.
       onCounsellorsChanged && (await onCounsellorsChanged());
+      // Surface the freshly typed password on the new row ONCE so the
+      // admin can read it out before navigating away — the DB doesn't
+      // store a plaintext copy anymore.
+      if (created?.id) {
+        setRevealedPasswords((prev) => ({ ...prev, [created.id]: password }));
+      }
       setNewC(emptyNewCounsellor());
       setShowNew(false);
     } catch (e) {
@@ -83,6 +99,11 @@ export default function CounsellorAdmin({
     setError(null);
     try {
       await api.updateCounsellor(counsellorId, { password: resetValue });
+      // Surface the freshly set password in-row ONCE (the DB no
+      // longer stores a plaintext copy after the 2026-05-13 pass).
+      // Admin reads it out / sends it to the counsellor, then clicks
+      // dismiss; if the row is reloaded the value is gone.
+      setRevealedPasswords((prev) => ({ ...prev, [counsellorId]: resetValue }));
       onCounsellorsChanged && (await onCounsellorsChanged());
       cancelReset();
     } catch (e) {
@@ -90,6 +111,14 @@ export default function CounsellorAdmin({
     } finally {
       setBusy(false);
     }
+  };
+
+  const dismissRevealed = (counsellorId) => {
+    setRevealedPasswords((prev) => {
+      const next = { ...prev };
+      delete next[counsellorId];
+      return next;
+    });
   };
 
   if (loading) {
@@ -289,24 +318,37 @@ export default function CounsellorAdmin({
                   </>
                 ) : (
                   <>
-                    {/* Plain-text password from password_plain column.
-                        Legacy rows that pre-date the column show "—"
-                        until they log in once or admin resets. */}
-                    <span
-                      className="select-all truncate font-mono text-[13px] text-black"
-                      title={c.password_plain || ""}
-                    >
-                      {c.password_plain || (
-                        <span className=" text-black">—</span>
-                      )}
-                    </span>
+                    {/* Password is no longer stored in plaintext. If
+                        admin just reset this row's password, surface
+                        the one-time plaintext from revealedPasswords;
+                        otherwise show a dash and the reset button is
+                        the only way to set a new password. */}
+                    {revealedPasswords[c.id] ? (
+                      <>
+                        <span
+                          className="select-all truncate font-mono text-[13px] text-black"
+                          title={revealedPasswords[c.id]}
+                        >
+                          {revealedPasswords[c.id]}
+                        </span>
+                        <button
+                          onClick={() => dismissRevealed(c.id)}
+                          title="Dismiss (the password is not stored — make sure you've copied it)"
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center border border-stone-300 bg-white text-black hover:border-stone-500"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[13px] text-stone-500">—</span>
+                    )}
                     <button
                       onClick={() => {
                         setResetRowId(c.id);
                         setResetValue("");
                         setError(null);
                       }}
-                      title="Reset password"
+                      title="Reset password (the new password will be shown ONCE in this row)"
                       className="inline-flex shrink-0 items-center gap-1 border border-stone-300 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-black hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
                       <KeyRound className="h-3 w-3" /> Reset
