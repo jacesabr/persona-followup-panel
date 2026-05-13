@@ -284,9 +284,15 @@ The amount of detail per bullet depends on what the document carries:
   specific claims summarised, plus the 1–2 strongest sentences quoted
   verbatim so the SOP / LOR composer can lift them.
 
-- **Passport photo / headshot**: One sentence confirming it is a photo,
-  approximate age and presentation (white background, shoulders-up,
-  etc.). No autofill fields. Skip layered detail and numeric summary.
+- **Student photo / headshot (`photoFile` and similar picture-only
+  upload slots)**: **Skip `ai_description` entirely.** It is just a
+  picture for the application packet — there is nothing to transcribe,
+  no autofill keys, and the frontend hides any AI block on these
+  slides anyway (per [[feedback_doc_extraction_fields_first]] and the
+  photo-only carve-out in [`src/StudentDashboard.jsx`](../src/StudentDashboard.jsx)).
+  Emit nothing for `description` on the dispatch payload; do not
+  generate bullets, conclusions, or summary. The slide will render the
+  image and the title, which is all the reviewer needs.
 
 - **Signed declarations, administrative forms, single-purpose pages**:
   The opening student paragraph is enough. Skip layered detail. Note any
