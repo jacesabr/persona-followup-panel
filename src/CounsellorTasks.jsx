@@ -95,7 +95,7 @@ export default function CounsellorTasks({
   // user can cancel without polluting the row data. Counsellors never
   // open this — the pencil button is hidden for them.
   const [editingId, setEditingId] = useState(null);
-  const [editDraft, setEditDraft] = useState({ text: "", due_date: "", student_name: "" });
+  const [editDraft, setEditDraft] = useState({ text: "", due_date: "", student_name: "", assigneeValues: [] });
   const [savingEdit, setSavingEdit] = useState(false);
   // Per-task comment thread. expandedCommentsId tracks which row is
   // showing its thread (only one open at a time keeps the page calm);
@@ -410,19 +410,33 @@ export default function CounsellorTasks({
     }
   };
 
-  // Admin-only edit-mode handlers.
+  // Admin-only edit-mode handlers. The assignee picker is now part of
+  // the editable surface — open the row, swap assignees, save. Hydrates
+  // from task.assignees (multi) and falls back to the legacy single-
+  // assignee fields when the array is missing (older rows, transient).
   const beginEdit = (task) => {
+    const list = Array.isArray(task.assignees) && task.assignees.length > 0
+      ? task.assignees
+      : (task.assignee_kind === "admin" && task.assignee_admin_username)
+        ? [{ kind: "admin", admin_username: task.assignee_admin_username }]
+        : (task.assignee_id)
+          ? [{ kind: "counsellor", counsellor_id: task.assignee_id }]
+          : [];
+    const initialValues = list.map((a) =>
+      a.kind === "admin" ? `admin:${a.admin_username}` : `counsellor:${a.counsellor_id}`
+    );
     setEditingId(task.id);
     setEditDraft({
       text: task.text || "",
       due_date: dateOnlyYmd(task.due_date),
       student_name: task.lead_id ? "" : (task.student_name || ""),
+      assigneeValues: initialValues,
     });
     setError(null);
   };
   const cancelEdit = () => {
     setEditingId(null);
-    setEditDraft({ text: "", due_date: "", student_name: "" });
+    setEditDraft({ text: "", due_date: "", student_name: "", assigneeValues: [] });
   };
   const saveEdit = async (task) => {
     const text = editDraft.text.trim();
@@ -434,13 +448,25 @@ export default function CounsellorTasks({
       setError("Pick a due date.");
       return;
     }
+    if (!editDraft.assigneeValues || editDraft.assigneeValues.length === 0) {
+      setError("Pick at least one assignee.");
+      return;
+    }
     setSavingEdit(true);
     setError(null);
     try {
       // Only send student_name when the task is a free-text student
       // (no lead FK). Editing the linked student name would require
       // re-resolving against the leads table — out of scope here.
-      const patch = { text, due_date: editDraft.due_date };
+      const assignees = editDraft.assigneeValues.map((v) => {
+        const colonIdx = v.indexOf(":");
+        const kind = colonIdx >= 0 ? v.slice(0, colonIdx) : "counsellor";
+        const target = colonIdx >= 0 ? v.slice(colonIdx + 1) : v;
+        return kind === "admin"
+          ? { kind: "admin", admin_username: target }
+          : { kind: "counsellor", counsellor_id: target };
+      });
+      const patch = { text, due_date: editDraft.due_date, assignees };
       if (!task.lead_id) patch.student_name = editDraft.student_name.trim() || null;
       const updated = await api.updateTask(task.id, patch);
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
@@ -836,7 +862,18 @@ export default function CounsellorTasks({
                 )}
                 {!isScoped && (
                   <span className="flex flex-wrap items-center gap-1 text-[14px] text-black">
-                    <AssigneeChips task={task} onImpersonate={onImpersonate} />
+                    {isEditing ? (
+                      <AssigneePicker
+                        values={editDraft.assigneeValues}
+                        onChange={(next) => setEditDraft((p) => ({ ...p, assigneeValues: next }))}
+                        counsellors={counsellors}
+                        adminAccounts={adminAccounts}
+                        isScoped={isScoped}
+                        scopedCounsellorId={scopedCounsellorId}
+                      />
+                    ) : (
+                      <AssigneeChips task={task} onImpersonate={onImpersonate} />
+                    )}
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
@@ -1197,7 +1234,18 @@ export default function CounsellorTasks({
                 )}
                 {!isScoped && (
                   <span className="flex flex-wrap items-center gap-1 text-[14px] text-black">
-                    <AssigneeChips task={task} onImpersonate={onImpersonate} />
+                    {isEditing ? (
+                      <AssigneePicker
+                        values={editDraft.assigneeValues}
+                        onChange={(next) => setEditDraft((p) => ({ ...p, assigneeValues: next }))}
+                        counsellors={counsellors}
+                        adminAccounts={adminAccounts}
+                        isScoped={isScoped}
+                        scopedCounsellorId={scopedCounsellorId}
+                      />
+                    ) : (
+                      <AssigneeChips task={task} onImpersonate={onImpersonate} />
+                    )}
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
