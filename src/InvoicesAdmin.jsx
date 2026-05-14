@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Loader2, Plus, Trash2, FileText, Settings as SettingsIcon, History as HistoryIcon,
   Home, ChevronLeft, ChevronRight, X, Check, Upload, Image as ImageIcon,
-  Edit2, Copy, Printer
+  Edit2, Copy, Printer, Zap
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -740,6 +740,103 @@ function SettingsView({ company, logoBase64, signatureBase64, onSave }) {
 
 const STEPS = ["Type", "Customer", "Items", "Review"];
 
+// Test-data autofill used by the ⚡ button on the Customer step.
+// Numbers and identifiers are deliberately fictional — they exist
+// to exercise the wizard, totals, and PDF output, not to ship.
+function sampleFillFor(type) {
+  if (type === "retail") {
+    return {
+      customer: {
+        name: "Aarav Patel (parent)",
+        email: "aarav.patel@example.com",
+        phone: "+91 98200 12345",
+        state: "Maharashtra",
+        stateCode: "27",
+        gstin: "",
+        address: "Flat 4B, Sunrise Apartments, Linking Road, Bandra West, Mumbai 400050",
+      },
+      lineItems: [{
+        id: uid(),
+        studentName: "Diya Patel",
+        service: "End-to-end UK admissions support: shortlisting, SOP review, application & visa guidance",
+        amount: 75000,
+      }],
+    };
+  }
+  if (type === "b2b") {
+    return {
+      customer: {
+        name: "GreenLeaf Edu Services Pvt Ltd",
+        email: "accounts@greenleafedu.in",
+        phone: "+91 80 4567 8901",
+        state: "Karnataka",
+        stateCode: "29",
+        gstin: "29AABCG1234D1Z5",
+        address: "No 21, 2nd Cross, Indiranagar, Bengaluru 560038",
+      },
+      lineItems: [{
+        id: uid(),
+        poNumber: "GL-PO-2026-104",
+        studentName: "Rahul Mehta",
+        intake: "Sep-2026",
+        course: "MSc Data Science",
+        university: "University of Manchester",
+        commission: 120000,
+      }],
+    };
+  }
+  if (type === "b2b_lut") {
+    return {
+      customer: {
+        name: "Bridgeway Global SEZ Unit",
+        email: "ap@bridgeway-global.example",
+        phone: "+91 40 4023 1100",
+        state: "Telangana",
+        stateCode: "36",
+        gstin: "36AABCB7788E1Z2",
+        address: "Plot 14, IT SEZ, Madhapur, Hyderabad 500081",
+      },
+      lineItems: [{
+        id: uid(),
+        poNumber: "BG-PO-2026-077",
+        studentName: "Priya Iyer",
+        intake: "Jan-2027",
+        course: "MA International Relations",
+        university: "King's College London",
+        commission: 145000,
+      }],
+    };
+  }
+  if (type === "b2b_intl") {
+    return {
+      currency: "GBP",
+      customer: {
+        name: "Northbridge Education Partners Ltd",
+        email: "finance@northbridge.example",
+        phone: "+44 20 7946 0102",
+        state: "United Kingdom",
+        stateCode: "",
+        gstin: "",
+        address: "12 Carlisle Street, Soho, London W1D 3BP, United Kingdom",
+      },
+      lineItems: [{
+        id: uid(),
+        siukId: "NB-2026-00412",
+        firstName: "Ananya",
+        familyName: "Krishnan",
+        course: "MSc Finance",
+        university: "Durham University",
+        enrolmentDate: "2026-09-21",
+        tuitionFee: 28500,
+        uniRate: 15,
+        partnerRate: 5,
+        commission: 2850,
+      }],
+    };
+  }
+  return null;
+}
+
 function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onSave, onApprove, onCancel, onPreview }) {
   return (
     <div>
@@ -816,8 +913,37 @@ function StepCustomer({ draft, setDraft, onBack, onNext }) {
   const set = (k, v) => setDraft((p) => ({ ...p, customer: { ...p.customer, [k]: v } }));
   const isIntl = draft.type === "b2b_intl";
 
+  const autofill = () => {
+    const sample = sampleFillFor(draft.type);
+    if (!sample) return;
+    const hasData =
+      (c.name || c.email || c.phone || c.address) ||
+      (draft.lineItems || []).some((li) =>
+        li.studentName || li.firstName || li.service || li.course || li.university ||
+        Number(li.amount) || Number(li.commission) || Number(li.tuitionFee)
+      );
+    if (hasData && !confirm("Replace the current customer details and line items with sample test data?")) return;
+    setDraft((p) => ({
+      ...p,
+      customer: { ...sample.customer },
+      lineItems: sample.lineItems,
+      ...(sample.currency ? { currency: sample.currency } : {}),
+    }));
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={autofill}
+          title="Fill customer and line items with sample test data"
+          className="inline-flex items-center gap-1 border border-stone-300 bg-stone-100 px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-stone-800 hover:border-[#cc785c] hover:bg-[#cc785c]/10 hover:text-[#cc785c]"
+        >
+          <Zap className="h-3 w-3" /> Fill with sample
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 border border-stone-300 bg-white p-4">
         <Field label="Invoice number"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={draft.invoiceNumber} onChange={(e) => setDraft((p) => ({ ...p, invoiceNumber: e.target.value }))} /></Field>
         <Field label="Date"><input type="date" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={draft.date} onChange={(e) => setDraft((p) => ({ ...p, date: e.target.value }))} /></Field>

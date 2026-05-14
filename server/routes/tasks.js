@@ -13,11 +13,12 @@ function isString(v) {
 // (caller should return immediately when null). 404 instead of 403 so
 // a probe can't distinguish "not yours" from "doesn't exist".
 //
-// Access rules:
-//   admin → always allowed
-//   counsellor on assignee_kind='admin' task → only the creator (creator_id = me)
-//   counsellor on assignee_kind='counsellor' task → assignee_id = me, OR
-//     lead.counsellor_id = me, OR the assignee is a counsellor I supervise
+// Access rules (counsellor session):
+//   - listed in counsellor_task_assignees, OR
+//   - supervises any of the assignees, OR
+//   - owns the lead, OR
+//   - is the creator.
+// Admin always passes.
 async function checkTaskAccess(req, res, taskId) {
   if (!/^\d+$/.test(String(taskId))) {
     res.status(400).json({ error: "invalid task id" });
@@ -41,27 +42,81 @@ async function checkTaskAccess(req, res, taskId) {
   const me = req.user?.counsellorId;
   const t = rows[0];
 
-  if (t.assignee_kind === "admin") {
-    // Counsellor can only access an admin-assigned task they themselves created
-    if (t.creator_id === me) return t;
-    res.status(404).json({ error: "task not found" });
-    return null;
-  }
+  // Same-row checks first to avoid the junction lookup on the common case.
+  if (t.lead_counsellor_id === me || t.creator_id === me) return t;
 
-  // assignee_kind = 'counsellor'
-  if (t.assignee_id === me || t.lead_counsellor_id === me) return t;
-
-  // Check supervisor: can I see tasks assigned to counsellors I supervise?
-  if (t.assignee_id) {
-    const { rows: sub } = await pool.query(
-      "SELECT 1 FROM counsellors WHERE id = $1 AND supervisor_id = $2",
-      [t.assignee_id, me]
-    );
-    if (sub.length > 0) return t;
-  }
+  // Junction-table check: am I an assignee, or do I supervise one?
+  const { rows: ja } = await pool.query(
+    `SELECT 1 FROM counsellor_task_assignees ja
+      WHERE ja.task_id = $1
+        AND (ja.counsellor_id = $2
+             OR ja.counsellor_id IN (SELECT id FROM counsellors WHERE supervisor_id = $2))
+      LIMIT 1`,
+    [taskId, me]
+  );
+  if (ja.length > 0) return t;
 
   res.status(404).json({ error: "task not found" });
   return null;
+}
+
+// Normalize a single client-supplied assignee descriptor into the
+// canonical { kind, counsellor_id, admin_username } shape we insert
+// into counsellor_task_assignees. Returns { ok, error?, kind, counsellor_id, admin_username }.
+function normalizeAssignee(a) {
+  if (!a || typeof a !== "object") return { ok: false, error: "assignee must be an object" };
+  const kind = a.kind;
+  if (kind !== "counsellor" && kind !== "admin") {
+    return { ok: false, error: "assignee.kind must be 'counsellor' or 'admin'" };
+  }
+  if (kind === "counsellor") {
+    const cid = a.counsellor_id;
+    if (!isString(cid) || cid.trim().length === 0 || cid.length > 50) {
+      return { ok: false, error: "counsellor assignee needs a counsellor_id string up to 50 chars" };
+    }
+    return { ok: true, kind: "counsellor", counsellor_id: cid, admin_username: null };
+  }
+  // kind === 'admin'
+  const u = a.admin_username;
+  if (!isString(u) || u.trim().length === 0 || u.length > 100) {
+    return { ok: false, error: "admin assignee needs an admin_username string" };
+  }
+  return { ok: true, kind: "admin", counsellor_id: null, admin_username: String(u).toLowerCase().trim() };
+}
+
+// Parse + validate the `assignees` array from a create/patch body. If
+// the legacy single-assignee fields are passed instead, synthesize an
+// array with one element so downstream insertion is uniform.
+function parseAssigneesPayload(body) {
+  if (Array.isArray(body.assignees) && body.assignees.length > 0) {
+    const out = [];
+    const seen = new Set();
+    for (const raw of body.assignees) {
+      const n = normalizeAssignee(raw);
+      if (!n.ok) return { ok: false, error: n.error };
+      // Dedupe on the wire — a buggy client double-adding the same
+      // person would otherwise trip the UNIQUE INDEX with a 23505.
+      const key = `${n.kind}|${n.counsellor_id || ""}|${n.admin_username || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(n);
+    }
+    if (out.length === 0) return { ok: false, error: "assignees array must have at least one valid entry" };
+    if (out.length > 10) return { ok: false, error: "max 10 assignees per task" };
+    return { ok: true, assignees: out };
+  }
+  // Legacy single-assignee path.
+  if (body.assignee_admin_username) {
+    const n = normalizeAssignee({ kind: "admin", admin_username: body.assignee_admin_username });
+    if (!n.ok) return { ok: false, error: n.error };
+    return { ok: true, assignees: [n] };
+  }
+  if (body.assignee_id) {
+    const n = normalizeAssignee({ kind: "counsellor", counsellor_id: body.assignee_id });
+    if (!n.ok) return { ok: false, error: n.error };
+    return { ok: true, assignees: [n] };
+  }
+  return { ok: true, assignees: [] };
 }
 
 // Joined SELECT reused after every mutation. Includes assignee_kind,
@@ -69,6 +124,11 @@ async function checkTaskAccess(req, res, taskId) {
 // comment's author_admin_username so the client can attribute a task /
 // comment to a specific named admin (mirror groups put multiple admins
 // in the same inbox — without this the UI flattens them all to "Admin").
+//
+// The `assignees` JSON aggregate carries the full multi-assignee list
+// from counsellor_task_assignees. Legacy assignee_id /
+// assignee_admin_username fields stay populated with the FIRST assignee
+// for back-compat readers that haven't been updated yet.
 const SELECT_JOINED = `
   SELECT t.*,
          l.name AS lead_name,
@@ -80,7 +140,8 @@ const SELECT_JOINED = `
          lc.created_at AS latest_comment_at,
          lc.author_kind AS latest_comment_author_kind,
          lc.author_name AS latest_comment_author_name,
-         lc.author_admin_username AS latest_comment_author_admin_username
+         lc.author_admin_username AS latest_comment_author_admin_username,
+         COALESCE(ja_agg.assignees, '[]'::json) AS assignees
   FROM counsellor_tasks t
   LEFT JOIN leads l ON l.id = t.lead_id
   LEFT JOIN counsellors c ON c.id = t.assignee_id
@@ -94,6 +155,19 @@ const SELECT_JOINED = `
     ORDER BY tc.created_at DESC
     LIMIT 1
   ) lc ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT json_agg(
+      json_build_object(
+        'kind', ja.assignee_kind,
+        'counsellor_id', ja.counsellor_id,
+        'admin_username', ja.admin_username,
+        'name', CASE WHEN ja.assignee_kind = 'counsellor' THEN ja_c.name ELSE ja.admin_username END
+      ) ORDER BY ja.id
+    ) AS assignees
+    FROM counsellor_task_assignees ja
+    LEFT JOIN counsellors ja_c ON ja_c.id = ja.counsellor_id
+    WHERE ja.task_id = t.id
+  ) ja_agg ON TRUE
 `;
 
 // GET /api/tasks
@@ -110,12 +184,24 @@ router.get("/", async (req, res, next) => {
     if (req.user?.kind === "counsellor") {
       params.push(req.user.counsellorId);
       const i = `$${params.length}`;
+      // Counsellor can see a task if ANY of:
+      //   - they are listed as an assignee in counsellor_task_assignees
+      //     (covers self-assigned + multi-assigned tasks)
+      //   - they supervise an assignee
+      //   - they own the lead the task is attached to
+      //   - they created the task (covers tasks they raised for admins
+      //     or for supervised counsellors)
       conds.push(`(
-        (t.assignee_kind = 'counsellor' AND (t.assignee_id = ${i} OR l.counsellor_id = ${i}))
-        OR (t.assignee_kind = 'counsellor' AND t.assignee_id IN (
-              SELECT id FROM counsellors WHERE supervisor_id = ${i}
-            ))
-        OR (t.assignee_kind = 'admin' AND t.creator_id = ${i})
+        EXISTS (
+          SELECT 1 FROM counsellor_task_assignees ja
+           WHERE ja.task_id = t.id
+             AND (
+               ja.counsellor_id = ${i}
+               OR ja.counsellor_id IN (SELECT id FROM counsellors WHERE supervisor_id = ${i})
+             )
+        )
+        OR l.counsellor_id = ${i}
+        OR t.creator_id = ${i}
       )`);
     }
     if (req.query.appointment_id !== undefined) {
@@ -139,14 +225,23 @@ router.get("/", async (req, res, next) => {
 });
 
 // POST /api/tasks
-// Counsellors may assign to: self, a counsellor they supervise, or a named admin.
-// Admin may assign to: any counsellor, or a named admin.
+// Multi-assignee. Body accepts either:
+//   - `assignees`: [{kind: 'counsellor', counsellor_id}, {kind: 'admin', admin_username}, ...]
+//   - OR the legacy single-assignee fields (`assignee_id` / `assignee_admin_username`)
+//     which are synthesized into a 1-element assignees array.
+//
+// Permission scope per assignee:
+//   admin session       — any counsellor + any named admin
+//   counsellor session  — self + counsellors they supervise + own supervisor
+//                         + any named admin
+//
+// Legacy columns (counsellor_tasks.assignee_id / assignee_kind /
+// assignee_admin_username) are populated from the FIRST assignee so
+// older readers (display columns, group-by keys) stay coherent until
+// every call site reads the junction directly.
 router.post("/", async (req, res, next) => {
   try {
-    let {
-      lead_id, student_name, assignee_id, assignee_admin_username,
-      text, due_date, priority, appointment_id,
-    } = req.body;
+    let { lead_id, student_name, text, due_date, priority, appointment_id } = req.body;
 
     if (
       (lead_id == null || lead_id === "") &&
@@ -167,8 +262,11 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: "due_date must be a valid YYYY-MM-DD date" });
     }
 
-    let assigneeKind = "counsellor";
-    let cleanAssigneeAdminUsername = null;
+    // Parse + dedupe assignees off the wire.
+    const parsed = parseAssigneesPayload(req.body);
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    let assignees = parsed.assignees;
+
     let creatorId = null;
     let creatorKind = "counsellor";
     let creatorAdminUsername = null;
@@ -177,81 +275,83 @@ router.post("/", async (req, res, next) => {
       creatorId = req.user.counsellorId;
       creatorKind = "counsellor";
 
-      if (assignee_admin_username) {
-        // Assigning to a named admin
-        const normalized = String(assignee_admin_username).toLowerCase().trim();
-        if (!adminUsernameSet().has(normalized)) {
-          return res.status(400).json({ error: "unknown admin username" });
-        }
-        assigneeKind = "admin";
-        cleanAssigneeAdminUsername = normalized;
-        assignee_id = null;
-      } else {
-        // Assigning to counsellor — default to self, else validate:
-        // allowed targets are supervised counsellors OR your own supervisor.
-        if (!assignee_id) assignee_id = req.user.counsellorId;
-        if (assignee_id !== req.user.counsellorId) {
-          const allowed = await pool.query(
-            `SELECT 1 FROM counsellors
-              WHERE id = $1
-                AND (supervisor_id = $2
-                     OR id = (SELECT supervisor_id FROM counsellors WHERE id = $2))`,
-            [assignee_id, req.user.counsellorId]
-          );
-          if (allowed.rows.length === 0) {
-            return res.status(403).json({ error: "cannot assign tasks to this counsellor" });
+      // Default to a self-only assignment if nothing was sent.
+      if (assignees.length === 0) {
+        assignees = [{ kind: "counsellor", counsellor_id: req.user.counsellorId, admin_username: null }];
+      }
+
+      // Validate each assignee is in the counsellor's permitted scope.
+      for (const a of assignees) {
+        if (a.kind === "admin") {
+          if (!adminUsernameSet().has(a.admin_username)) {
+            return res.status(400).json({ error: `unknown admin username: ${a.admin_username}` });
+          }
+        } else {
+          if (a.counsellor_id !== req.user.counsellorId) {
+            const allowed = await pool.query(
+              `SELECT 1 FROM counsellors
+                WHERE id = $1
+                  AND (supervisor_id = $2
+                       OR id = (SELECT supervisor_id FROM counsellors WHERE id = $2))`,
+              [a.counsellor_id, req.user.counsellorId]
+            );
+            if (allowed.rows.length === 0) {
+              return res.status(403).json({ error: "cannot assign tasks to one of the selected counsellors" });
+            }
           }
         }
-        assigneeKind = "counsellor";
-        // Lead ownership check — lead must belong to the assigning counsellor
-        if (lead_id) {
-          const own = await pool.query(
-            "SELECT 1 FROM leads WHERE id = $1 AND counsellor_id = $2",
-            [lead_id, req.user.counsellorId]
-          );
-          if (own.rows.length === 0) {
-            return res.status(404).json({ error: "lead not found" });
-          }
+      }
+
+      // Lead ownership check — lead must belong to the assigning counsellor.
+      if (lead_id) {
+        const own = await pool.query(
+          "SELECT 1 FROM leads WHERE id = $1 AND counsellor_id = $2",
+          [lead_id, req.user.counsellorId]
+        );
+        if (own.rows.length === 0) {
+          return res.status(404).json({ error: "lead not found" });
         }
       }
     } else {
       // Admin creating a task. creator_admin_username records WHICH
       // named admin acted (mirror groups have multiple admins on the
-      // same inbox — without this the UI can't distinguish them).
+      // same inbox — without this the UI flattens them all to "Admin").
       creatorKind = "admin";
       creatorId = null;
       creatorAdminUsername = req.user?.adminUsername || null;
 
-      if (assignee_admin_username) {
-        const normalized = String(assignee_admin_username).toLowerCase().trim();
-        if (!adminUsernameSet().has(normalized)) {
-          return res.status(400).json({ error: "unknown admin username" });
+      if (assignees.length === 0) {
+        return res.status(400).json({ error: "at least one assignee is required" });
+      }
+
+      // Validate each admin assignee resolves; counsellor assignees are
+      // validated below by FK on insert + an explicit existence check.
+      for (const a of assignees) {
+        if (a.kind === "admin" && !adminUsernameSet().has(a.admin_username)) {
+          return res.status(400).json({ error: `unknown admin username: ${a.admin_username}` });
         }
-        assigneeKind = "admin";
-        cleanAssigneeAdminUsername = normalized;
-        assignee_id = null;
-      } else {
-        if (!isString(assignee_id) || assignee_id.trim().length === 0) {
-          return res.status(400).json({ error: "assignee_id is required" });
-        }
-        if (!isString(assignee_id) || assignee_id.length > 50) {
-          return res.status(400).json({ error: "assignee_id must be a string up to 50 chars" });
-        }
-        assigneeKind = "counsellor";
-        if (lead_id) {
-          const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [lead_id]);
-          if (leadCheck.rows.length === 0) {
-            return res.status(404).json({ error: "lead not found" });
-          }
+      }
+
+      if (lead_id) {
+        const leadCheck = await pool.query("SELECT 1 FROM leads WHERE id = $1", [lead_id]);
+        if (leadCheck.rows.length === 0) {
+          return res.status(404).json({ error: "lead not found" });
         }
       }
     }
 
-    // Validate counsellor assignee exists
-    if (assigneeKind === "counsellor" && assignee_id) {
-      const cCheck = await pool.query("SELECT 1 FROM counsellors WHERE id = $1", [assignee_id]);
-      if (cCheck.rows.length === 0) {
-        return res.status(404).json({ error: "assignee (counsellor) not found" });
+    // Validate counsellor assignees exist. Batch into one query so we
+    // don't fan out N selects.
+    const counsellorIds = assignees.filter((a) => a.kind === "counsellor").map((a) => a.counsellor_id);
+    if (counsellorIds.length > 0) {
+      const { rows: found } = await pool.query(
+        `SELECT id FROM counsellors WHERE id = ANY($1::text[])`,
+        [counsellorIds]
+      );
+      const foundSet = new Set(found.map((r) => r.id));
+      const missing = counsellorIds.filter((id) => !foundSet.has(id));
+      if (missing.length > 0) {
+        return res.status(404).json({ error: `assignee counsellor not found: ${missing.join(", ")}` });
       }
     }
 
@@ -277,24 +377,49 @@ router.post("/", async (req, res, next) => {
 
     const cleanLeadId = lead_id || null;
     const cleanStudentName = student_name?.trim() || null;
-    const cleanAssigneeId = assigneeKind === "counsellor" ? (assignee_id || null) : null;
+    // Pick the first assignee for the legacy columns. The full set
+    // goes into the junction table below.
+    const primary = assignees[0];
+    const legacyAssigneeId = primary.kind === "counsellor" ? primary.counsellor_id : null;
+    const legacyAssigneeKind = primary.kind;
+    const legacyAssigneeAdminUsername = primary.kind === "admin" ? primary.admin_username : null;
 
-    const { rows } = await pool.query(
-      `INSERT INTO counsellor_tasks
-         (lead_id, student_name, assignee_id, assignee_kind, assignee_admin_username,
-          text, due_date, priority, appointment_id, creator_id, creator_kind,
-          creator_admin_username)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING *`,
-      [
-        cleanLeadId, cleanStudentName, cleanAssigneeId, assigneeKind, cleanAssigneeAdminUsername,
-        text.trim(), due_date, !!priority, cleanAppointmentId, creatorId, creatorKind,
-        creatorAdminUsername,
-      ]
-    );
+    const client = await pool.connect();
+    let createdId;
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        `INSERT INTO counsellor_tasks
+           (lead_id, student_name, assignee_id, assignee_kind, assignee_admin_username,
+            text, due_date, priority, appointment_id, creator_id, creator_kind,
+            creator_admin_username)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING id`,
+        [
+          cleanLeadId, cleanStudentName, legacyAssigneeId, legacyAssigneeKind, legacyAssigneeAdminUsername,
+          text.trim(), due_date, !!priority, cleanAppointmentId, creatorId, creatorKind,
+          creatorAdminUsername,
+        ]
+      );
+      createdId = rows[0].id;
+      for (const a of assignees) {
+        await client.query(
+          `INSERT INTO counsellor_task_assignees (task_id, assignee_kind, counsellor_id, admin_username)
+           VALUES ($1, $2, $3, $4)`,
+          [createdId, a.kind, a.counsellor_id, a.admin_username]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+
     const { rows: enriched } = await pool.query(
       `${SELECT_JOINED} WHERE t.id = $1`,
-      [rows[0].id]
+      [createdId]
     );
     res.status(201).json(enriched[0]);
   } catch (e) {
@@ -312,7 +437,7 @@ router.patch("/:id", async (req, res, next) => {
     const taskRow = await checkTaskAccess(req, res, id);
     if (!taskRow) return;
 
-    const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id"];
+    const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id", "assignees"];
     const allowedCounsellor = ["priority", "completed"];
     const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
@@ -337,6 +462,111 @@ router.patch("/:id", async (req, res, next) => {
       return res.status(400).json({ error: "lead_id must be a string up to 50 chars" });
     }
 
+    // If the body carries an explicit `assignees` array (admin-only path),
+    // replace the junction rows in a transaction with the legacy columns
+    // synced to the new primary. Otherwise apply the normal column updates;
+    // and when admin changes the legacy assignee_id, mirror that change
+    // into the junction so the two views don't drift.
+    const wantsAssigneeReplace = req.user?.kind === "admin"
+      && (Array.isArray(req.body.assignees) || "assignee_id" in req.body);
+
+    if (wantsAssigneeReplace) {
+      let newAssignees;
+      if (Array.isArray(req.body.assignees)) {
+        const parsed = parseAssigneesPayload(req.body);
+        if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+        if (parsed.assignees.length === 0) {
+          return res.status(400).json({ error: "assignees cannot be empty on update" });
+        }
+        // Validate admin usernames + counsellor existence.
+        for (const a of parsed.assignees) {
+          if (a.kind === "admin" && !adminUsernameSet().has(a.admin_username)) {
+            return res.status(400).json({ error: `unknown admin username: ${a.admin_username}` });
+          }
+        }
+        const cids = parsed.assignees.filter((a) => a.kind === "counsellor").map((a) => a.counsellor_id);
+        if (cids.length > 0) {
+          const { rows: found } = await pool.query(
+            `SELECT id FROM counsellors WHERE id = ANY($1::text[])`,
+            [cids]
+          );
+          const foundSet = new Set(found.map((r) => r.id));
+          const missing = cids.filter((cid) => !foundSet.has(cid));
+          if (missing.length > 0) {
+            return res.status(404).json({ error: `assignee counsellor not found: ${missing.join(", ")}` });
+          }
+        }
+        newAssignees = parsed.assignees;
+      } else {
+        // Legacy single-assignee PATCH (just assignee_id changed). Synthesize.
+        const v = req.body.assignee_id;
+        if (v && typeof v === "string") {
+          newAssignees = [{ kind: "counsellor", counsellor_id: v, admin_username: null }];
+        } else {
+          // assignee_id = null/empty → wipe all assignees too.
+          newAssignees = [];
+        }
+      }
+
+      // Drop assignees from the non-junction field list so we don't try
+      // to SET it as a column (it isn't one).
+      const cleanFields = fields.filter((f) => f !== "assignees");
+      const set = cleanFields.length
+        ? cleanFields.map((f, i) => `${f} = $${i + 2}`).join(", ")
+        : null;
+      const values = [id, ...cleanFields.map((f) => {
+        const v = req.body[f];
+        if (f === "text" && typeof v === "string") return v.trim();
+        if (f === "student_name") return typeof v === "string" ? (v.trim() || null) : null;
+        if (f === "assignee_id" || f === "lead_id") return v && v !== "" ? v : null;
+        if (f === "priority" || f === "completed") return !!v;
+        return v;
+      })];
+
+      // Sync legacy columns to the new primary assignee.
+      const primary = newAssignees[0] || null;
+      const primaryColumns = primary
+        ? `assignee_id = $${values.length + 1}, assignee_kind = $${values.length + 2}, assignee_admin_username = $${values.length + 3}`
+        : `assignee_id = NULL, assignee_kind = 'counsellor', assignee_admin_username = NULL`;
+      const primaryParams = primary ? [
+        primary.kind === "counsellor" ? primary.counsellor_id : null,
+        primary.kind,
+        primary.kind === "admin" ? primary.admin_username : null,
+      ] : [];
+
+      const updateSql = set
+        ? `UPDATE counsellor_tasks SET ${set}, ${primaryColumns}, updated_at = NOW() WHERE id = $1 RETURNING id`
+        : `UPDATE counsellor_tasks SET ${primaryColumns}, updated_at = NOW() WHERE id = $1 RETURNING id`;
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const { rows: upd } = await client.query(updateSql, [...values, ...primaryParams]);
+        if (upd.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "task not found" });
+        }
+        await client.query(`DELETE FROM counsellor_task_assignees WHERE task_id = $1`, [id]);
+        for (const a of newAssignees) {
+          await client.query(
+            `INSERT INTO counsellor_task_assignees (task_id, assignee_kind, counsellor_id, admin_username)
+             VALUES ($1, $2, $3, $4)`,
+            [id, a.kind, a.counsellor_id, a.admin_username]
+          );
+        }
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw e;
+      } finally {
+        client.release();
+      }
+
+      const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
+      return res.json(enriched[0]);
+    }
+
+    // No assignee change — straight column update.
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
       const v = req.body[f];

@@ -836,6 +836,69 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
   data            JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items(invoice_id, position);
+
+-- ============================================================
+-- counsellor_task_assignees — multi-assignee junction table.
+-- One task can target N people, where each row is either a
+-- counsellor (counsellor_id set) or a named admin
+-- (admin_username set). The legacy counsellor_tasks.assignee_id /
+-- assignee_admin_username columns stay populated with the FIRST
+-- assignee so older code paths still work; the junction table is
+-- the source of truth for "all assignees" and for scope filtering.
+--
+-- Completion is shared: whichever assignee marks completed=true
+-- closes the task for everyone. (Product choice; see UI spec.)
+--
+-- ON DELETE CASCADE — wiping a task removes its assignee rows.
+-- counsellor_id ON DELETE CASCADE — same as the legacy assignee_id
+-- behaviour: deleting a counsellor row removes them from the
+-- assignment list rather than orphaning the row.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS counsellor_task_assignees (
+  id              BIGSERIAL PRIMARY KEY,
+  task_id         BIGINT NOT NULL REFERENCES counsellor_tasks(id) ON DELETE CASCADE,
+  assignee_kind   TEXT NOT NULL CHECK (assignee_kind IN ('counsellor', 'admin')),
+  counsellor_id   TEXT REFERENCES counsellors(id) ON DELETE CASCADE,
+  admin_username  TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (assignee_kind = 'counsellor' AND counsellor_id IS NOT NULL AND admin_username IS NULL)
+    OR (assignee_kind = 'admin' AND admin_username IS NOT NULL AND counsellor_id IS NULL)
+  )
+);
+-- Stop the same person being added twice to the same task. PK columns
+-- can't be NULLable so the constraint goes on a unique index with
+-- COALESCE so the NULL side of each row compares as empty-string rather
+-- than as the SQL NULL = NULL → unknown rule (which would let dupes
+-- slip through).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_assignees_unique_target
+  ON counsellor_task_assignees(
+    task_id,
+    assignee_kind,
+    COALESCE(counsellor_id, ''),
+    COALESCE(admin_username, '')
+  );
+CREATE INDEX IF NOT EXISTS idx_task_assignees_task ON counsellor_task_assignees(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_assignees_counsellor
+  ON counsellor_task_assignees(counsellor_id) WHERE counsellor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_assignees_admin
+  ON counsellor_task_assignees(admin_username) WHERE admin_username IS NOT NULL;
+
+-- Backfill: copy each existing single-assignee task into a junction
+-- row. Idempotent — skips tasks that already have any junction row.
+-- Tasks with NULL assignee on both sides (legacy "unassigned") stay
+-- without a junction row; the UI treats absent junction rows as
+-- "unassigned" the same way it treats NULL assignee_id today.
+INSERT INTO counsellor_task_assignees (task_id, assignee_kind, counsellor_id, admin_username)
+SELECT t.id, t.assignee_kind,
+       CASE WHEN t.assignee_kind = 'counsellor' THEN t.assignee_id ELSE NULL END,
+       CASE WHEN t.assignee_kind = 'admin' THEN t.assignee_admin_username ELSE NULL END
+  FROM counsellor_tasks t
+ WHERE NOT EXISTS (SELECT 1 FROM counsellor_task_assignees ja WHERE ja.task_id = t.id)
+   AND (
+        (t.assignee_kind = 'counsellor' AND t.assignee_id IS NOT NULL)
+     OR (t.assignee_kind = 'admin' AND t.assignee_admin_username IS NOT NULL)
+       );
 `;
 
 export async function migrate() {

@@ -34,13 +34,15 @@ function adminDisplay(u) {
     : u;
 }
 
-// assigneeValue encodes both kind and target: "counsellor:{id}" or "admin:{username}".
-// Default is the scoped counsellor (self) when in counsellor view.
+// assigneeValues is an array of "kind:value" strings — multi-assignee
+// support. Each entry is "counsellor:{id}" or "admin:{username}". Default
+// is a single-element array with the scoped counsellor (self) when in
+// counsellor view, or an empty array for admin so they pick explicitly.
 const EMPTY_NEW = (defaultAssigneeValue = "") => ({
   studentName: "",
   text: "",
   dueDate: todayIstYmd(),
-  assigneeValue: defaultAssigneeValue,
+  assigneeValues: defaultAssigneeValue ? [defaultAssigneeValue] : [],
 });
 
 export default function CounsellorTasks({
@@ -71,14 +73,15 @@ export default function CounsellorTasks({
   const [adminAccounts, setAdminAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // sortBy: "date" (default) or "student". Within "student" we still sort
-  // each student's group by date asc — the user's explicit ask: "sort
-  // automatically by date even when sorted by student."
-  // Multi-select sort: array of keys in click order, primary first.
-  // Default is ["date"] so the list always opens with the most-urgent
-  // dates at the top.
-  const [mySortBy, setMySortBy] = useState(["date"]);
-  const [otherSortBy, setOtherSortBy] = useState(["date"]);
+  // sortBy: array of keys in click order, primary first. Supported keys
+  // are "recent" (newest task first), "date" (earliest due first),
+  // "student" (alphabetical), "counsellor" (alphabetical). Default is
+  // ["recent"] so a freshly created task lands at the TOP of the list —
+  // the old default ("date") could bury a new task far below if its
+  // due date was further out than the existing rows. Clicking Date /
+  // Student / Assignee swaps the primary key the same way it did before.
+  const [mySortBy, setMySortBy] = useState(["recent"]);
+  const [otherSortBy, setOtherSortBy] = useState(["recent"]);
   const [selectedPeople, setSelectedPeople] = useState(new Set());
   const [showNewMy, setShowNewMy] = useState(false);
   const [newMyTask, setNewMyTask] = useState(EMPTY_NEW(""));
@@ -151,14 +154,31 @@ export default function CounsellorTasks({
 
   useAutoRefresh(refresh);
 
+  // Helpers to read the multi-assignee array off a task with safe fallback
+  // to the legacy single-assignee fields (so rows pre-junction-backfill
+  // still display correctly during the rollout window).
+  const taskAssignees = (t) =>
+    Array.isArray(t.assignees) && t.assignees.length > 0
+      ? t.assignees
+      : (t.assignee_kind === "admin" && t.assignee_admin_username)
+        ? [{ kind: "admin", admin_username: t.assignee_admin_username, name: t.assignee_admin_username }]
+        : (t.assignee_id)
+          ? [{ kind: "counsellor", counsellor_id: t.assignee_id, name: t.assignee_name || t.assignee_id }]
+          : [];
+  const taskHasCounsellor = (t, cid) =>
+    taskAssignees(t).some((a) => a.kind === "counsellor" && a.counsellor_id === cid);
+  const taskHasAdminMatch = (t, uname, mirrors) =>
+    taskAssignees(t).some((a) => {
+      if (a.kind !== "admin") return false;
+      const d = adminDisplay(a.admin_username);
+      return d === uname || mirrors.includes(d);
+    });
+
   // Counsellor scoping. Admin sees everything; counsellors see a task if
-  // EITHER:
-  //   (1) it's directly assigned to them via assignee_id, OR
-  //   (2) it's about a student whose lead.counsellor_id is them.
-  // The OR-of-two-conditions ensures tasks stay integrated even when the
-  // assignee is missing/mismatched (e.g. admin created a Neha-student
-  // task without setting assignee, or assignee+lead-counsellor diverge
-  // for some reason).
+  // ANY of:
+  //   (1) they appear in the multi-assignee list (covers self + multi),
+  //   (2) the task is about a lead they own,
+  //   (3) they created the task (covers admin-targeted tasks they raised).
   const visibleTasks = useMemo(() => {
     let base;
     if (!isScoped) {
@@ -171,12 +191,9 @@ export default function CounsellorTasks({
       );
       base = tasks.filter(
         (t) =>
-          t.assignee_id === scopedCounsellorId ||
+          taskHasCounsellor(t, scopedCounsellorId) ||
           (t.lead_id && myLeadIds.has(t.lead_id)) ||
-          // Admin-targeted tasks I created — server returns them so I can
-          // track tasks I sent up; without this clause they'd vanish from
-          // every section in the scoped view.
-          (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
+          (t.creator_id === scopedCounsellorId)
       );
     }
     if (!scopedStudentName) return base;
@@ -200,18 +217,15 @@ export default function CounsellorTasks({
         const bt = b.archived_at ? new Date(b.archived_at).getTime() : 0;
         return bt - at;
       });
-    // For a scoped counsellor session, "My Tasks" must include tasks
-    // they CREATED for an admin (assignee_kind='admin', creator_id=me) —
-    // otherwise the task they sent up vanishes from their own view
-    // (server returns it but `isScoped ? [] : ...` would drop it from
-    // "Other People's Tasks" too).
+    // "My Tasks" rule:
+    //   Counsellor session — I'm an assignee, OR I created an admin-only task.
+    //   Admin session — any assignee is me (or one of my mirror partners).
     const isMine = (t) =>
       isScoped
-        ? t.assignee_id === scopedCounsellorId ||
-          (t.assignee_kind === "admin" && t.creator_id === scopedCounsellorId)
-        : t.assignee_kind === "admin" &&
-          (adminDisplay(t.assignee_admin_username) === adminUsername ||
-            adminMirrors.includes(adminDisplay(t.assignee_admin_username)));
+        ? taskHasCounsellor(t, scopedCounsellorId) ||
+          (t.creator_id === scopedCounsellorId &&
+            taskAssignees(t).every((a) => a.kind === "admin"))
+        : taskHasAdminMatch(t, adminUsername, adminMirrors);
     return {
       myActiveTasks: active.filter(isMine),
       otherPeopleActiveTasks: isScoped ? [] : active.filter((t) => !isMine(t)),
@@ -230,6 +244,12 @@ export default function CounsellorTasks({
   // Final stable tiebreaker: id, so equal-key rows keep insertion order.
   const buildSorted = (list, sb) => {
     const cmpKey = (a, b, key) => {
+      if (key === "recent") {
+        // BIGSERIAL ids increase with insert time, so id DESC is a
+        // reliable "newest first" sort without needing created_at on
+        // every row. Equal ids are impossible (PK).
+        return b.id - a.id;
+      }
       if (key === "date") {
         const ad = dateOnlyYmd(a.due_date);
         const bd = dateOnlyYmd(b.due_date);
@@ -499,15 +519,20 @@ export default function CounsellorTasks({
       setError("Pick a due date.");
       return;
     }
-    if (!newTask.assigneeValue) {
-      setError("Pick who to assign this to.");
+    if (!newTask.assigneeValues || newTask.assigneeValues.length === 0) {
+      setError("Pick at least one person to assign this to.");
       return;
     }
 
-    // Parse "kind:value" from the unified picker
-    const colonIdx = newTask.assigneeValue.indexOf(":");
-    const assigneeKind = colonIdx >= 0 ? newTask.assigneeValue.slice(0, colonIdx) : "counsellor";
-    const assigneeTarget = colonIdx >= 0 ? newTask.assigneeValue.slice(colonIdx + 1) : newTask.assigneeValue;
+    // Convert "kind:value" strings into the canonical assignees payload.
+    const assignees = newTask.assigneeValues.map((v) => {
+      const colonIdx = v.indexOf(":");
+      const kind = colonIdx >= 0 ? v.slice(0, colonIdx) : "counsellor";
+      const target = colonIdx >= 0 ? v.slice(colonIdx + 1) : v;
+      return kind === "admin"
+        ? { kind: "admin", admin_username: target }
+        : { kind: "counsellor", counsellor_id: target };
+    });
 
     const matchedLead = leads.find(
       (l) => !l.archived && l.name.trim().toLowerCase() === studentName.toLowerCase()
@@ -520,12 +545,8 @@ export default function CounsellorTasks({
         student_name: matchedLead ? null : studentName,
         text,
         due_date: newTask.dueDate,
+        assignees,
       };
-      if (assigneeKind === "admin") {
-        payload.assignee_admin_username = assigneeTarget;
-      } else {
-        payload.assignee_id = assigneeTarget;
-      }
       const created = await api.createTask(payload);
       setTasks((prev) => [...prev, created]);
       setNewTask(EMPTY_NEW(defaultAssigneeValue));
@@ -633,6 +654,7 @@ export default function CounsellorTasks({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[11px] uppercase tracking-[0.2em] text-black">Sort by:</span>
+          <SortChip label="Recent" position={mySortPosition("recent")} onClick={() => toggleMySort("recent")} />
           <SortChip label="Date" position={mySortPosition("date")} onClick={() => toggleMySort("date")} />
           <SortChip label="Student" position={mySortPosition("student")} onClick={() => toggleMySort("student")} />
         </div>
@@ -813,8 +835,8 @@ export default function CounsellorTasks({
                   </span>
                 )}
                 {!isScoped && (
-                  <span className="text-[14px] text-black">
-                    {adminDisplay(task.assignee_admin_username) || <span className=" text-black">Unassigned</span>}
+                  <span className="flex flex-wrap items-center gap-1 text-[14px] text-black">
+                    <AssigneeChips task={task} onImpersonate={onImpersonate} />
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
@@ -898,6 +920,7 @@ export default function CounsellorTasks({
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.2em] text-black">Sort by:</span>
+              <SortChip label="Recent" position={otherSortPosition("recent")} onClick={() => toggleOtherSort("recent")} />
               <SortChip label="Date" position={otherSortPosition("date")} onClick={() => toggleOtherSort("date")} />
               <SortChip label="Student" position={otherSortPosition("student")} onClick={() => toggleOtherSort("student")} />
               <SortChip label="Assignee" position={otherSortPosition("counsellor")} onClick={() => toggleOtherSort("counsellor")} />
@@ -1009,8 +1032,8 @@ export default function CounsellorTasks({
                 Admin sees all counsellors + named admins.
                 Counsellor sees self + supervised counsellors + named admins. */}
             <AssigneePicker
-              value={newTask.assigneeValue}
-              onChange={(v) => setNewTask((p) => ({ ...p, assigneeValue: v }))}
+              values={newTask.assigneeValues}
+              onChange={(next) => setNewTask((p) => ({ ...p, assigneeValues: next }))}
               counsellors={counsellors}
               adminAccounts={adminAccounts}
               isScoped={isScoped}
@@ -1173,25 +1196,8 @@ export default function CounsellorTasks({
                   </span>
                 )}
                 {!isScoped && (
-                  <span className="text-[14px] text-black">
-                    {task.assignee_kind === "admin" ? (
-                      <span className="inline-flex items-center gap-1 text-black">
-                        <Lock className="h-3 w-3 shrink-0" />
-                        {adminDisplay(task.assignee_admin_username)}
-                      </span>
-                    ) : task.assignee_id && task.assignee_name && onImpersonate ? (
-                      <button
-                        onClick={() => onImpersonate(task.assignee_id)}
-                        title={`View as ${task.assignee_name}`}
-                        className="underline decoration-dotted underline-offset-2 hover:text-[#cc785c]"
-                      >
-                        {task.assignee_name}
-                      </button>
-                    ) : task.assignee_name ? (
-                      task.assignee_name
-                    ) : (
-                      <span className=" text-black">Unassigned</span>
-                    )}
+                  <span className="flex flex-wrap items-center gap-1 text-[14px] text-black">
+                    <AssigneeChips task={task} onImpersonate={onImpersonate} />
                   </span>
                 )}
                 <span className="flex items-center justify-end gap-1.5">
@@ -1430,34 +1436,151 @@ function CommentsPanel({ task, comments, loading, draft, onDraftChange, onSubmit
   );
 }
 
-// Unified assignee picker. Value is "counsellor:{id}" or "admin:{username}".
-// Admin sees all counsellors + named admins.
-// Counsellor sees self + any counsellors they supervise + named admins.
-function AssigneePicker({ value, onChange, counsellors, adminAccounts, isScoped, scopedCounsellorId }) {
-  // For counsellor view: counsellors array = [self, ...supervised counsellors].
-  // For admin view: counsellors array = all counsellors.
+// Display-only chip list for a task row's assignees. Reads task.assignees
+// (the multi-assignee JSON aggregate from the server) and falls back to
+// the legacy single-assignee fields when the array is missing (clients
+// that haven't refreshed yet, or rows with no junction record).
+// Counsellor chips are click-to-impersonate when the parent passes an
+// onImpersonate handler. Admin chips show a small lock icon to mark
+// them as the admin inbox (matches the old single-assignee UI).
+function AssigneeChips({ task, onImpersonate }) {
+  const list = Array.isArray(task.assignees) && task.assignees.length > 0
+    ? task.assignees
+    : (task.assignee_kind === "admin" && task.assignee_admin_username)
+      ? [{ kind: "admin", admin_username: task.assignee_admin_username, name: task.assignee_admin_username }]
+      : (task.assignee_id && task.assignee_name)
+        ? [{ kind: "counsellor", counsellor_id: task.assignee_id, name: task.assignee_name }]
+        : [];
+  if (list.length === 0) return <span className="text-black">Unassigned</span>;
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="border border-stone-300 bg-white px-2 py-1.5 text-[14px] outline-none focus:border-[#cc785c]"
-    >
-      <option value="">Pick assignee…</option>
-      {counsellors.map((c) => (
-        <option key={c.id} value={`counsellor:${c.id}`}>
-          {c.name}{isScoped && c.id === scopedCounsellorId ? " (you)" : ""}
-        </option>
-      ))}
-      {adminAccounts.length > 0 && (
-        <optgroup label="Admin">
-          {adminAccounts.map((a) => (
-            <option key={a.username} value={`admin:${a.username}`}>
-              {a.username}
-            </option>
-          ))}
-        </optgroup>
+    <>
+      {list.map((a, i) => {
+        if (a.kind === "admin") {
+          return (
+            <span
+              key={`a:${a.admin_username}:${i}`}
+              className="inline-flex items-center gap-1 border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[12px] text-black"
+            >
+              <Lock className="h-3 w-3 shrink-0" />
+              {adminDisplay(a.admin_username)}
+            </span>
+          );
+        }
+        // counsellor
+        const label = a.name || a.counsellor_id;
+        if (a.counsellor_id && onImpersonate) {
+          return (
+            <button
+              key={`c:${a.counsellor_id}:${i}`}
+              onClick={() => onImpersonate(a.counsellor_id)}
+              title={`View as ${label}`}
+              className="inline-flex items-center gap-1 border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[12px] text-black hover:border-[#cc785c] hover:text-[#cc785c]"
+            >
+              {label}
+            </button>
+          );
+        }
+        return (
+          <span
+            key={`c:${a.counsellor_id || "?"}:${i}`}
+            className="inline-flex items-center gap-1 border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[12px] text-black"
+          >
+            {label}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// Multi-assignee picker. `values` is an array of "kind:value" strings
+// (e.g. ["counsellor:abc123", "admin:adminsuhas"]). Renders selected
+// assignees as chips with an × button, plus an "Add assignee" dropdown
+// that surfaces only the rows not yet picked.
+//
+// Admin view: counsellors prop = all counsellors; adminAccounts = full
+//   list of EXTRA_ADMINS.
+// Counsellor view: counsellors prop = [self, ...supervised]; same admin
+//   list. UI shows "(you)" next to self for clarity.
+function AssigneePicker({ values, onChange, counsellors, adminAccounts, isScoped, scopedCounsellorId }) {
+  const selected = Array.isArray(values) ? values : [];
+  const labelFor = (val) => {
+    const colonIdx = val.indexOf(":");
+    const kind = colonIdx >= 0 ? val.slice(0, colonIdx) : "counsellor";
+    const target = colonIdx >= 0 ? val.slice(colonIdx + 1) : val;
+    if (kind === "admin") return target;
+    const c = counsellors.find((cc) => cc.id === target);
+    if (!c) return target;
+    return c.name + (isScoped && c.id === scopedCounsellorId ? " (you)" : "");
+  };
+
+  // Build the dropdown's available rows (everything not already selected).
+  const remaining = [
+    ...counsellors
+      .filter((c) => !selected.includes(`counsellor:${c.id}`))
+      .map((c) => ({
+        value: `counsellor:${c.id}`,
+        label: c.name + (isScoped && c.id === scopedCounsellorId ? " (you)" : ""),
+        group: "counsellor",
+      })),
+    ...adminAccounts
+      .filter((a) => !selected.includes(`admin:${a.username}`))
+      .map((a) => ({
+        value: `admin:${a.username}`,
+        label: a.username,
+        group: "admin",
+      })),
+  ];
+
+  const add = (val) => {
+    if (!val || selected.includes(val)) return;
+    onChange([...selected, val]);
+  };
+  const remove = (val) => {
+    onChange(selected.filter((v) => v !== val));
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border border-stone-300 bg-white px-2 py-1.5">
+      {selected.length === 0 && (
+        <span className="text-[12px] uppercase tracking-[0.18em] text-stone-500">No assignees yet</span>
       )}
-    </select>
+      {selected.map((val) => (
+        <span
+          key={val}
+          className="inline-flex items-center gap-1 border border-stone-300 bg-stone-100 px-2 py-0.5 text-[12px] text-black"
+        >
+          {labelFor(val)}
+          <button
+            type="button"
+            onClick={() => remove(val)}
+            title="Remove assignee"
+            className="ml-0.5 text-stone-500 hover:text-red-600"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {remaining.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => { add(e.target.value); e.target.value = ""; }}
+          className="border-none bg-transparent px-1 py-0.5 text-[13px] text-black outline-none"
+        >
+          <option value="">+ Add assignee…</option>
+          {remaining.filter((r) => r.group === "counsellor").map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+          {remaining.some((r) => r.group === "admin") && (
+            <optgroup label="Admin">
+              {remaining.filter((r) => r.group === "admin").map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      )}
+    </div>
   );
 }
 
