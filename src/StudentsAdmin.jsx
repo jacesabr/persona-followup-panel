@@ -6,6 +6,7 @@ import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
+import FinancialDocuments from "./FinancialDocuments.jsx";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -921,6 +922,7 @@ function StudentDetail({ detail, role, onRefresh }) {
     if (grouped.length === 0) {
       out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
+    out.push({ kind: "financial", eyebrow: "Financial documents", title: "Financial dossier" });
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
     out.push({ kind: "ai-suggestions", eyebrow: "AI suggestions", title: "Suggested LORs & SOP" });
     out.push({ kind: "required", eyebrow: "Required documents", title: "LOR / Internship / SOP" });
@@ -1041,6 +1043,9 @@ function StudentDetail({ detail, role, onRefresh }) {
         <p className="border border-stone-200 bg-white px-4 py-3 text-black">
           Student hasn't started filling the form yet.
         </p>
+      )}
+      {step?.kind === "financial" && (
+        <FinancialDocuments studentId={student.student_id} />
       )}
       {step?.kind === "resumes" && (
         <ResumesStep

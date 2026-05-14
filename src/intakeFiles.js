@@ -207,6 +207,15 @@ export async function loadFinancial() {
   return res.json();
 }
 
+// Staff-side read of any student's financial dossier. Auth + scoping
+// (admin sees everyone, counsellor only their own students) is enforced
+// server-side on GET /api/students/:student_id/financial.
+export async function loadStaffFinancial(studentId) {
+  const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/financial`);
+  if (!res.ok) throw new Error(`Financial load failed (${res.status}).`);
+  return res.json();
+}
+
 export async function saveFinancial({ data, expectedUpdatedAt } = {}) {
   const res = await fetch("/api/students/me/financial", {
     method: "PUT",

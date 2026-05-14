@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Upload, X, Check, AlertCircle } from "lucide-react";
 import {
   loadFinancial,
+  loadStaffFinancial,
   saveFinancial,
   uploadFile,
   validateFile,
@@ -239,7 +240,13 @@ function overallProgress(dossier, filesMap) {
 }
 
 // ---------- main component ----------
-export default function FinancialDocuments() {
+// When `studentId` is provided, the panel renders in staff read-only
+// mode: hits the staff GET endpoint scoped by student_id, skips all
+// persistence, and hides every upload / add / remove / toggle / input
+// control so reviewers see exactly what the student uploaded without
+// any way to mutate it.
+export default function FinancialDocuments({ studentId = null } = {}) {
+  const readOnly = !!studentId;
   const [dossier, setDossier] = useState(DEFAULT_DOSSIER);
   const [filesMap, setFilesMap] = useState({});
   const [hydration, setHydration] = useState("loading");
@@ -258,7 +265,8 @@ export default function FinancialDocuments() {
   // a second round-trip.
   useEffect(() => {
     let cancelled = false;
-    loadFinancial()
+    const loader = studentId ? loadStaffFinancial(studentId) : loadFinancial();
+    loader
       .then((body) => {
         if (cancelled) return;
         const d = normaliseDossier(body?.dossier);
@@ -279,7 +287,7 @@ export default function FinancialDocuments() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [studentId]);
 
   // Persist dossier (jsonb), debounced. Server is the source of truth
   // for updated_at; we keep its echo for the next save's precondition.
@@ -320,12 +328,14 @@ export default function FinancialDocuments() {
   }, []);
 
   const scheduleSave = useCallback(() => {
+    if (readOnly) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => persist(), 1200);
-  }, [persist]);
+  }, [persist, readOnly]);
 
   const updateDossier = useCallback(
     (mutator) => {
+      if (readOnly) return;
       setDossier((prev) => {
         const next = typeof mutator === "function" ? mutator(prev) : { ...prev, ...mutator };
         dossierRef.current = next;
@@ -333,7 +343,7 @@ export default function FinancialDocuments() {
       });
       scheduleSave();
     },
-    [scheduleSave]
+    [scheduleSave, readOnly]
   );
 
   // Upload helper — runs validation, hits /me/upload, then registers the
@@ -341,6 +351,7 @@ export default function FinancialDocuments() {
   // without a refetch.
   const handleUpload = useCallback(
     async (file, fieldId, rowIndex = null) => {
+      if (readOnly) return;
       const v = await validateFile(file, {
         accept: "image/jpeg,image/png,application/pdf",
         maxSizeMB: 10,
@@ -372,7 +383,7 @@ export default function FinancialDocuments() {
         alert(e.message || "Upload failed.");
       }
     },
-    []
+    [readOnly]
   );
 
   // No DELETE endpoint exists for financial slots yet. Removing a row
@@ -381,12 +392,13 @@ export default function FinancialDocuments() {
   // unique-index path. The old blob lingers on R2 (durable by policy)
   // but is no longer the active row.
   const handleClearLocal = useCallback((fieldId, rowIndex = null) => {
+    if (readOnly) return;
     setFilesMap((m) => {
       const next = { ...m };
       delete next[fileKey(fieldId, rowIndex)];
       return next;
     });
-  }, []);
+  }, [readOnly]);
 
   if (hydration === "loading") {
     return (
@@ -407,7 +419,7 @@ export default function FinancialDocuments() {
   const overall = overallProgress(dossier, filesMap);
   return (
     <div className="space-y-12 font-serif text-black">
-      <Header overall={overall} saveState={saveState} />
+      <Header overall={overall} saveState={saveState} readOnly={readOnly} />
       <TOC dossier={dossier} filesMap={filesMap} />
       <ITRSection
         dossier={dossier}
@@ -415,6 +427,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <IncomeSection
         dossier={dossier}
@@ -422,6 +435,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <BusinessSection
         dossier={dossier}
@@ -429,6 +443,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <KYCSection
         dossier={dossier}
@@ -436,6 +451,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <LoanSection
         dossier={dossier}
@@ -443,6 +459,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <NetworthSection
         dossier={dossier}
@@ -450,6 +467,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <AffidavitSection
         dossier={dossier}
@@ -457,6 +475,7 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
       <BankingSection
         dossier={dossier}
@@ -464,14 +483,15 @@ export default function FinancialDocuments() {
         updateDossier={updateDossier}
         handleUpload={handleUpload}
         handleClearLocal={handleClearLocal}
+        readOnly={readOnly}
       />
-      <TravelSection dossier={dossier} updateDossier={updateDossier} />
+      <TravelSection dossier={dossier} updateDossier={updateDossier} readOnly={readOnly} />
     </div>
   );
 }
 
 // ---------- header ----------
-function Header({ overall, saveState }) {
+function Header({ overall, saveState, readOnly }) {
   const saveLabel =
     saveState === "saving"
       ? "saving…"
@@ -486,17 +506,17 @@ function Header({ overall, saveState }) {
         ▸ Financial documents
       </p>
       <h1 className="mt-2 font-serif text-3xl leading-tight md:text-4xl">
-        Your financial dossier
+        {readOnly ? "Student's financial dossier" : "Your financial dossier"}
       </h1>
       <p className="mt-3 max-w-2xl text-sm text-stone-800">
-        Upload every document we'll need for the visa and university financial review.
-        The more complete this is, the smoother the rest of the application — incomplete
-        dossiers are the single biggest reason a file stalls before submission.
+        {readOnly
+          ? "Read-only review of what the student has uploaded so far. Click any document to open it."
+          : "Upload every document we'll need for the visa and university financial review. The more complete this is, the smoother the rest of the application — incomplete dossiers are the single biggest reason a file stalls before submission."}
       </p>
       <div className="mt-5 flex items-baseline gap-3">
         <span className="font-serif text-2xl text-[#cc785c]">{overall.pct}%</span>
         <span className="text-[10px] uppercase tracking-[0.25em] text-stone-800">complete</span>
-        {saveLabel && (
+        {!readOnly && saveLabel && (
           <span className="ml-3 text-[10px] uppercase tracking-[0.2em] text-stone-800">
             · {saveLabel}
           </span>
@@ -609,7 +629,7 @@ function StatusPill({ p }) {
   );
 }
 
-function UploadBox({ tag, title, hint, file, onUpload, onClear, optional }) {
+function UploadBox({ tag, title, hint, file, onUpload, onClear, optional, readOnly }) {
   const inputRef = useRef(null);
   return (
     <div
@@ -647,14 +667,20 @@ function UploadBox({ tag, title, hint, file, onUpload, onClear, optional }) {
             >
               ↗
             </a>
-            <button
-              type="button"
-              onClick={onClear}
-              className="text-stone-800 hover:text-[#cc785c]"
-              title="Replace"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="text-stone-800 hover:text-[#cc785c]"
+                title="Replace"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ) : readOnly ? (
+          <div className="border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-800">
+            Not uploaded
           </div>
         ) : (
           <button
@@ -665,23 +691,25 @@ function UploadBox({ tag, title, hint, file, onUpload, onClear, optional }) {
             <Plus className="h-3.5 w-3.5" /> Upload document
           </button>
         )}
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files && e.target.files[0];
-            if (f) onUpload(f);
-            e.target.value = "";
-          }}
-        />
+        {!readOnly && (
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files && e.target.files[0];
+              if (f) onUpload(f);
+              e.target.value = "";
+            }}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function MultiUploadBox({ tag, title, hint, files, onUpload, onClear }) {
+function MultiUploadBox({ tag, title, hint, files, onUpload, onClear, readOnly }) {
   const inputRef = useRef(null);
   return (
     <div
@@ -717,76 +745,102 @@ function MultiUploadBox({ tag, title, hint, files, onUpload, onClear }) {
             >
               ↗
             </a>
-            <button
-              type="button"
-              onClick={() => onClear(f.rowIndex)}
-              className="text-stone-800 hover:text-[#cc785c]"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onClear(f.rowIndex)}
+                className="text-stone-800 hover:text-[#cc785c]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c]"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {files.length > 0 ? "Add another" : "Upload"}
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files && e.target.files[0];
-            if (f) onUpload(f);
-            e.target.value = "";
-          }}
-        />
+        {readOnly ? (
+          files.length === 0 && (
+            <div className="border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-800">
+              Not uploaded
+            </div>
+          )
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="inline-flex items-center gap-1 border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800 hover:border-[#cc785c] hover:text-[#cc785c]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {files.length > 0 ? "Add another" : "Upload"}
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/png,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files && e.target.files[0];
+                if (f) onUpload(f);
+                e.target.value = "";
+              }}
+            />
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function PersonBlock({ peopleKey, person, onChange, onRemove, children }) {
+function PersonBlock({ peopleKey, person, onChange, onRemove, readOnly, children }) {
   return (
     <div className="mb-5 border border-stone-200 bg-white/60 p-5">
       <div className="mb-4 flex flex-wrap items-center gap-3 border-b border-stone-200 pb-3">
-        <input
-          type="text"
-          value={person.name}
-          placeholder="Name"
-          onChange={(e) =>
-            onChange({ ...person, name: e.target.value })
-          }
-          className="border-b border-dashed border-stone-300 bg-transparent px-1 py-0.5 font-serif text-base font-medium text-black outline-none focus:border-[#cc785c]"
-        />
-        <select
-          value={person.relationship || "Father"}
-          onChange={(e) => onChange({ ...person, relationship: e.target.value })}
-          className="border-b border-transparent bg-transparent text-sm text-stone-800 outline-none hover:border-stone-300"
-        >
-          {RELATIONSHIPS.map((r) => (
-            <option key={r}>{r}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="ml-auto text-stone-500 hover:text-[#cc785c]"
-          title="Remove person"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {readOnly ? (
+          <>
+            <span className="font-serif text-base font-medium text-black">
+              {person.name || "(name not entered)"}
+            </span>
+            <span className="text-sm text-stone-800">
+              {person.relationship || "Father"}
+            </span>
+          </>
+        ) : (
+          <>
+            <input
+              type="text"
+              value={person.name}
+              placeholder="Name"
+              onChange={(e) =>
+                onChange({ ...person, name: e.target.value })
+              }
+              className="border-b border-dashed border-stone-300 bg-transparent px-1 py-0.5 font-serif text-base font-medium text-black outline-none focus:border-[#cc785c]"
+            />
+            <select
+              value={person.relationship || "Father"}
+              onChange={(e) => onChange({ ...person, relationship: e.target.value })}
+              className="border-b border-transparent bg-transparent text-sm text-stone-800 outline-none hover:border-stone-300"
+            >
+              {RELATIONSHIPS.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onRemove}
+              className="ml-auto text-stone-500 hover:text-[#cc785c]"
+              title="Remove person"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
       {children}
     </div>
   );
 }
 
-function AddPersonRow({ peopleKey, label, count, onAdd }) {
+function AddPersonRow({ peopleKey, label, count, onAdd, readOnly }) {
+  if (readOnly) return null;
   if (count >= 8) return null;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-3 border border-stone-200 bg-white/60 px-4 py-3 text-sm">
@@ -818,7 +872,15 @@ function EmptyPersonBlock({ label }) {
   );
 }
 
-function TogglePill({ value, options, onChange }) {
+function TogglePill({ value, options, onChange, readOnly }) {
+  if (readOnly) {
+    const active = options.find((opt) => opt.value === value);
+    return (
+      <span className="inline-flex items-center border border-stone-300 bg-stone-100 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-stone-900">
+        {active?.label || "—"}
+      </span>
+    );
+  }
   return (
     <div className="inline-flex items-center border border-stone-300 bg-stone-100 p-0.5">
       {options.map((opt) => {
@@ -868,7 +930,7 @@ function makePersonOps(peopleKey, dossier, updateDossier) {
 }
 
 // ---------- 01 ITRs ----------
-function ITRSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function ITRSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const ops = makePersonOps("itrPeople", dossier, updateDossier);
   const fy = currentFY();
   const p = progressFor(dossier, filesMap, "itr");
@@ -891,6 +953,7 @@ function ITRSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
             person={person}
             onChange={(next) => ops.update(person.id, next)}
             onRemove={() => ops.remove(person.id)}
+            readOnly={readOnly}
           >
             <div className="grid gap-3 md:grid-cols-3">
               {[
@@ -908,6 +971,7 @@ function ITRSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
                     file={getFile(filesMap, fid)}
                     onUpload={(f) => handleUpload(f, fid)}
                     onClear={() => handleClearLocal(fid)}
+                    readOnly={readOnly}
                   />
                 );
               })}
@@ -915,13 +979,13 @@ function ITRSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
           </PersonBlock>
         ))
       )}
-      <AddPersonRow peopleKey="itrPeople" label="filer" count={ops.list.length} onAdd={() => ops.add()} />
+      <AddPersonRow peopleKey="itrPeople" label="filer" count={ops.list.length} onAdd={() => ops.add()} readOnly={readOnly} />
     </SectionShell>
   );
 }
 
 // ---------- 02 Income ----------
-function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const ops = makePersonOps("incomePeople", dossier, updateDossier);
   const p = progressFor(dossier, filesMap, "income");
   return (
@@ -948,6 +1012,7 @@ function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleC
               person={person}
               onChange={(next) => ops.update(person.id, next)}
               onRemove={() => ops.remove(person.id)}
+              readOnly={readOnly}
             >
               <div className="grid gap-3 md:grid-cols-3">
                 <MultiUploadBox
@@ -959,6 +1024,7 @@ function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleC
                     handleUpload(f, slipsFid, nextMultiIndex(filesMap, slipsFid))
                   }
                   onClear={(idx) => handleClearLocal(slipsFid, idx)}
+                  readOnly={readOnly}
                 />
                 <UploadBox
                   tag="Required"
@@ -967,6 +1033,7 @@ function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleC
                   file={getFile(filesMap, empFid)}
                   onUpload={(f) => handleUpload(f, empFid)}
                   onClear={() => handleClearLocal(empFid)}
+                  readOnly={readOnly}
                 />
                 <UploadBox
                   tag="Latest AY"
@@ -975,6 +1042,7 @@ function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleC
                   file={getFile(filesMap, form16Fid)}
                   onUpload={(f) => handleUpload(f, form16Fid)}
                   onClear={() => handleClearLocal(form16Fid)}
+                  readOnly={readOnly}
                 />
               </div>
             </PersonBlock>
@@ -986,13 +1054,14 @@ function IncomeSection({ dossier, filesMap, updateDossier, handleUpload, handleC
         label="salaried person"
         count={ops.list.length}
         onAdd={() => ops.add()}
+        readOnly={readOnly}
       />
     </SectionShell>
   );
 }
 
 // ---------- 03 Business ----------
-function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const ops = makePersonOps("businessPeople", dossier, updateDossier);
   const p = progressFor(dossier, filesMap, "business");
   return (
@@ -1017,6 +1086,7 @@ function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handl
               person={person}
               onChange={(next) => ops.update(person.id, next)}
               onRemove={() => ops.remove(person.id)}
+              readOnly={readOnly}
             >
               <p className="mb-2 text-xs uppercase tracking-[0.2em] text-stone-700">
                 Registration & GST
@@ -1036,6 +1106,7 @@ function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handl
                       file={getFile(filesMap, fid)}
                       onUpload={(f) => handleUpload(f, fid)}
                       onClear={() => handleClearLocal(fid)}
+                      readOnly={readOnly}
                     />
                   );
                 })}
@@ -1059,6 +1130,7 @@ function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handl
                       file={getFile(filesMap, fid)}
                       onUpload={(f) => handleUpload(f, fid)}
                       onClear={() => handleClearLocal(fid)}
+                      readOnly={readOnly}
                     />
                   );
                 })}
@@ -1079,6 +1151,7 @@ function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handl
                       file={file ? { ...file } : null}
                       onUpload={(f) => handleUpload(f, otherFid, slotIdx)}
                       onClear={() => handleClearLocal(otherFid, slotIdx)}
+                      readOnly={readOnly}
                     />
                   );
                 })}
@@ -1092,13 +1165,14 @@ function BusinessSection({ dossier, filesMap, updateDossier, handleUpload, handl
         label="self-employed person"
         count={ops.list.length}
         onAdd={() => ops.add()}
+        readOnly={readOnly}
       />
     </SectionShell>
   );
 }
 
 // ---------- 04 KYC ----------
-function KYCSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function KYCSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const p = progressFor(dossier, filesMap, "kyc");
   const kycBox = (slot, title, optional = false) => {
     const fid = `fin_kyc_${slot}`;
@@ -1110,6 +1184,7 @@ function KYCSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
         file={getFile(filesMap, fid)}
         onUpload={(f) => handleUpload(f, fid)}
         onClear={() => handleClearLocal(fid)}
+        readOnly={readOnly}
       />
     );
   };
@@ -1143,6 +1218,7 @@ function KYCSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
             { value: true, label: "Yes" },
           ]}
           onChange={(v) => updateDossier({ kycAdditional: !!v })}
+          readOnly={readOnly}
         />
       </div>
       {dossier.kycAdditional && (
@@ -1159,7 +1235,7 @@ function KYCSection({ dossier, filesMap, updateDossier, handleUpload, handleClea
 }
 
 // ---------- 05 Loan ----------
-function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const p = progressFor(dossier, filesMap, "loan");
   return (
     <SectionShell
@@ -1178,6 +1254,7 @@ function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleCle
             { value: true, label: "Yes" },
           ]}
           onChange={(v) => updateDossier({ studentLoanTaken: !!v })}
+          readOnly={readOnly}
         />
       </div>
       {dossier.studentLoanTaken ? (
@@ -1196,6 +1273,7 @@ function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleCle
                 file={getFile(filesMap, fid)}
                 onUpload={(f) => handleUpload(f, fid)}
                 onClear={() => handleClearLocal(fid)}
+                readOnly={readOnly}
               />
             );
           })}
@@ -1205,7 +1283,9 @@ function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleCle
           <strong className="block font-serif text-base font-medium text-black">
             Marked as self-funded
           </strong>
-          Toggle above to <em className="not-italic font-medium">Yes</em> if you've taken or are taking a student loan.
+          {readOnly
+            ? "The student has marked this section as self-funded."
+            : <>Toggle above to <em className="not-italic font-medium">Yes</em> if you've taken or are taking a student loan.</>}
         </div>
       )}
     </SectionShell>
@@ -1213,7 +1293,7 @@ function LoanSection({ dossier, filesMap, updateDossier, handleUpload, handleCle
 }
 
 // ---------- 06 Net worth ----------
-function NetworthSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function NetworthSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const ops = makePersonOps("networthPeople", dossier, updateDossier);
   const p = progressFor(dossier, filesMap, "networth");
   return (
@@ -1237,6 +1317,7 @@ function NetworthSection({ dossier, filesMap, updateDossier, handleUpload, handl
               person={person}
               onChange={(next) => ops.update(person.id, next)}
               onRemove={() => ops.remove(person.id)}
+              readOnly={readOnly}
             >
               <div className="grid gap-3 md:grid-cols-2">
                 <UploadBox
@@ -1246,6 +1327,7 @@ function NetworthSection({ dossier, filesMap, updateDossier, handleUpload, handl
                   file={getFile(filesMap, fid)}
                   onUpload={(f) => handleUpload(f, fid)}
                   onClear={() => handleClearLocal(fid)}
+                  readOnly={readOnly}
                 />
               </div>
             </PersonBlock>
@@ -1257,13 +1339,14 @@ function NetworthSection({ dossier, filesMap, updateDossier, handleUpload, handl
         label="person"
         count={ops.list.length}
         onAdd={() => ops.add()}
+        readOnly={readOnly}
       />
     </SectionShell>
   );
 }
 
 // ---------- 07 Affidavits ----------
-function AffidavitSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function AffidavitSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const ops = makePersonOps("affidavitPeople", dossier, updateDossier);
   const p = progressFor(dossier, filesMap, "affidavit");
   return (
@@ -1287,6 +1370,7 @@ function AffidavitSection({ dossier, filesMap, updateDossier, handleUpload, hand
               person={person}
               onChange={(next) => ops.update(person.id, next)}
               onRemove={() => ops.remove(person.id)}
+              readOnly={readOnly}
             >
               <div className="grid gap-3 md:grid-cols-2">
                 <UploadBox
@@ -1296,6 +1380,7 @@ function AffidavitSection({ dossier, filesMap, updateDossier, handleUpload, hand
                   file={getFile(filesMap, fid)}
                   onUpload={(f) => handleUpload(f, fid)}
                   onClear={() => handleClearLocal(fid)}
+                  readOnly={readOnly}
                 />
               </div>
             </PersonBlock>
@@ -1307,13 +1392,14 @@ function AffidavitSection({ dossier, filesMap, updateDossier, handleUpload, hand
         label="sponsor"
         count={ops.list.length}
         onAdd={() => ops.add()}
+        readOnly={readOnly}
       />
     </SectionShell>
   );
 }
 
 // ---------- 08 Banking ----------
-function BankingSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal }) {
+function BankingSection({ dossier, filesMap, updateDossier, handleUpload, handleClearLocal, readOnly }) {
   const p = progressFor(dossier, filesMap, "banking");
   const box = (slot, opts) => {
     const fid = `fin_banking_${slot}`;
@@ -1326,23 +1412,34 @@ function BankingSection({ dossier, filesMap, updateDossier, handleUpload, handle
         file={getFile(filesMap, fid)}
         onUpload={(f) => handleUpload(f, fid)}
         onClear={() => handleClearLocal(fid)}
+        readOnly={readOnly}
       />
     );
   };
-  const bankInput = (key, placeholder) => (
-    <input
-      type="text"
-      value={dossier.bankManager?.[key] || ""}
-      onChange={(e) =>
-        updateDossier((d) => ({
-          ...d,
-          bankManager: { ...(d.bankManager || {}), [key]: e.target.value },
-        }))
-      }
-      placeholder={placeholder}
-      className="w-full border-b border-stone-300 bg-transparent py-1 font-serif text-sm text-black outline-none focus:border-[#cc785c]"
-    />
-  );
+  const bankInput = (key, placeholder) => {
+    if (readOnly) {
+      const v = dossier.bankManager?.[key] || "";
+      return (
+        <p className="py-1 font-serif text-sm text-black">
+          {v || <span className="text-stone-500">— not provided</span>}
+        </p>
+      );
+    }
+    return (
+      <input
+        type="text"
+        value={dossier.bankManager?.[key] || ""}
+        onChange={(e) =>
+          updateDossier((d) => ({
+            ...d,
+            bankManager: { ...(d.bankManager || {}), [key]: e.target.value },
+          }))
+        }
+        placeholder={placeholder}
+        className="w-full border-b border-stone-300 bg-transparent py-1 font-serif text-sm text-black outline-none focus:border-[#cc785c]"
+      />
+    );
+  };
   return (
     <SectionShell id="banking" num="08" title="Banking" aside="" status={p}>
       <p className="mb-2 text-xs uppercase tracking-[0.2em] text-stone-700">
@@ -1398,7 +1495,7 @@ function BankingSection({ dossier, filesMap, updateDossier, handleUpload, handle
 }
 
 // ---------- 09 Travel ----------
-function TravelSection({ dossier, updateDossier }) {
+function TravelSection({ dossier, updateDossier, readOnly }) {
   const [draft, setDraft] = useState({ country: "", purpose: "", from: "", to: "" });
   const trips = dossier.travelTrips || [];
   const addTrip = () => {
@@ -1437,60 +1534,62 @@ function TravelSection({ dossier, updateDossier }) {
       status={{ trips: trips.length, filled: trips.length, total: Math.max(trips.length, 1) }}
       note="International travel only — domestic doesn't count. Add a row for each trip the student has taken."
     >
-      <div className="mb-3 grid gap-2 border border-stone-200 bg-white/60 p-4 md:grid-cols-[1.4fr_1.4fr_1fr_1fr_auto]">
-        <div>
-          <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">
-            Country
-          </label>
-          <input
-            className={inputCls}
-            value={draft.country}
-            onChange={(e) => setDraft({ ...draft, country: e.target.value })}
-            placeholder="e.g. Singapore"
-          />
+      {!readOnly && (
+        <div className="mb-3 grid gap-2 border border-stone-200 bg-white/60 p-4 md:grid-cols-[1.4fr_1.4fr_1fr_1fr_auto]">
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">
+              Country
+            </label>
+            <input
+              className={inputCls}
+              value={draft.country}
+              onChange={(e) => setDraft({ ...draft, country: e.target.value })}
+              placeholder="e.g. Singapore"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">
+              Purpose
+            </label>
+            <input
+              className={inputCls}
+              value={draft.purpose}
+              onChange={(e) => setDraft({ ...draft, purpose: e.target.value })}
+              placeholder="Tourism, education…"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">From</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={draft.from}
+              onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">To</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={draft.to}
+              onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={addTrip}
+              className="inline-flex h-[34px] items-center gap-1 border border-stone-900 bg-stone-900 px-4 text-xs uppercase tracking-[0.15em] text-white hover:bg-stone-800"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add trip
+            </button>
+          </div>
         </div>
-        <div>
-          <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">
-            Purpose
-          </label>
-          <input
-            className={inputCls}
-            value={draft.purpose}
-            onChange={(e) => setDraft({ ...draft, purpose: e.target.value })}
-            placeholder="Tourism, education…"
-          />
-        </div>
-        <div>
-          <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">From</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={draft.from}
-            onChange={(e) => setDraft({ ...draft, from: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-[10px] uppercase tracking-[0.15em] text-stone-700">To</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={draft.to}
-            onChange={(e) => setDraft({ ...draft, to: e.target.value })}
-          />
-        </div>
-        <div className="flex items-end">
-          <button
-            type="button"
-            onClick={addTrip}
-            className="inline-flex h-[34px] items-center gap-1 border border-stone-900 bg-stone-900 px-4 text-xs uppercase tracking-[0.15em] text-white hover:bg-stone-800"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add trip
-          </button>
-        </div>
-      </div>
+      )}
       {trips.length === 0 ? (
         <div className="border border-dashed border-stone-300 bg-stone-50/50 px-5 py-8 text-center text-sm text-stone-800">
-          No trips logged yet — add the first one above.
+          {readOnly ? "No trips logged." : "No trips logged yet — add the first one above."}
         </div>
       ) : (
         <ul className="space-y-1">
@@ -1503,14 +1602,18 @@ function TravelSection({ dossier, updateDossier }) {
               <span className="text-stone-800">{t.purpose || "—"}</span>
               <span className="text-stone-700 tabular-nums">{t.from || "—"}</span>
               <span className="text-stone-700 tabular-nums">{t.to || "—"}</span>
-              <button
-                type="button"
-                onClick={() => removeTrip(t.id)}
-                className="text-stone-500 hover:text-[#cc785c]"
-                title="Remove"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              {readOnly ? (
+                <span />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => removeTrip(t.id)}
+                  className="text-stone-500 hover:text-[#cc785c]"
+                  title="Remove"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </li>
           ))}
         </ul>
