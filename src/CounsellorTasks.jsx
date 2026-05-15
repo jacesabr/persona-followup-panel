@@ -1443,7 +1443,7 @@ function TaskHistoryPopup({ task, rows, loading, onClose }) {
 
   const onBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
   const actorLabel = (row) => {
-    if (row.actor_kind === "admin") return row.actor_id || "Admin";
+    if (row.actor_kind === "admin") return adminDisplay(row.actor_id) || row.actor_id || "Admin";
     if (row.actor_kind === "counsellor") return row.actor_counsellor_name || row.actor_id || "Counsellor";
     if (row.actor_kind === "student") return "Student";
     return row.actor_kind || "Unknown";
@@ -1464,6 +1464,21 @@ function TaskHistoryPopup({ task, rows, loading, onClose }) {
   const diffEntries = (diff) => {
     if (!diff || typeof diff !== "object") return [];
     return Object.entries(diff).filter(([k]) => k !== "id");
+  };
+  // Render a diff value. Special-case the assignees array since it
+  // arrives as [{kind, counsellor_id?, admin_username?, name?}] and
+  // raw JSON.stringify of that is ugly.
+  const renderDiffValue = (k, v) => {
+    if (k === "assignees" && Array.isArray(v)) {
+      if (v.length === 0) return "(none)";
+      return v.map((a) => {
+        if (a.kind === "admin") return adminDisplay(a.admin_username) || a.admin_username || "Admin";
+        return a.name || a.counsellor_id || "Counsellor";
+      }).join(", ");
+    }
+    if (typeof v === "object" && v !== null) return JSON.stringify(v);
+    if (typeof v === "boolean") return v ? "yes" : "no";
+    return String(v);
   };
 
   return (
@@ -1516,11 +1531,7 @@ function TaskHistoryPopup({ task, rows, loading, onClose }) {
                         {entries.map(([k, v]) => (
                           <li key={k} className="flex flex-wrap gap-1.5">
                             <span className="font-medium text-stone-700">{k}:</span>
-                            <span className="break-words">
-                              {typeof v === "object"
-                                ? JSON.stringify(v)
-                                : String(v)}
-                            </span>
+                            <span className="break-words">{renderDiffValue(k, v)}</span>
                           </li>
                         ))}
                       </ul>
