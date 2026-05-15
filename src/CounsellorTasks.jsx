@@ -274,18 +274,15 @@ export default function CounsellorTasks({
       return 0;
     };
     const chain = sb.length > 0 ? sb : ["date"];
-    const explicitNonDate = chain.filter((k) => k !== "date");
     return [...list].sort((a, b) => {
-      if (explicitNonDate.length === 0) {
-        if (a.priority !== b.priority) return a.priority ? -1 : 1;
-        return cmpKey(a, b, "date") || a.id - b.id;
-      }
-      for (const key of explicitNonDate) {
+      // Priority is always the outermost sort — pinned tasks always float
+      // to the top regardless of the selected sort mode.
+      if (a.priority !== b.priority) return a.priority ? -1 : 1;
+      for (const key of chain) {
         const c = cmpKey(a, b, key);
         if (c !== 0) return c;
       }
-      if (a.priority !== b.priority) return a.priority ? -1 : 1;
-      return cmpKey(a, b, "date") || a.id - b.id;
+      return a.id - b.id;
     });
   };
 
@@ -533,10 +530,20 @@ export default function CounsellorTasks({
         ...prev,
         [task.id]: [...(prev[task.id] || []), created],
       }));
-      // Bump the badge count on the task without a full refetch.
+      // Bump the badge count and auto-set priority so the task floats
+      // to the top with a red background, signalling a new comment.
+      let priorityUpdate = {};
+      if (!task.priority) {
+        try {
+          const updated = await api.updateTask(task.id, { priority: true });
+          priorityUpdate = { priority: updated.priority };
+        } catch (_) { /* non-fatal — comment already posted */ }
+      }
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === task.id ? { ...t, comment_count: (t.comment_count || 0) + 1 } : t
+          t.id === task.id
+            ? { ...t, comment_count: (t.comment_count || 0) + 1, ...priorityUpdate }
+            : t
         )
       );
       setCommentDraft("");
@@ -801,10 +808,15 @@ export default function CounsellorTasks({
           const isEditing = editingId === task.id && (!isScoped || taskHasCounsellor(task, scopedCounsellorId));
           const commentsOpen = expandedCommentsId === task.id;
           const commentCount = task.comment_count || 0;
+          const rowBg = isEditing
+            ? "bg-[#cc785c]/5"
+            : task.priority
+            ? "bg-red-50"
+            : "";
           return (
             <div key={task.id} className="border-b border-stone-200 last:border-b-0">
               <div
-                className={`grid items-center gap-3 px-4 py-3 hover:bg-stone-50 ${task.completed ? "opacity-60" : ""} ${isEditing ? "bg-[#cc785c]/5" : ""}`}
+                className={`grid items-center gap-3 px-4 py-3 hover:bg-stone-50 ${task.completed ? "opacity-60" : ""} ${rowBg}`}
                 style={{ gridTemplateColumns: gridCols }}
               >
                 <span>
@@ -1147,12 +1159,17 @@ export default function CounsellorTasks({
           const isEditing = !isScoped && editingId === task.id;
           const commentsOpen = expandedCommentsId === task.id;
           const commentCount = task.comment_count || 0;
+          const rowBg = isEditing
+            ? "bg-[#cc785c]/5"
+            : task.priority
+            ? "bg-red-50"
+            : "";
           return (
             <div key={task.id} className="border-b border-stone-200 last:border-b-0">
               <div
                 className={`grid items-center gap-3 px-4 py-3 hover:bg-stone-50 ${
                   task.completed ? "opacity-60" : ""
-                } ${isEditing ? "bg-[#cc785c]/5" : ""}`}
+                } ${rowBg}`}
                 style={{ gridTemplateColumns: gridCols }}
               >
                 <span>

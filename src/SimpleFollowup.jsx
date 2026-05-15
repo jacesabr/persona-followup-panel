@@ -23,12 +23,6 @@ import {
   utcIsoToIstInput,
 } from "../lib/time.js";
 
-const STATUS_LABEL = {
-  unassigned: "Unassigned",
-  scheduled: "Scheduled",
-  completed: "Completed",
-  no_show: "No-show",
-};
 // When the calendar form needs a time-of-day to combine with a picked date.
 const DEFAULT_TIME_IST = "10:00";
 
@@ -303,15 +297,20 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         scheduled_for: new Date().toISOString(),
         ad_hoc: true,
       });
+      // Mirror the new (or reused) ad_hoc id into leads state so
+      // subsequent "Make Notes" clicks reuse this row rather than
+      // creating another empty ad_hoc row that piles up in History.
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === lead.id
+            ? { ...l, next_appointment_id: appointment.id, next_appointment_scheduled_for: appointment.scheduled_for }
+            : l
+        )
+      );
       setSessionLead({
         ...lead,
         next_appointment_id: appointment.id,
         next_appointment_scheduled_for: appointment.scheduled_for,
-        // SessionPopup uses this to render an "Ad-hoc note" badge so the
-        // counsellor sees this row isn't tied to a formal calendar
-        // appointment yet. next_appointment_id is server-filtered to
-        // ad_hoc=false, so this flag only ever rides along when we just
-        // created the row ourselves on this very click.
         next_appointment_ad_hoc: true,
       });
     } catch (e) {
@@ -335,12 +334,8 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   }
 
-  // 10 cols: select · date created · contact · purpose · status · appointment date · history · make notes · counsellor · archive
-  // History and Make Notes used to share a stacked-button cell; splitting
-  // them into their own columns gave the "Make Notes" call-to-action room
-  // to read at full button size. ~5.5rem each is enough for the icon +
-  // single-line label without truncation.
-  const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 6rem 10rem 4.5rem 5.5rem 7rem 3rem";
+  // 10 cols: select · date created · contact · purpose · appointment date · next followup · history · make notes · counsellor · archive
+  const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 10rem 8rem 4.5rem 5.5rem 7rem 3rem";
 
   // Counsellor scoping: hide leads not belonging to this counsellor.
   // Admin (role=admin) sees everything.
@@ -499,8 +494,8 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           <span className="whitespace-nowrap">Date Created</span>
           <span className="whitespace-nowrap">Name / Email / Ph</span>
           <span className="whitespace-nowrap">Purpose</span>
-          <span className="whitespace-nowrap">Status</span>
           <span className="whitespace-nowrap">Appointment Date</span>
+          <span className="whitespace-nowrap">Follow-up</span>
           <span className="whitespace-nowrap">History</span>
           <span className="whitespace-nowrap">Make Notes</span>
           <span className="whitespace-nowrap">Counsellor</span>
@@ -568,11 +563,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               }
               className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
             />
-            {/* Status + Next-follow columns: empty placeholders so the
-                grid cells still exist for layout symmetry with rendered
-                rows above/below. */}
-            <span className="text-[11px]  text-black">auto</span>
-            <span className="text-[11px]  text-black">later</span>
+            {/* Appointment Date + Follow-up: placeholders for layout symmetry. */}
+            <span className="text-[11px] text-black">—</span>
+            <span className="text-[11px] text-black">—</span>
             {/* History + Make Notes columns: nothing to view / write
                 yet on an unsaved lead, so both stay empty. */}
             <span></span>
@@ -691,9 +684,6 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               <span className="whitespace-pre-wrap break-words" title={lead.purpose || ""}>
                 {lead.purpose || "—"}
               </span>
-              <span className="text-[12px] uppercase tracking-[0.12em] text-black">
-                {STATUS_LABEL[lead.status] || lead.status || "—"}
-              </span>
               <button
                 onClick={() => setCalendarLead(lead)}
                 title="Open calendar"
@@ -701,6 +691,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
+              <span className="text-[14px] text-black">
+                {lead.service_date ? formatDateInIst(lead.service_date) : "—"}
+              </span>
               <span>
                 <button
                   onClick={() => setHistoryLead(lead)}
@@ -1127,11 +1120,11 @@ function HistoryRow({
   onSave,
   saveErr,
 }) {
-  // Past sessions where the counsellor never wrote notes get a loud red
-  // "Session Missed" warning instead of the gentle "no notes yet" copy —
-  // makes overdue documentation impossible to miss when scrolling history.
+  // Formal past appointments with no notes → loud "Session Missed" warning.
+  // Ad-hoc rows without notes → quieter message (they weren't formal sessions).
   const isPast = new Date(appt.scheduled_for).getTime() < Date.now();
-  const sessionMissed = isPast && !appt.notes;
+  const sessionMissed = isPast && !appt.notes && !appt.ad_hoc;
+  const adHocNoNotes = isPast && !appt.notes && appt.ad_hoc;
 
   // The row's primary header is the moment the note was created (i.e.,
   // when the appointment row was inserted). Per request: every history
@@ -1212,6 +1205,10 @@ function HistoryRow({
       ) : sessionMissed ? (
         <p className="mt-1 text-[18px] font-bold uppercase tracking-wide text-red-600">
           Session Missed: No Session Notes Created
+        </p>
+      ) : adHocNoNotes ? (
+        <p className="mt-1 text-[14px] text-black">
+          No notes added for this quick call.
         </p>
       ) : (
         <p className="mt-1 text-[15px] leading-relaxed text-black">

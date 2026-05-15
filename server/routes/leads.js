@@ -502,6 +502,22 @@ router.post("/:id/appointments", async (req, res, next) => {
     const cleanNotes = notes ? notes.trim() : null;
     const cleanAdHoc = ad_hoc === true;
 
+    // For ad_hoc quick-call rows: reuse an existing un-noted ad_hoc row
+    // rather than creating a new one. Prevents repeated "Make Notes"
+    // clicks from accumulating empty rows that show as "Session Missed"
+    // in the history popup.
+    if (cleanAdHoc && !cleanNotes) {
+      const { rows: existing } = await pool.query(
+        `SELECT * FROM lead_appointments
+         WHERE lead_id = $1 AND ad_hoc = TRUE AND notes IS NULL
+         ORDER BY created_at DESC LIMIT 1`,
+        [id]
+      );
+      if (existing.length > 0) {
+        return res.status(200).json({ appointment: existing[0] });
+      }
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
