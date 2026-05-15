@@ -4,8 +4,40 @@ import pool from "../db.js";
 import { isValidUtcIso, isValidYmd } from "../../lib/time.js";
 import { audit } from "../audit.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { getStorage } from "../storage.js";
 
 const router = express.Router();
+
+// Append-only R2 backup for lead + appointment mutations.
+async function backupLeadEvent(event, payload) {
+  try {
+    const storage = getStorage();
+    const leadId = payload.id ?? payload.lead_id ?? "unknown";
+    const key = `leads/${leadId}/${event}-${Date.now()}.json`;
+    await storage.putBlob({
+      key,
+      body: Buffer.from(JSON.stringify({ event, payload, timestamp: new Date().toISOString() })),
+      contentType: "application/json",
+    });
+  } catch (e) {
+    console.error("[backup] lead event failed:", e.message);
+  }
+}
+
+async function backupAppointmentEvent(event, leadId, payload) {
+  try {
+    const storage = getStorage();
+    const apptId = payload.id ?? "unknown";
+    const key = `leads/${leadId}/appointments/${apptId}/${event}-${Date.now()}.json`;
+    await storage.putBlob({
+      key,
+      body: Buffer.from(JSON.stringify({ event, lead_id: leadId, payload, timestamp: new Date().toISOString() })),
+      contentType: "application/json",
+    });
+  } catch (e) {
+    console.error("[backup] appointment event failed:", e.message);
+  }
+}
 
 const isString = (v) => typeof v === "string";
 
@@ -214,6 +246,7 @@ router.post("/", async (req, res, next) => {
       [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id, status, cleanInquiry]
     );
 
+    backupLeadEvent("create", rows[0]).catch(() => {});
     res.status(201).json(rows[0]);
   } catch (e) {
     next(e);
@@ -365,6 +398,7 @@ router.patch("/:id", async (req, res, next) => {
     } finally {
       client.release();
     }
+    backupLeadEvent("update", updated).catch(() => {});
     res.json(updated);
   } catch (e) {
     next(e);
@@ -383,8 +417,10 @@ router.post("/:id/archive", async (req, res, next) => {
     if (rows.length === 0) {
       const exists = await pool.query("SELECT * FROM leads WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+      backupLeadEvent("archive", exists.rows[0]).catch(() => {});
       return res.json(exists.rows[0]);
     }
+    backupLeadEvent("archive", rows[0]).catch(() => {});
     res.json(rows[0]);
   } catch (e) {
     next(e);
@@ -403,8 +439,10 @@ router.post("/:id/unarchive", async (req, res, next) => {
     if (rows.length === 0) {
       const exists = await pool.query("SELECT * FROM leads WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "lead not found" });
+      backupLeadEvent("unarchive", exists.rows[0]).catch(() => {});
       return res.json(exists.rows[0]);
     }
+    backupLeadEvent("unarchive", rows[0]).catch(() => {});
     res.json(rows[0]);
   } catch (e) {
     next(e);
@@ -426,7 +464,7 @@ router.delete("/:id", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rows: existing } = await pool.query(
-      "SELECT archived FROM leads WHERE id = $1",
+      "SELECT * FROM leads WHERE id = $1",
       [id]
     );
     if (existing.length === 0) {
@@ -437,6 +475,8 @@ router.delete("/:id", requireAdmin, async (req, res, next) => {
         .status(400)
         .json({ error: "lead must be archived before deletion" });
     }
+    // Snapshot to R2 before deletion so the record is recoverable.
+    await backupLeadEvent("delete", existing[0]);
     await pool.query("DELETE FROM leads WHERE id = $1", [id]);
     // 204 .end() bypasses autoAudit's res.json hook; log explicitly
     // so a destructive admin op never silently disappears from the
@@ -543,6 +583,7 @@ router.post("/:id/appointments", async (req, res, next) => {
         [id]
       );
       await client.query("COMMIT");
+      backupAppointmentEvent("create", id, apptRows[0]).catch(() => {});
       res.status(201).json({ appointment: apptRows[0], lead: leadRows[0] });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
@@ -648,6 +689,7 @@ router.patch("/:leadId/appointments/:apptId", async (req, res, next) => {
         lead = leadRows[0] || null;
       }
       await client.query("COMMIT");
+      backupAppointmentEvent("update", leadId, apptRows[0]).catch(() => {});
       res.json({ appointment: apptRows[0], lead });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});

@@ -2,8 +2,26 @@ import express from "express";
 import pool from "../db.js";
 import { isValidYmd } from "../../lib/time.js";
 import { adminUsernameSet } from "../admins.js";
+import { getStorage } from "../storage.js";
 
 const router = express.Router();
+
+// Append-only R2 backup for every task mutation. Fire-and-forget —
+// a storage hiccup must never block the API response.
+async function backupTaskEvent(event, payload) {
+  try {
+    const storage = getStorage();
+    const taskId = payload.id ?? payload.task_id ?? "unknown";
+    const key = `tasks/${taskId}/${event}-${Date.now()}.json`;
+    await storage.putBlob({
+      key,
+      body: Buffer.from(JSON.stringify({ event, payload, timestamp: new Date().toISOString() })),
+      contentType: "application/json",
+    });
+  } catch (e) {
+    console.error("[backup] task event failed:", e.message);
+  }
+}
 
 function isString(v) {
   return typeof v === "string";
@@ -421,6 +439,7 @@ router.post("/", async (req, res, next) => {
       `${SELECT_JOINED} WHERE t.id = $1`,
       [createdId]
     );
+    backupTaskEvent("create", enriched[0]).catch(() => {});
     res.status(201).json(enriched[0]);
   } catch (e) {
     next(e);
@@ -605,6 +624,7 @@ router.patch("/:id", async (req, res, next) => {
     if (rows.length === 0) return res.status(404).json({ error: "task not found" });
 
     const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [rows[0].id]);
+    backupTaskEvent("update", enriched[0]).catch(() => {});
     res.json(enriched[0]);
   } catch (e) {
     next(e);
@@ -635,9 +655,11 @@ router.post("/:id/archive", async (req, res, next) => {
       const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
       const { rows: current } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
+      backupTaskEvent("archive", current[0]).catch(() => {});
       return res.json(current[0]);
     }
     const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
+    backupTaskEvent("archive", enriched[0]).catch(() => {});
     res.json(enriched[0]);
   } catch (e) {
     next(e);
@@ -665,9 +687,11 @@ router.post("/:id/unarchive", async (req, res, next) => {
       const exists = await pool.query("SELECT archived FROM counsellor_tasks WHERE id = $1", [id]);
       if (exists.rows.length === 0) return res.status(404).json({ error: "task not found" });
       const { rows: current } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
+      backupTaskEvent("unarchive", current[0]).catch(() => {});
       return res.json(current[0]);
     }
     const { rows: enriched } = await pool.query(`${SELECT_JOINED} WHERE t.id = $1`, [id]);
+    backupTaskEvent("unarchive", enriched[0]).catch(() => {});
     res.json(enriched[0]);
   } catch (e) {
     next(e);
@@ -726,6 +750,7 @@ router.post("/:id/comments", async (req, res, next) => {
         WHERE tc.id = $1`,
       [rows[0].id]
     );
+    backupTaskEvent("comment", { task_id: Number(id), comment: enriched.rows[0] }).catch(() => {});
     res.status(201).json(enriched.rows[0]);
   } catch (e) {
     next(e);
