@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, Plus, Trash2, FileText, Settings as SettingsIcon, History as HistoryIcon,
   Home, ChevronLeft, ChevronRight, X, Check, Upload, Image as ImageIcon,
-  Edit2, Copy, Printer, Zap
+  Edit2, Copy, Printer, Zap, Download,
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -179,6 +179,22 @@ export default function InvoicesAdmin() {
     setDraft(null);
   }
 
+  // Direct-entry path. The Home page surfaces each invoice type as its
+  // own button card; clicking one bypasses the wizard's first step
+  // (Type) and lands the user on Customer with the type already locked
+  // in. Equivalent to startNew() + chooseType() but skips the
+  // intermediate Type screen which is redundant when the user has
+  // already announced their intent by clicking the type card.
+  async function startNewWithType(type) {
+    setError(null);
+    try {
+      const { invoiceNumber } = await api.getNextInvoiceNumber();
+      setDraft(blankInvoice(type, invoiceNumber));
+      setView("wizard");
+      setStep(2);
+    } catch (e) { setError(e.message); }
+  }
+
   async function chooseType(type) {
     try {
       const { invoiceNumber } = await api.getNextInvoiceNumber();
@@ -315,7 +331,10 @@ export default function InvoicesAdmin() {
         <HomeView
           invoices={invoices}
           company={company}
+          logoBase64={logoBase64}
+          signatureBase64={signatureBase64}
           onStartNew={startNew}
+          onStartNewWithType={startNewWithType}
           onOpen={openInvoice}
           onGoHistory={() => setView("history")}
         />
@@ -396,18 +415,64 @@ function SubNavButton({ active, onClick, icon, label }) {
 // Home view — recent invoices + type picker shortcut
 // =============================================================
 
-function HomeView({ invoices, company, onStartNew, onOpen, onGoHistory }) {
+function HomeView({ invoices, company, logoBase64, signatureBase64, onStartNew, onStartNewWithType, onOpen, onGoHistory }) {
   const recent = useMemo(
     () => [...invoices].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8),
     [invoices]
   );
 
-  const last30Count = useMemo(() => {
+  const last30 = useMemo(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
     const iso = cutoff.toISOString().slice(0, 10);
-    return invoices.filter((i) => i.date && i.date >= iso).length;
+    return invoices
+      .filter((i) => i.date && i.date >= iso)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   }, [invoices]);
+
+  // Bulk-print: open every 30-day invoice in a new tab with page-break-
+  // after on each so a browser Print → Save as PDF produces one
+  // multi-page PDF. The same approach the user's original mockup used
+  // (window.print on a stacked render). Triggered async (a microtask
+  // off the click) so React renders the bulk view before window.print
+  // pre-paints.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  useEffect(() => {
+    if (!bulkOpen) return;
+    const t = setTimeout(() => window.print(), 200);
+    const onAfter = () => setBulkOpen(false);
+    window.addEventListener("afterprint", onAfter);
+    return () => { clearTimeout(t); window.removeEventListener("afterprint", onAfter); };
+  }, [bulkOpen]);
+
+  if (bulkOpen) {
+    return (
+      <div className="print-bundle">
+        <div className="mb-6 max-w-[800px] mx-auto border-b-2 border-stone-900 pb-3 print:hidden">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-[#cc785c]">Invoice bundle</div>
+          <div className="font-serif text-2xl">{company.name || "Persona Discover"} — Last 30 days</div>
+          <div className="text-xs text-stone-600">{last30.length} invoice{last30.length === 1 ? "" : "s"} · Use your browser's print dialog to save as PDF</div>
+          <button onClick={() => setBulkOpen(false)} className="mt-2 inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1 text-[11px] uppercase tracking-[0.18em] hover:bg-stone-50">Cancel</button>
+        </div>
+        {last30.map((inv) => {
+          const totals = totalsFor(inv, company.state);
+          const sym = inv.type === "b2b_intl" ? CURRENCY_SYMBOLS[inv.currency] || `${inv.currency} ` : "₹ ";
+          return (
+            <div key={inv.id} className="mb-8 break-after-page print:mb-0">
+              <PrintableInvoice
+                invoice={inv}
+                company={company}
+                logoBase64={logoBase64}
+                signatureBase64={signatureBase64}
+                totals={totals}
+                sym={sym}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -415,24 +480,41 @@ function HomeView({ invoices, company, onStartNew, onOpen, onGoHistory }) {
         <div>
           <h2 className="text-lg font-semibold tracking-tight">Invoice studio</h2>
           <p className="mt-1 text-sm text-stone-800">
-            Generate Retail, B2B India, B2B LUT/SEZ or B2B International invoices. The right tax rules and fields appear automatically based on the type you pick.
+            Click any invoice type below to start a new invoice of that kind. The right tax rules and fields appear automatically.
           </p>
         </div>
-        <button
-          onClick={onStartNew}
-          className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
-        >
-          <Plus className="h-3 w-3" /> New invoice
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setBulkOpen(true)}
+            disabled={last30.length === 0}
+            title={last30.length === 0 ? "No invoices in the last 30 days" : `Print/save ${last30.length} invoice${last30.length === 1 ? "" : "s"} from the last 30 days as a single PDF`}
+            className="inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-stone-900 hover:border-stone-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Download className="h-3 w-3" /> Last 30 days {last30.length > 0 && <span className="opacity-60">({last30.length})</span>}
+          </button>
+          <button
+            onClick={onStartNew}
+            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]"
+          >
+            <Plus className="h-3 w-3" /> New invoice
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         {Object.entries(INVOICE_TYPES).map(([key, meta]) => (
-          <div key={key} className="border border-stone-300 bg-white p-3">
+          <button
+            key={key}
+            type="button"
+            onClick={() => onStartNewWithType(key)}
+            title={`Start a new ${meta.label} invoice`}
+            className="group relative border border-stone-300 bg-white p-3 text-left transition hover:border-[#cc785c] hover:bg-[#fff7f2]"
+          >
             <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500">{meta.sub}</div>
-            <div className="mt-1 text-sm font-semibold text-stone-900">{meta.label}</div>
+            <div className="mt-1 text-sm font-semibold text-stone-900 group-hover:text-[#cc785c]">{meta.label}</div>
             <div className="mt-1 text-[12px] text-stone-700">{meta.rule}</div>
-          </div>
+            <ChevronRight className="absolute right-2 top-2 h-3.5 w-3.5 text-stone-300 group-hover:text-[#cc785c]" />
+          </button>
         ))}
       </div>
 
@@ -447,7 +529,7 @@ function HomeView({ invoices, company, onStartNew, onOpen, onGoHistory }) {
           <div className="mb-2 flex items-baseline justify-between">
             <h3 className="text-sm font-semibold tracking-tight">Recent</h3>
             <div className="flex items-center gap-3 text-[12px] text-stone-700">
-              <span>{invoices.length} total · {last30Count} in last 30 days</span>
+              <span>{invoices.length} total · {last30.length} in last 30 days</span>
               <button onClick={onGoHistory} className="underline hover:text-stone-900">View all →</button>
             </div>
           </div>
@@ -595,12 +677,19 @@ function SettingsView({ company, logoBase64, signatureBase64, onSave }) {
   const [logo, setLogo] = useState(logoBase64);
   const [sig, setSig] = useState(signatureBase64);
   const [busy, setBusy] = useState(false);
+  const [drawingSig, setDrawingSig] = useState(false);
 
-  useEffect(() => { setC(company); }, [company]);
+  // Only seed from props on FIRST mount or when the user hasn't touched
+  // the form yet. Without the "dirty" guard the prior useEffect re-sync
+  // would overwrite the user's in-flight typing every time `company`
+  // changed upstream (e.g. after a save), which made the form feel like
+  // it was eating keystrokes.
+  const dirtyRef = useRef(false);
+  useEffect(() => { if (!dirtyRef.current) setC(company); }, [company]);
   useEffect(() => { setLogo(logoBase64); }, [logoBase64]);
   useEffect(() => { setSig(signatureBase64); }, [signatureBase64]);
 
-  const set = (k, v) => setC((p) => ({ ...p, [k]: v }));
+  const set = (k, v) => { dirtyRef.current = true; setC((p) => ({ ...p, [k]: v })); };
 
   async function readFile(file) {
     return new Promise((resolve, reject) => {
@@ -629,6 +718,10 @@ function SettingsView({ company, logoBase64, signatureBase64, onSave }) {
     setBusy(true);
     try {
       await onSave(c, logo, sig);
+      // After a successful save, the form is no longer ahead of the
+      // server — clear dirty so future upstream refreshes can re-seed
+      // cleanly if needed.
+      dirtyRef.current = false;
     } finally {
       setBusy(false);
     }
@@ -661,8 +754,11 @@ function SettingsView({ company, logoBase64, signatureBase64, onSave }) {
                 {sig ? <img src={sig} alt="signature" className="max-h-full max-w-full" /> : <ImageIcon className="h-6 w-6 text-stone-400" />}
               </div>
               <div className="flex flex-col gap-1">
-                <button onClick={() => pickFile(setSig)} className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-900 hover:bg-stone-50">
-                  <Upload className="h-3 w-3" /> {sig ? "Replace" : "Upload"}
+                <button onClick={() => setDrawingSig(true)} className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-900 hover:bg-stone-50" title="Draw signature with mouse / trackpad / stylus">
+                  <Edit2 className="h-3 w-3" /> Draw
+                </button>
+                <button onClick={() => pickFile(setSig)} className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-900 hover:bg-stone-50" title="Upload a PNG / JPG / SVG of an existing signature">
+                  <Upload className="h-3 w-3" /> Upload
                 </button>
                 {sig && <button onClick={() => setSig(null)} className="text-[11px] text-stone-600 hover:text-red-600 underline">Remove</button>}
               </div>
@@ -729,6 +825,140 @@ function SettingsView({ company, logoBase64, signatureBase64, onSave }) {
         >
           {busy && <Loader2 className="h-3 w-3 animate-spin" />} Save
         </button>
+      </div>
+
+      {drawingSig && (
+        <SignatureDrawModal
+          onCancel={() => setDrawingSig(false)}
+          onSave={(dataUrl) => { setSig(dataUrl); setDrawingSig(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// =============================================================
+// Canvas-based signature pad. Pointer events cover mouse, trackpad,
+// touch, and pen (stylus on iPad / Surface) uniformly. The canvas is
+// rendered at 2× CSS resolution so the resulting PNG is crisp on
+// retina displays + when scaled into the invoice header. White is
+// the canvas background so the saved PNG composites cleanly over
+// either a white or coloured invoice; if you need transparent, switch
+// to clearRect on init and skip the white fill.
+// =============================================================
+function SignatureDrawModal({ onCancel, onSave }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef(null);
+  const dirtyLocal = useRef(false);
+  const [hasInk, setHasInk] = useState(false);
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    // 2x backing store for crisp retina output. The CSS size stays
+    // 560x180; the canvas internal buffer is 1120x360 so the toDataURL
+    // PNG is high-resolution.
+    const cssW = 560, cssH = 180;
+    c.width = cssW * 2;
+    c.height = cssH * 2;
+    c.style.width = `${cssW}px`;
+    c.style.height = `${cssH}px`;
+    const ctx = c.getContext("2d");
+    ctx.scale(2, 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, cssW, cssH);
+    ctx.strokeStyle = "#111111";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  }, []);
+
+  const pointAt = (e) => {
+    const c = canvasRef.current;
+    const r = c.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onDown = (e) => {
+    e.preventDefault();
+    drawingRef.current = true;
+    lastPointRef.current = pointAt(e);
+    if (e.target.setPointerCapture) {
+      try { e.target.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    }
+  };
+  const onMove = (e) => {
+    if (!drawingRef.current) return;
+    const p = pointAt(e);
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastPointRef.current = p;
+    dirtyLocal.current = true;
+    if (!hasInk) setHasInk(true);
+  };
+  const onUp = () => { drawingRef.current = false; lastPointRef.current = null; };
+
+  const clear = () => {
+    const c = canvasRef.current;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width / 2, c.height / 2);
+    dirtyLocal.current = false;
+    setHasInk(false);
+  };
+
+  const save = () => {
+    if (!hasInk) return;
+    const dataUrl = canvasRef.current.toDataURL("image/png");
+    onSave(dataUrl);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onCancel}>
+      <div className="w-full max-w-xl border border-stone-300 bg-white p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#cc785c]">Signature</div>
+        <div className="mb-3 font-serif text-xl text-stone-900">Draw your signature</div>
+        <p className="mb-3 text-xs text-stone-700">Use mouse, trackpad, finger, or stylus. The saved PNG is stamped at the bottom of approved invoices.</p>
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            onPointerDown={onDown}
+            onPointerMove={onMove}
+            onPointerUp={onUp}
+            onPointerLeave={onUp}
+            onPointerCancel={onUp}
+            className="block border border-dashed border-stone-300 bg-white touch-none cursor-crosshair"
+            style={{ width: 560, height: 180 }}
+          />
+          {!hasInk && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[12px] italic text-stone-400">
+              sign here
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={clear}
+            className="absolute right-1 top-1 inline-flex items-center gap-1 border border-stone-300 bg-white/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-700"
+          >
+            Clear
+          </button>
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2 border-t border-stone-200 pt-3">
+          <button onClick={onCancel} className="inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-stone-900 hover:bg-stone-50">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={!hasInk}
+            className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f] disabled:opacity-40"
+          >
+            Use signature
+          </button>
+        </div>
       </div>
     </div>
   );

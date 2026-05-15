@@ -57,10 +57,27 @@ function fyFor(isoDate) {
   return m >= 4 ? y : y - 1;
 }
 
+// Returns true when the invoice type needs both company state and
+// customer state to choose between CGST+SGST (same state) and IGST
+// (different state). LUT + International are GST-zero so they don't
+// care about either side's state.
+function needsStateForTax(type) {
+  return type === "retail" || type === "b2b";
+}
+
 // Recompute totals server-side from line items + customer state so the
 // client cannot drift the stored amounts away from what the tax rules
 // imply. The frontend computes the same thing for live UI, but the DB
 // trusts the server's recomputation only.
+//
+// Defensive: if either side's state is missing, return tax_type='unset'
+// rather than silently picking IGST. Without this clause, an unset
+// company state would compare unequal to any customer state and the
+// fall-through path would slap 18% IGST on every retail/B2B invoice —
+// wrong, and only self-corrects after the operator notices. The
+// POST/PUT handlers also reject the call up front when company state
+// is missing on a GST-bearing type; this clause is the second line of
+// defence.
 function recomputeTotals(type, customer, lineItems, companyState) {
   const sub = lineItems.reduce((acc, li) => {
     if (type === "retail") return acc + (Number(li.amount) || 0);
@@ -71,7 +88,7 @@ function recomputeTotals(type, customer, lineItems, companyState) {
   }
   const custState = (customer?.state || "").trim().toLowerCase();
   const coState = (companyState || "").trim().toLowerCase();
-  if (!custState) {
+  if (!custState || !coState) {
     return { subtotal: sub, cgst: 0, sgst: 0, igst: 0, tax_type: "unset", grand_total: sub };
   }
   if (custState === coState) {
@@ -302,6 +319,25 @@ router.post("/", requireAdmin, async (req, res, next) => {
     );
     const companyState = coRows[0]?.data?.state || "";
 
+    // GST-bearing invoices (retail / b2b India) need company state set
+    // to choose intra-state (CGST+SGST) vs inter-state (IGST). Without
+    // it the comparison silently fails to "unequal" and every invoice
+    // defaults to 18% IGST regardless of the actual customer state —
+    // wrong, and the operator only catches it after the fact. Refuse
+    // up front with a message that points them at the fix.
+    if (needsStateForTax(payload.type) && !companyState.trim()) {
+      return res.status(400).json({
+        error: "Set your company state in Invoice Info → Identity before creating GST-bearing invoices. Tax rules need it to choose between CGST+SGST and IGST.",
+        code: "company_state_missing",
+      });
+    }
+    if (needsStateForTax(payload.type) && !(payload.customer?.state || "").trim()) {
+      return res.status(400).json({
+        error: "Pick the customer's state before saving — GST rules switch between intra-state (CGST+SGST) and inter-state (IGST) based on whether the customer is in your state.",
+        code: "customer_state_missing",
+      });
+    }
+
     const id = "inv_" + randomUUID().replace(/-/g, "").slice(0, 16);
     const date = payload.date || new Date().toISOString().slice(0, 10);
     const fy = fyFor(date);
@@ -364,6 +400,20 @@ router.put("/:id", requireAdmin, async (req, res, next) => {
 
     const { rows: coRows } = await pool.query(`SELECT data FROM company_settings WHERE id = 1`);
     const companyState = coRows[0]?.data?.state || "";
+
+    if (needsStateForTax(payload.type) && !companyState.trim()) {
+      return res.status(400).json({
+        error: "Set your company state in Invoice Info → Identity before saving GST-bearing invoices. Tax rules need it to choose between CGST+SGST and IGST.",
+        code: "company_state_missing",
+      });
+    }
+    if (needsStateForTax(payload.type) && !(payload.customer?.state || "").trim()) {
+      return res.status(400).json({
+        error: "Pick the customer's state before saving — GST rules switch between intra-state (CGST+SGST) and inter-state (IGST) based on whether the customer is in your state.",
+        code: "customer_state_missing",
+      });
+    }
+
     const date = payload.date;
     const fy = fyFor(date);
     const totals = recomputeTotals(payload.type, payload.customer || {}, payload.lineItems || [], companyState);
