@@ -437,9 +437,30 @@ router.patch("/:id", async (req, res, next) => {
     const taskRow = await checkTaskAccess(req, res, id);
     if (!taskRow) return;
 
+    // Permission tiers:
+    //   admin — full edit (incl. reassign + lead-relink)
+    //   counsellor who is an assignee — text / due_date / student_name +
+    //     the priority/completed toggles. Assignee-edit was the user ask:
+    //     "create an edit button, where the user can edit tasks assigned
+    //     to them." Reassigning + relinking stays admin-only so a
+    //     counsellor can't hand off their own work to bypass scope.
+    //   counsellor who can SEE the task but isn't an assignee (lead
+    //     owner, creator) — priority/completed only, same as before.
     const allowedAll = ["text", "due_date", "priority", "completed", "student_name", "assignee_id", "lead_id", "assignees"];
-    const allowedCounsellor = ["priority", "completed"];
-    const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
+    const allowedCounsellorMinimal = ["priority", "completed"];
+    const allowedCounsellorAssignee = ["text", "due_date", "student_name", "priority", "completed"];
+    let allowed;
+    if (req.user?.kind === "admin") {
+      allowed = allowedAll;
+    } else {
+      // Is this counsellor in the task's assignees array?
+      const ja = await pool.query(
+        `SELECT 1 FROM counsellor_task_assignees
+          WHERE task_id = $1 AND counsellor_id = $2 LIMIT 1`,
+        [id, req.user.counsellorId]
+      );
+      allowed = ja.rows.length > 0 ? allowedCounsellorAssignee : allowedCounsellorMinimal;
+    }
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) {
       return res.status(400).json({ error: "no valid fields to update" });
@@ -706,6 +727,34 @@ router.post("/:id/comments", async (req, res, next) => {
       [rows[0].id]
     );
     res.status(201).json(enriched.rows[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/tasks/:id/history — append-only edit/action history for a
+// task, sourced from intake_audit_log. autoAudit("counsellor_tasks") at
+// the mount logs every PATCH/POST/DELETE with actor + diff, so we just
+// query that table. Joins the counsellor name for counsellor actors so
+// the UI can render "Suhas updated" / "Himani archived" instead of an
+// opaque id. Admin actors carry their username in actor_id directly.
+// Anyone with task access can see the history; same rule as the task
+// detail itself.
+router.get("/:id/history", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!(await checkTaskAccess(req, res, id))) return;
+    const { rows } = await pool.query(
+      `SELECT a.id, a.occurred_at, a.actor_kind, a.actor_id, a.action, a.diff,
+              c.name AS actor_counsellor_name
+         FROM intake_audit_log a
+    LEFT JOIN counsellors c ON c.id = a.actor_id AND a.actor_kind = 'counsellor'
+        WHERE a.target_table = 'counsellor_tasks'
+          AND a.target_id = $1
+     ORDER BY a.occurred_at ASC, a.id ASC`,
+      [String(id)]
+    );
+    res.json(rows);
   } catch (e) {
     next(e);
   }

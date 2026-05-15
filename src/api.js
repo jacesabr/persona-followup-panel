@@ -139,6 +139,10 @@ export const api = {
   // task without modifying the task body itself (only admin can edit
   // task fields). Append-only — no edit/delete by design.
   listTaskComments: (id) => request("GET", `/api/tasks/${id}/comments`),
+  // Returns intake_audit_log rows for this task, oldest first. The
+  // history popup renders these as a timeline of edits / status flips /
+  // archives, with the actor labelled and the diff shown.
+  getTaskHistory: (id) => request("GET", `/api/tasks/${id}/history`),
   addTaskComment: (id, body) =>
     request("POST", `/api/tasks/${id}/comments`, { body }),
   // ----------------------------------------------------------------

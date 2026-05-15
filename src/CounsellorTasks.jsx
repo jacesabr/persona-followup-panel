@@ -10,6 +10,7 @@ import {
   Pencil,
   MessageSquare,
   Lock,
+  History as HistoryIcon,
 } from "lucide-react";
 import { api } from "./api.js";
 import { dateOnlyYmd, formatDateInIst, utcIsoToIstInput } from "../lib/time.js";
@@ -102,6 +103,11 @@ export default function CounsellorTasks({
   // commentsByTask caches loaded threads so re-opening doesn't re-fetch.
   const [expandedCommentsId, setExpandedCommentsId] = useState(null);
   const [commentsByTask, setCommentsByTask] = useState({});
+  // Per-task edit history popup. id of the task whose history is open, or
+  // null. Cached so repeat-opens within a session don't re-fetch.
+  const [historyTaskId, setHistoryTaskId] = useState(null);
+  const [historyByTask, setHistoryByTask] = useState({});
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [postingComment, setPostingComment] = useState(false);
@@ -477,6 +483,24 @@ export default function CounsellorTasks({
       setSavingEdit(false);
     }
   };
+
+  // History popup handler. Opens the modal for one task at a time and
+  // lazy-loads its audit-log rows. Cached so reopening within the same
+  // session is instant.
+  const openHistory = async (task) => {
+    setHistoryTaskId(task.id);
+    if (historyByTask[task.id] !== undefined) return;
+    setHistoryLoading(true);
+    try {
+      const rows = await api.getTaskHistory(task.id);
+      setHistoryByTask((prev) => ({ ...prev, [task.id]: rows }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+  const closeHistory = () => setHistoryTaskId(null);
 
   // Comment thread handlers. Lazy-load on first open and cache the
   // result; subsequent opens read from cache without a round trip.
@@ -890,7 +914,12 @@ export default function CounsellorTasks({
                     </>
                   ) : (
                     <>
-                      {!isScoped && (
+                      {/* Pencil shows for admin AND for counsellor
+                          assignees — the assignee-edit feature ask. The
+                          server's PATCH allow-list further restricts a
+                          counsellor to text/due_date/student_name, so
+                          they can't accidentally reassign. */}
+                      {(!isScoped || taskHasCounsellor(task, scopedCounsellorId)) && (
                         <button onClick={() => beginEdit(task)} disabled={isBusy} title="Edit task"
                           className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
                           <Pencil className="h-3.5 w-3.5" />
@@ -907,6 +936,10 @@ export default function CounsellorTasks({
                           <Archive className="h-3.5 w-3.5" />
                         </button>
                       )}
+                      <button onClick={() => openHistory(task)} disabled={isBusy} title="View edit history"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50">
+                        <HistoryIcon className="h-3.5 w-3.5" />
+                      </button>
                       <button onClick={() => toggleComments(task)} disabled={isBusy}
                         title={commentsOpen ? "Hide comments" : "Show comments"}
                         className={`relative inline-flex h-7 w-7 items-center justify-center border disabled:opacity-50 ${commentsOpen ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c]"}`}>
@@ -1315,6 +1348,14 @@ export default function CounsellorTasks({
                         </button>
                       )}
                       <button
+                        onClick={() => openHistory(task)}
+                        disabled={isBusy}
+                        title="View edit history"
+                        className="inline-flex h-7 w-7 items-center justify-center border border-stone-300 bg-white text-black hover:border-[#cc785c] hover:text-[#cc785c] disabled:opacity-50"
+                      >
+                        <HistoryIcon className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         onClick={() => toggleComments(task)}
                         disabled={isBusy}
                         title={commentsOpen ? "Hide comments" : "Show comments"}
@@ -1368,7 +1409,130 @@ export default function CounsellorTasks({
       <ArchivedTasksSection tasks={otherPeopleArchivedTasks} onUnarchive={unarchiveTask} busyId={busyId} />
         </>
       )}
+
+      {/* Per-task edit-history popup. Opens over the page; one task at
+          a time. Closed via the X, Esc, or backdrop click. */}
+      {historyTaskId !== null && (
+        <TaskHistoryPopup
+          task={visibleTasks.find((t) => t.id === historyTaskId)}
+          rows={historyByTask[historyTaskId]}
+          loading={historyLoading && historyByTask[historyTaskId] === undefined}
+          onClose={closeHistory}
+        />
+      )}
     </>
+  );
+}
+
+// Append-only edit-history viewer for a single task. Renders the
+// rows fetched from /api/tasks/:id/history (intake_audit_log
+// projection) as a timeline. The very first row (action='create')
+// shows the original task body; subsequent rows show what was
+// patched and by whom. Mirrors the lead-side HistoryPopup pattern.
+function TaskHistoryPopup({ task, rows, loading, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  const onBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
+  const actorLabel = (row) => {
+    if (row.actor_kind === "admin") return row.actor_id || "Admin";
+    if (row.actor_kind === "counsellor") return row.actor_counsellor_name || row.actor_id || "Counsellor";
+    if (row.actor_kind === "student") return "Student";
+    return row.actor_kind || "Unknown";
+  };
+  const actionLabel = (a) => {
+    switch (a) {
+      case "create": return "Task created";
+      case "update": return "Edited";
+      case "archive": return "Archived";
+      case "unarchive": return "Unarchived";
+      case "delete": return "Deleted";
+      default: return a || "Action";
+    }
+  };
+  // Build a per-key diff list, filtering noise (fields that didn't
+  // actually change in this patch — autoAudit snapshots the entire
+  // body the client sent, which may include unchanged keys).
+  const diffEntries = (diff) => {
+    if (!diff || typeof diff !== "object") return [];
+    return Object.entries(diff).filter(([k]) => k !== "id");
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onBackdrop}
+    >
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-stone-300 bg-[#faf9f5] shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-stone-300 bg-[#faf9f5] px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-700">
+              Edit history
+            </p>
+            <p className="truncate text-base font-semibold text-black">
+              {task?.text || "Task"}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 text-stone-700 hover:text-black"
+            aria-label="Close"
+            title="Close (Esc)"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="px-5 py-4">
+          {loading && (
+            <p className="py-8 text-center text-sm text-stone-700">Loading…</p>
+          )}
+          {!loading && (!rows || rows.length === 0) && (
+            <p className="py-8 text-center text-sm text-stone-700">No history recorded yet.</p>
+          )}
+          {!loading && rows && rows.length > 0 && (
+            <ol className="space-y-3">
+              {rows.map((row) => {
+                const entries = diffEntries(row.diff);
+                return (
+                  <li key={row.id} className="border border-stone-300 bg-white px-4 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="text-sm font-semibold text-black">
+                        {actionLabel(row.action)}
+                      </span>
+                      <span className="text-[11px] tabular-nums text-stone-700">
+                        {formatDateInIst(row.occurred_at)} · by {actorLabel(row)}
+                      </span>
+                    </div>
+                    {entries.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-[13px] text-black">
+                        {entries.map(([k, v]) => (
+                          <li key={k} className="flex flex-wrap gap-1.5">
+                            <span className="font-medium text-stone-700">{k}:</span>
+                            <span className="break-words">
+                              {typeof v === "object"
+                                ? JSON.stringify(v)
+                                : String(v)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
