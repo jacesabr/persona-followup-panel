@@ -287,6 +287,13 @@ router.patch("/:id", async (req, res, next) => {
     //   - counsellor_tasks: only counsellor-kind, non-archived tasks
     //     pinned to this lead get reassigned. Admin-targeted tasks
     //     keep their assignee_admin_username (different inbox).
+    //   - counsellor_task_assignees: the junction table that drives the
+    //     scope filter + chip display. Replace every reference to the
+    //     OLD lead owner with NEW. Multi-assignee tasks like [A, X, Y]
+    //     become [B, X, Y] — co-assignees keep their access. For tasks
+    //     that didn't have A in the junction (e.g. assigned solely to
+    //     X), we still add B alongside so the legacy column we just
+    //     wrote (assignee_id = B) has a matching junction row.
     //   - intake_students: any student linked to this lead inherits
     //     the new owner. The student's lead_id stays put.
     const client = await pool.connect();
@@ -303,6 +310,45 @@ router.patch("/:id", async (req, res, next) => {
             WHERE lead_id = $2
               AND assignee_kind = 'counsellor'
               AND archived = FALSE`,
+          [req.body.counsellor_id, id]
+        );
+        // Junction replace: where OLD counsellor is an assignee, swap
+        // to NEW. Wrapped in a guard against the same person being on
+        // both sides (no-op then). Only updates rows whose task is on
+        // this lead, counsellor-kind, non-archived — matches the
+        // legacy column update above.
+        if (before.counsellor_id && before.counsellor_id !== req.body.counsellor_id) {
+          await client.query(
+            `UPDATE counsellor_task_assignees ja
+                SET counsellor_id = $1
+              WHERE ja.counsellor_id = $2
+                AND ja.task_id IN (
+                  SELECT t.id FROM counsellor_tasks t
+                   WHERE t.lead_id = $3
+                     AND t.assignee_kind = 'counsellor'
+                     AND t.archived = FALSE
+                )`,
+            [req.body.counsellor_id, before.counsellor_id, id]
+          );
+        }
+        // Ensure NEW is in the junction for every cascaded task — covers
+        // the case where the task was solo-assigned to someone other
+        // than the previous lead owner (so the UPDATE above didn't
+        // touch it) but the legacy column was just rewritten to NEW.
+        // The NOT EXISTS guard skips when NEW is already present so
+        // the unique index doesn't trip.
+        await client.query(
+          `INSERT INTO counsellor_task_assignees (task_id, assignee_kind, counsellor_id, admin_username)
+           SELECT t.id, 'counsellor', $1, NULL
+             FROM counsellor_tasks t
+            WHERE t.lead_id = $2
+              AND t.assignee_kind = 'counsellor'
+              AND t.archived = FALSE
+              AND NOT EXISTS (
+                SELECT 1 FROM counsellor_task_assignees ja
+                 WHERE ja.task_id = t.id
+                   AND ja.counsellor_id = $1
+              )`,
           [req.body.counsellor_id, id]
         );
         await client.query(

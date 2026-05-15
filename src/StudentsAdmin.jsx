@@ -7,7 +7,7 @@ import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
 import FinancialDocuments from "./FinancialDocuments.jsx";
-import StudentDashboard, {
+import {
   extractAnswers,
   groupAnswersBySchema,
   ChapterSummaryBlock,
