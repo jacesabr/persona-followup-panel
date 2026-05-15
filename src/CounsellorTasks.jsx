@@ -798,7 +798,7 @@ export default function CounsellorTasks({
           const overdue = !task.completed && dueYmd < todayYmd;
           const isToday = dueYmd === todayYmd;
           const isBusy = busyId === task.id;
-          const isEditing = !isScoped && editingId === task.id;
+          const isEditing = editingId === task.id && (!isScoped || taskHasCounsellor(task, scopedCounsellorId));
           const commentsOpen = expandedCommentsId === task.id;
           const commentCount = task.comment_count || 0;
           return (
