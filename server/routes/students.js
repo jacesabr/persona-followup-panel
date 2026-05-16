@@ -1777,6 +1777,57 @@ router.get("/:student_id/financial", requireStaff, async (req, res, next) => {
   }
 });
 
+// PUT /api/students/:student_id/financial — staff write. Same optimistic-
+// concurrency model as /me/financial. Admin and counsellor (own student
+// only) can fill/edit the financial dossier on the student's behalf.
+router.put("/:student_id/financial", requireStaff, express.json({ limit: "1mb" }), async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    if (req.user.kind === "counsellor") {
+      const own = await pool.query(
+        `SELECT counsellor_id FROM intake_students WHERE student_id = $1`, [sid]
+      );
+      if (own.rows.length === 0) return res.status(404).json({ error: "student not found" });
+      if (own.rows[0].counsellor_id !== req.user.counsellorId)
+        return res.status(403).json({ error: "this student is not assigned to you" });
+    }
+    const { data, expectedUpdatedAt } = req.body || {};
+    if (data !== undefined && (data === null || typeof data !== "object" || Array.isArray(data)))
+      return res.status(400).json({ error: "data must be a JSON object" });
+    const payload = JSON.stringify(data || {});
+    if (!expectedUpdatedAt) {
+      const ins = await pool.query(
+        `INSERT INTO intake_financial_dossier (student_id, data, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (student_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+         RETURNING updated_at`,
+        [sid, payload]
+      );
+      audit(req, { table: "intake_financial_dossier", id: sid, action: "upsert" });
+      return res.json({ updatedAt: ins.rows[0].updated_at });
+    }
+    const { rows } = await pool.query(
+      `UPDATE intake_financial_dossier
+          SET data = $1::jsonb, updated_at = NOW()
+        WHERE student_id = $2
+          AND date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $3::timestamptz)
+        RETURNING updated_at`,
+      [payload, sid, expectedUpdatedAt]
+    );
+    if (rows.length === 0) {
+      const latest = await pool.query(
+        `SELECT data, updated_at FROM intake_financial_dossier WHERE student_id = $1`, [sid]
+      );
+      return res.status(409).json({
+        error: "stale write — another tab updated this record",
+        latest: { data: latest.rows[0]?.data || {}, updatedAt: latest.rows[0]?.updated_at || null },
+      });
+    }
+    audit(req, { table: "intake_financial_dossier", id: sid, action: "update" });
+    res.json({ updatedAt: rows[0].updated_at });
+  } catch (e) { next(e); }
+});
+
 // GET /api/students/:student_id/files/all.zip — staff. MUST be
 // registered ABOVE the parameterised /:student_id/files/:id route
 // below; Express matches in registration order and `:id = "all.zip"`

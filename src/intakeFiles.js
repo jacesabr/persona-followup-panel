@@ -237,6 +237,27 @@ export async function saveFinancial({ data, expectedUpdatedAt } = {}) {
   return res.json();
 }
 
+export async function saveStaffFinancial(studentId, { data, expectedUpdatedAt } = {}) {
+  const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/financial`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: data || {}, expectedUpdatedAt: expectedUpdatedAt || null }),
+  });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body?.error || "stale write");
+    err.code = "STALE_WRITE";
+    err.latest = body?.latest || null;
+    throw err;
+  }
+  if (!res.ok) {
+    let msg = `Financial save failed (${res.status}).`;
+    try { const body = await res.json(); if (body?.error) msg = body.error; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export async function getResume(id, { signal } = {}) {
   const res = await fetch(`/api/students/me/resumes/${encodeURIComponent(id)}`, { signal });
   if (!res.ok) throw new Error(`Resume lookup failed (${res.status}).`);

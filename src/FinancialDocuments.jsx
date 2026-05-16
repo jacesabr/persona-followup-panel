@@ -30,6 +30,7 @@ import {
   loadFinancial,
   loadStaffFinancial,
   saveFinancial,
+  saveStaffFinancial,
   uploadFile,
   validateFile,
   humanSize,
@@ -240,13 +241,11 @@ function overallProgress(dossier, filesMap) {
 }
 
 // ---------- main component ----------
-// When `studentId` is provided, the panel renders in staff read-only
-// mode: hits the staff GET endpoint scoped by student_id, skips all
-// persistence, and hides every upload / add / remove / toggle / input
-// control so reviewers see exactly what the student uploaded without
-// any way to mutate it.
-export default function FinancialDocuments({ studentId = null } = {}) {
-  const readOnly = !!studentId;
+// When `studentId` is provided, uses staff endpoints (GET + PUT scoped
+// by student_id). Pass `readOnly={false}` to allow staff to fill in /
+// edit the dossier on behalf of the student (default: editable when
+// studentId is set, since admins and counsellors can now write it).
+export default function FinancialDocuments({ studentId = null, readOnly = false } = {}) {
   const [dossier, setDossier] = useState(DEFAULT_DOSSIER);
   const [filesMap, setFilesMap] = useState({});
   const [hydration, setHydration] = useState("loading");
@@ -292,9 +291,13 @@ export default function FinancialDocuments({ studentId = null } = {}) {
   // Persist dossier (jsonb), debounced. Server is the source of truth
   // for updated_at; we keep its echo for the next save's precondition.
   const persist = useCallback(async () => {
+    if (readOnly) return;
     setSaveState("saving");
     try {
-      const res = await saveFinancial({
+      const saveFn = studentId
+        ? (args) => saveStaffFinancial(studentId, args)
+        : saveFinancial;
+      const res = await saveFn({
         data: dossierRef.current,
         expectedUpdatedAt: expectedUpdatedAtRef.current,
       });
@@ -310,7 +313,10 @@ export default function FinancialDocuments({ studentId = null } = {}) {
         setDossier(merged);
         expectedUpdatedAtRef.current = e.latest.updatedAt;
         try {
-          const res = await saveFinancial({
+          const saveFn2 = studentId
+            ? (args) => saveStaffFinancial(studentId, args)
+            : saveFinancial;
+          const res = await saveFn2({
             data: dossierRef.current,
             expectedUpdatedAt: expectedUpdatedAtRef.current,
           });
@@ -325,7 +331,7 @@ export default function FinancialDocuments({ studentId = null } = {}) {
         setSaveState("error");
       }
     }
-  }, []);
+  }, [studentId, readOnly]);
 
   const scheduleSave = useCallback(() => {
     if (readOnly) return;
@@ -513,6 +519,20 @@ function Header({ overall, saveState, readOnly }) {
           ? "Read-only review of what the student has uploaded so far. Click any document to open it."
           : "Upload every document we'll need for the visa and university financial review. The more complete this is, the smoother the rest of the application — incomplete dossiers are the single biggest reason a file stalls before submission."}
       </p>
+      {!readOnly && (
+        <ul className="mt-3 list-disc space-y-0.5 pl-5 text-sm text-stone-800 marker:text-stone-400">
+          <li>3 years of ITRs for each filer</li>
+          <li>Salary slips (last 3 months), employment letter, Form 16</li>
+          <li>Business registration, GST, 3 years of audited balance sheets</li>
+          <li>Parent PAN &amp; Aadhar — both parents</li>
+          <li>Loan sanction + disbursal letters (if applicable)</li>
+          <li>CA-certified net worth statements</li>
+          <li>Notarised sponsor affidavits</li>
+          <li>Bank statements (savings + business), FD copies + certificate, balance certificate</li>
+          <li>Bank manager's direct contact (name / email / phone)</li>
+          <li>Student's last 10 years of international travel — country, purpose, dates</li>
+        </ul>
+      )}
       <div className="mt-5 flex items-baseline gap-3">
         <span className="font-serif text-2xl text-[#cc785c]">{overall.pct}%</span>
         <span className="text-[10px] uppercase tracking-[0.25em] text-stone-800">complete</span>
