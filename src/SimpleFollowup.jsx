@@ -2104,6 +2104,68 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 }
 
 // ============================================================
+// Appointment picker overlay
+// ============================================================
+// Shown before SessionPopup when a lead has multiple appointments so the
+// counsellor can choose which session they're making notes for.
+function ApptPickerOverlay({ lead, appointments, onPick, onClose }) {
+  const now = Date.now();
+  const sorted = [...appointments].sort(
+    (a, b) => new Date(b.scheduled_for) - new Date(a.scheduled_for)
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-sm border border-stone-300 bg-white shadow-lg">
+        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
+          <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-black">
+            Make Notes for — {lead.name}
+          </span>
+          <button
+            onClick={onClose}
+            className="text-stone-500 hover:text-black"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-col divide-y divide-stone-100">
+          {sorted.map((appt) => {
+            const isPast = new Date(appt.scheduled_for).getTime() < now;
+            return (
+              <button
+                key={appt.id}
+                onClick={() => onPick(appt)}
+                className="flex items-center justify-between px-4 py-2.5 text-left text-[13px] text-black hover:bg-stone-50"
+              >
+                <span>
+                  {appt.ad_hoc ? (
+                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-stone-500">[quick call]</span>
+                  ) : isPast ? (
+                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-stone-500">[past]</span>
+                  ) : (
+                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-[#cc785c]">[upcoming]</span>
+                  )}
+                  {formatDateInIst(appt.scheduled_for)}
+                </span>
+                {appt.notes && (
+                  <span className="ml-2 text-[11px] text-stone-400">has notes</span>
+                )}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => onPick("adhoc")}
+            className="px-4 py-2.5 text-left text-[13px] text-stone-600 hover:bg-stone-50"
+          >
+            + New ad-hoc note
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Session popup
 // ============================================================
 // Opens against ONE specific appointment — either the lead's next upcoming
