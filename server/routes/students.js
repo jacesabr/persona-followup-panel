@@ -589,6 +589,60 @@ router.post("/:student_id/ielts-unarchive", requireStaff, async (req, res, next)
   } catch (e) { next(e); }
 });
 
+// POST /api/students/:student_id/archive — staff soft-archives a student account.
+// Admin can archive any student; counsellor only their own. Invalidates all
+// active sessions for the student so they can no longer log in.
+// Body: { reason? } — optional plain-text reason stored on the row.
+router.post("/:student_id/archive", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    const ownerRes = await pool.query(
+      `SELECT counsellor_id, is_archived FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    const owner = ownerRes.rows[0];
+    if (!owner) return res.status(404).json({ error: "student not found" });
+    if (req.user.kind === "counsellor" && owner.counsellor_id !== req.user.counsellorId) {
+      return res.status(403).json({ error: "not your student" });
+    }
+    if (owner.is_archived) return res.status(400).json({ error: "student is already archived" });
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : null;
+    await pool.query(
+      `UPDATE intake_students
+          SET is_archived = TRUE, archived_at = NOW(), archived_reason = $2, updated_at = NOW()
+        WHERE student_id = $1`,
+      [sid, reason || null]
+    );
+    // Invalidate student sessions so they can't log in while archived.
+    await pool.query(`DELETE FROM sessions WHERE student_id = $1`, [sid]);
+    audit(req, { table: "intake_students", id: sid, action: "archive", diff: { reason } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// POST /api/students/:student_id/unarchive — admin only, restores an archived student.
+router.post("/:student_id/unarchive", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    if (req.user.kind !== "admin") return res.status(403).json({ error: "admin only" });
+    const sid = req.params.student_id;
+    const ownerRes = await pool.query(
+      `SELECT is_archived FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    const row = ownerRes.rows[0];
+    if (!row) return res.status(404).json({ error: "student not found" });
+    if (!row.is_archived) return res.status(400).json({ error: "student is not archived" });
+    await pool.query(
+      `UPDATE intake_students
+          SET is_archived = FALSE, archived_at = NULL, archived_reason = NULL, updated_at = NOW()
+        WHERE student_id = $1`,
+      [sid]
+    );
+    audit(req, { table: "intake_students", id: sid, action: "unarchive" });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // PATCH /api/students/:student_id/assign-counsellor — admin reassigns a student
 // to a different counsellor (or clears the assignment with counsellor_id: null).
 router.patch("/:student_id/assign-counsellor", requireStaff, express.json(), async (req, res, next) => {
@@ -766,11 +820,12 @@ router.post("/:student_id/purge-superseded-files", requireStaff, async (req, res
 // student-side /me/record uses.
 router.get("/", requireStaff, async (req, res, next) => {
   try {
+    const includeArchived = req.query.include_archived === "true";
     let sql = `
       SELECT s.student_id, s.username, s.display_name,
              s.intake_complete, s.intake_phase, s.data,
              s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
-             s.ielts_archived_at,
+             s.ielts_archived_at, s.is_archived, s.archived_at, s.archived_reason,
              l.name AS lead_name,
              c.name AS counsellor_name,
              (SELECT COUNT(*) FROM intake_files     f WHERE f.student_id = s.student_id) AS file_count,
@@ -782,6 +837,9 @@ router.get("/", requireStaff, async (req, res, next) => {
         LEFT JOIN counsellors c ON c.id = s.counsellor_id
        WHERE s.username IS NOT NULL`;
     const params = [];
+    if (!includeArchived) {
+      sql += ` AND (s.is_archived = FALSE OR s.is_archived IS NULL)`;
+    }
     if (req.user.kind === "counsellor") {
       sql += ` AND s.counsellor_id = $1`;
       params.push(req.user.counsellorId);
@@ -811,6 +869,7 @@ router.get("/:student_id", requireStaff, async (req, res, next) => {
       `SELECT s.student_id, s.username, s.display_name, s.intake_complete,
               s.intake_phase,
               s.data, s.lead_id, s.counsellor_id, s.created_at, s.updated_at,
+              s.is_archived, s.archived_at, s.archived_reason,
               l.name AS lead_name,
               c.name AS counsellor_name
          FROM intake_students s

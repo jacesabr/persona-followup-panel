@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
@@ -47,26 +47,28 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
   // future concern (we only return the row count up to a few hundred).
   const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await api.listStudents();
+      const list = await api.listStudents({ includeArchived: showArchived });
       setStudents(list);
       setError(null);
     } catch (e) {
       setError(e.message);
     }
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
     refresh().finally(() => {
       if (active) setLoading(false);
     });
     return () => {
       active = false;
     };
-  }, [refresh]);
+  }, [refresh, showArchived]);
 
   useAutoRefresh(refresh);
 
@@ -99,7 +101,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
 
       <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
-          Students {students.length > 0 && (
+          {showArchived ? "Archived students" : "Students"}{students.length > 0 && (
             <span className="ml-2 text-xs font-normal text-black">
               ({filteredStudents.length}
               {filteredStudents.length !== students.length ? ` of ${students.length}` : ""})
@@ -118,6 +120,17 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
               className="w-40 bg-transparent text-xs outline-none"
             />
           </div>
+          <button
+            onClick={() => { setShowArchived((v) => !v); setFilter(""); }}
+            title={showArchived ? "Hide archived students" : "Show archived students"}
+            className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] transition ${
+              showArchived
+                ? "border-stone-700 bg-stone-700 text-white hover:bg-stone-800"
+                : "border-stone-300 bg-white text-black hover:border-stone-700"
+            }`}
+          >
+            <Archive className="h-3 w-3" /> {showArchived ? "Active" : "Archived"}
+          </button>
           <button
             onClick={() => downloadStudentsCsv(filteredStudents)}
             disabled={filteredStudents.length === 0}
@@ -157,6 +170,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
           />
         ))}
       </div>
+      {!showArchived && students.length === 0 && !loading && !error && null /* handled above */}
 
       {credentialsModal && (
         <CredentialsModal
@@ -169,7 +183,8 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
         <StudentDetailModal
           studentId={modalStudentId}
           role={role}
-          onClose={() => setModalStudentId(null)}
+          onClose={() => { setModalStudentId(null); refresh(); }}
+          onActionDone={() => { setModalStudentId(null); refresh(); }}
         />
       )}
     </div>
@@ -646,7 +661,7 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
   };
 
   return (
-    <div data-student-row={row.student_id} className="border border-stone-300 bg-white">
+    <div data-student-row={row.student_id} className={`border bg-white ${row.is_archived ? "border-stone-400 opacity-70" : "border-stone-300"}`}>
       <button
         onClick={onOpen}
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
@@ -656,6 +671,11 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
             {row.display_name || row.username}
             {row.display_name && (
               <span className="ml-2 text-xs font-normal text-black">@{row.username}</span>
+            )}
+            {row.is_archived && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-sm bg-stone-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-stone-700">
+                <Archive className="h-2.5 w-2.5" /> Archived
+              </span>
             )}
           </p>
           <p className="mt-0.5 text-xs text-black">
@@ -669,14 +689,16 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
         </div>
-        <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
-          <button
-            onClick={resetPassword}
-            className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black"
-          >
-            Reset pw
-          </button>
-        </span>
+        {!row.is_archived && (
+          <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
+            <button
+              onClick={resetPassword}
+              className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black"
+            >
+              Reset pw
+            </button>
+          </span>
+        )}
       </button>
     </div>
   );
@@ -691,9 +713,11 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
 // affordances; section pagination stays inside StudentDetail's
 // own sticky header where it already lives.
 // ============================================================
-function StudentDetailModal({ studentId, role, onClose }) {
+function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionErr, setActionErr] = useState(null);
 
   const refreshDetail = useCallback(async () => {
     try {
@@ -703,6 +727,47 @@ function StudentDetailModal({ studentId, role, onClose }) {
       setDetail({ error: e.message });
     }
   }, [studentId]);
+
+  const doArchive = async () => {
+    const reason = prompt("Archive reason (optional):");
+    if (reason === null) return; // cancelled
+    setActionBusy(true); setActionErr(null);
+    try {
+      await api.archiveStudent(studentId, reason || null);
+      onActionDone?.();
+    } catch (e) {
+      setActionErr(e.message);
+      setActionBusy(false);
+    }
+  };
+
+  const doUnarchive = async () => {
+    if (!confirm("Restore this student? They will be able to log in again.")) return;
+    setActionBusy(true); setActionErr(null);
+    try {
+      await api.unarchiveStudent(studentId);
+      onActionDone?.();
+    } catch (e) {
+      setActionErr(e.message);
+      setActionBusy(false);
+    }
+  };
+
+  const doDelete = async () => {
+    const name = detail?.student?.display_name || detail?.student?.username || studentId;
+    const typed = prompt(
+      `Permanently delete ${name}?\n\nThis removes all rows (intake data, files, resumes, docs, sessions) from the database and cannot be undone. Storage blobs are kept.\n\nType DELETE to confirm:`
+    );
+    if (typed !== "DELETE") return;
+    setActionBusy(true); setActionErr(null);
+    try {
+      await api.deleteStudent(studentId);
+      onActionDone?.();
+    } catch (e) {
+      setActionErr(e.message);
+      setActionBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -755,15 +820,19 @@ function StudentDetailModal({ studentId, role, onClose }) {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-700">
               Student detail
             </p>
-            <p className="truncate font-serif text-2xl text-black">{headerName}</p>
+            <p className="truncate font-serif text-2xl text-black">
+              {headerName}
+              {detail?.student?.is_archived && (
+                <span className="ml-3 inline-flex items-center gap-1 rounded-sm bg-stone-300 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-700">
+                  <Archive className="h-3 w-3" /> Archived
+                </span>
+              )}
+            </p>
+            {actionErr && (
+              <p className="mt-1 text-xs text-red-700">{actionErr}</p>
+            )}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {/* Batch ZIP of every active uploaded document for this student.
-                Visible on every slide so the reviewer doesn't have to scroll
-                back to a "first page" affordance — clicking triggers a
-                browser save dialog via Content-Disposition: attachment on
-                /api/students/<sid>/files/all.zip. fileCount > 0 gate hides
-                the button when there's nothing to download. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {(detail?.files || []).some((f) => !f.superseded_at) && (
               <a
                 href={`/api/students/${studentId}/files/all.zip`}
@@ -773,6 +842,41 @@ function StudentDetailModal({ studentId, role, onClose }) {
                 <Download className="h-4 w-4" />
                 Batch download all uploaded documents
               </a>
+            )}
+            {/* Archive / unarchive / delete actions — shown once detail loads */}
+            {detail && !detail.error && (
+              <>
+                {!detail.student?.is_archived && (
+                  <button
+                    onClick={doArchive}
+                    disabled={actionBusy}
+                    title="Archive this student (they won't be able to log in)"
+                    className="inline-flex shrink-0 items-center gap-1 border border-stone-500 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-stone-700 transition hover:border-stone-700 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    <Archive className="h-3.5 w-3.5" /> Archive
+                  </button>
+                )}
+                {detail.student?.is_archived && role === "admin" && (
+                  <>
+                    <button
+                      onClick={doUnarchive}
+                      disabled={actionBusy}
+                      title="Restore this student"
+                      className="inline-flex shrink-0 items-center gap-1 border border-emerald-600 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-40"
+                    >
+                      <ArchiveRestore className="h-3.5 w-3.5" /> Restore
+                    </button>
+                    <button
+                      onClick={doDelete}
+                      disabled={actionBusy}
+                      title="Permanently delete all data for this student"
+                      className="inline-flex shrink-0 items-center gap-1 border border-red-600 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-red-700 transition hover:bg-red-50 disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  </>
+                )}
+              </>
             )}
             <button
               onClick={onClose}

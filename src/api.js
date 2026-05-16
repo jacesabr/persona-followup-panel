@@ -192,8 +192,10 @@ export const api = {
   resetStudentPassword: (studentId) =>
     request("POST", `/api/students/${studentId}/reset-password`),
   // Roster: admin sees all student accounts, counsellor sees only the
-  // ones they created.
-  listStudents: () => request("GET", "/api/students"),
+  // ones they created. Pass { includeArchived: true } to also return
+  // archived rows (hidden by default so the active roster stays clean).
+  listStudents: ({ includeArchived = false } = {}) =>
+    request("GET", `/api/students${includeArchived ? "?include_archived=true" : ""}`),
   assignStudentCounsellor: (studentId, counsellorId) =>
     request("PATCH", `/api/students/${studentId}/assign-counsellor`, { counsellor_id: counsellorId }),
   // Detail: full intake data + uploaded files + resumes for one
@@ -328,6 +330,18 @@ export const api = {
     request("POST", `/api/students/${studentId}/ielts-archive`),
   unarchiveStudentIelts: (studentId) =>
     request("POST", `/api/students/${studentId}/ielts-unarchive`),
+  // Soft-archive a student (admin or counsellor for own students).
+  // Invalidates the student's sessions so they cannot log in while archived.
+  archiveStudent: (studentId, reason = null) =>
+    request("POST", `/api/students/${studentId}/archive`, { reason }),
+  // Restore an archived student (admin only).
+  unarchiveStudent: (studentId) =>
+    request("POST", `/api/students/${studentId}/unarchive`),
+  // Hard-delete a student (admin only). Removes all associated rows in a
+  // transaction. The student should be archived first — use archiveStudent
+  // before calling this. Storage blobs are NOT removed (data-persistence rule).
+  deleteStudent: (studentId) =>
+    request("POST", `/api/students/${studentId}/hard-delete`),
 
   // ----------------------------------------------------------------
   // Invoices (admin only). All routes are gated by requireAdmin on
