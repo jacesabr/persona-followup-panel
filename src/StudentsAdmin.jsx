@@ -106,13 +106,11 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
           active={subTab === "financial"}
           onClick={() => setSubTab("financial")}
         />
-        {role === "admin" && (
-          <StudentSubTab
-            label="Communication IDs"
-            active={subTab === "comms"}
-            onClick={() => setSubTab("comms")}
-          />
-        )}
+        <StudentSubTab
+          label="Communication IDs"
+          active={subTab === "comms"}
+          onClick={() => setSubTab("comms")}
+        />
       </div>
 
       {subTab === "roster" && (
@@ -195,7 +193,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
         </>
       )}
 
-      {subTab === "comms" && role === "admin" && (
+      {subTab === "comms" && (
         <StudentCommsTab
           students={students}
           loading={loading}
