@@ -38,7 +38,7 @@ function todayIstYmd() {
 function emptyNew() {
   return {
     name: "",
-    email: "",
+    studentClass: "",
     contact: "",
     purpose: "",
     inquiryDate: todayIstYmd(),
@@ -68,7 +68,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   // then most-recent past. The other modes are explicit overrides for
   // when a counsellor wants to scan by recency-of-creation, alphabetic
   // grouping, or phone-prefix grouping.
-  const [sortMode, setSortMode] = useState("newest");
+  const [sortMode, setSortMode] = useState("created_desc");
   // The lead whose calendar popup is currently open (null = closed).
   const [calendarLead, setCalendarLead] = useState(null);
   // The lead whose history popup is currently open (null = closed).
@@ -77,8 +77,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   // appointment (id + scheduled_for from the leads list response) into
   // the popup so it can scope notes + tasks to that one session.
   const [sessionLead, setSessionLead] = useState(null);
+  // Appointment picker shown before SessionPopup when a lead has multiple appointments.
+  const [apptPicker, setApptPicker] = useState(null); // { lead, appointments }
   // The lead whose Followup popup is open (null = closed).
   const [followupLead, setFollowupLead] = useState(null);
+  // Inline name editing: id of the lead being edited + the draft value.
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editingNameVal, setEditingNameVal] = useState("");
 
   // counsellorId scopes server-side when admin is impersonating so the
   // wire response only carries that counsellor's leads. For a counsellor
@@ -137,7 +142,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     const payload = {
       name,
       contact,
-      email: newLead.email.trim() || null,
+      student_class: newLead.studentClass.trim() || null,
       purpose,
       inquiry_date: newLead.inquiryDate || null,
     };
@@ -161,6 +166,19 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       setError(e.message);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const saveEditedName = async (lead) => {
+    const trimmed = editingNameVal.trim();
+    setEditingNameId(null);
+    setEditingNameVal("");
+    if (!trimmed || trimmed === lead.name) return;
+    try {
+      const updated = await api.updateLead(lead.id, { name: trimmed });
+      setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, ...updated } : l)));
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -282,41 +300,72 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   };
 
-  // Open the SessionPopup for a lead. If the lead already has an
-  // official (non-ad_hoc) "current" appointment surfaced via
-  // next_appointment_id, just open the popup against it. Otherwise
-  // POST a new ad_hoc=true row at NOW() — that's the "pre-appointment
-  // quick call" path. Server filters ad_hoc rows out of the
-  // service_date recompute so this can never accidentally promote
-  // itself into the lead's official next session.
+  // Open an appointment picker for a lead, then open SessionPopup for
+  // the chosen appointment. If there are no existing appointments we
+  // skip the picker and directly create an ad-hoc row.
   const openSession = async (lead) => {
-    if (lead.next_appointment_id) {
-      setSessionLead(lead);
-      return;
-    }
     try {
-      const { appointment } = await api.createAppointment(lead.id, {
-        scheduled_for: new Date().toISOString(),
-        ad_hoc: true,
-      });
-      // Mirror the new (or reused) ad_hoc id into leads state so
-      // subsequent "Make Notes" clicks reuse this row rather than
-      // creating another empty ad_hoc row that piles up in History.
-      setLeads((prev) =>
-        prev.map((l) =>
-          l.id === lead.id
-            ? { ...l, next_appointment_id: appointment.id, next_appointment_scheduled_for: appointment.scheduled_for }
-            : l
-        )
-      );
+      const appointments = await api.listAppointments(lead.id);
+      if (appointments.length === 0) {
+        // No history — create ad-hoc and open immediately.
+        const { appointment } = await api.createAppointment(lead.id, {
+          scheduled_for: new Date().toISOString(),
+          ad_hoc: true,
+        });
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id
+              ? { ...l, next_appointment_id: appointment.id, next_appointment_scheduled_for: appointment.scheduled_for }
+              : l
+          )
+        );
+        setSessionLead({
+          ...lead,
+          next_appointment_id: appointment.id,
+          next_appointment_scheduled_for: appointment.scheduled_for,
+          next_appointment_ad_hoc: true,
+        });
+      } else {
+        setApptPicker({ lead, appointments });
+      }
+    } catch (e) {
+      setError(e.message || "Couldn't load appointments.");
+    }
+  };
+
+  // Called from the picker when the counsellor selects an appointment.
+  const openSessionForAppt = async (lead, appt) => {
+    setApptPicker(null);
+    if (appt === "adhoc") {
+      // Create or reuse an ad-hoc row.
+      try {
+        const { appointment } = await api.createAppointment(lead.id, {
+          scheduled_for: new Date().toISOString(),
+          ad_hoc: true,
+        });
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id
+              ? { ...l, next_appointment_id: appointment.id, next_appointment_scheduled_for: appointment.scheduled_for }
+              : l
+          )
+        );
+        setSessionLead({
+          ...lead,
+          next_appointment_id: appointment.id,
+          next_appointment_scheduled_for: appointment.scheduled_for,
+          next_appointment_ad_hoc: true,
+        });
+      } catch (e) {
+        setError(e.message || "Couldn't start a session.");
+      }
+    } else {
       setSessionLead({
         ...lead,
-        next_appointment_id: appointment.id,
-        next_appointment_scheduled_for: appointment.scheduled_for,
-        next_appointment_ad_hoc: true,
+        next_appointment_id: appt.id,
+        next_appointment_scheduled_for: appt.scheduled_for,
+        next_appointment_ad_hoc: appt.ad_hoc,
       });
-    } catch (e) {
-      setError(e.message || "Couldn't start a session.");
     }
   };
 
@@ -406,6 +455,24 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       if (!bp) return -1;
       return ap.localeCompare(bp);
     });
+  } else if (sortMode === "created_desc") {
+    sortedLeads.sort((a, b) => {
+      const ad = a.inquiry_date || "";
+      const bd = b.inquiry_date || "";
+      if (!ad && !bd) return 0;
+      if (!ad) return 1;
+      if (!bd) return -1;
+      return bd.localeCompare(ad);
+    });
+  } else if (sortMode === "created_asc") {
+    sortedLeads.sort((a, b) => {
+      const ad = a.inquiry_date || "";
+      const bd = b.inquiry_date || "";
+      if (!ad && !bd) return 0;
+      if (!ad) return 1;
+      if (!bd) return -1;
+      return ad.localeCompare(bd);
+    });
   }
 
   return (
@@ -418,19 +485,21 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           </span>
         </div>
         <div className="flex items-baseline gap-3">
-          <label className="inline-flex items-baseline gap-1.5">
+          <span className="inline-flex items-baseline gap-1.5">
             <span className="text-[10px] uppercase tracking-[0.18em] text-black">Sort</span>
-            <select
-              value={sortMode}
-              onChange={(e) => setSortMode(e.target.value)}
-              className="border border-stone-300 bg-white px-1.5 py-0.5 text-[12px] outline-none focus:border-[#cc785c]"
+            <button
+              onClick={() => setSortMode("created_desc")}
+              className={`border px-2.5 py-0.5 text-[11px] uppercase tracking-[0.18em] transition ${sortMode === "created_desc" ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-black hover:border-[#cc785c]"}`}
             >
-              <option value="newest">Newest (closest to today)</option>
-              <option value="oldest">Oldest</option>
-              <option value="name">Name (group by)</option>
-              <option value="phone">Phone (group by)</option>
-            </select>
-          </label>
+              Newest first
+            </button>
+            <button
+              onClick={() => setSortMode("created_asc")}
+              className={`border px-2.5 py-0.5 text-[11px] uppercase tracking-[0.18em] transition ${sortMode === "created_asc" ? "border-[#cc785c] bg-[#cc785c] text-white" : "border-stone-300 bg-white text-black hover:border-[#cc785c]"}`}
+            >
+              Oldest first
+            </button>
+          </span>
           {!showNew && (
             <button
               onClick={() => {
@@ -494,7 +563,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               column left. Per-row checkbox has its own aria-label. */}
           <span aria-hidden="true"></span>
           <span className="whitespace-nowrap">Date Created</span>
-          <span className="whitespace-nowrap">Name / Email / Ph</span>
+          <span className="whitespace-nowrap">Name / Ph / Class</span>
           <span className="whitespace-nowrap">Purpose</span>
           <span className="whitespace-nowrap">Appointment Date</span>
           <span className="whitespace-nowrap">Follow-up</span>
@@ -535,15 +604,6 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                 autoFocus
               />
               <input
-                type="email"
-                placeholder="Email"
-                value={newLead.email}
-                onChange={(e) =>
-                  setNewLead((p) => ({ ...p, email: e.target.value }))
-                }
-                className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
-              />
-              <input
                 type="tel"
                 placeholder="Phone *"
                 value={newLead.contact}
@@ -554,6 +614,15 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
                   }))
                 }
                 className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] tabular-nums outline-none focus:border-[#cc785c]"
+              />
+              <input
+                type="text"
+                placeholder="Class"
+                value={newLead.studentClass}
+                onChange={(e) =>
+                  setNewLead((p) => ({ ...p, studentClass: e.target.value }))
+                }
+                className="border border-stone-300 bg-white px-1.5 py-1 text-[13px] outline-none focus:border-[#cc785c]"
               />
             </span>
             <input
@@ -665,18 +734,34 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               <span className="text-[14px] text-black">
                 {lead.inquiry_date ? formatDateInIst(lead.inquiry_date) : "—"}
               </span>
-              <span className="flex flex-col leading-tight">
-                <span className="text-[16px] font-semibold text-black">
-                  {lead.name || "—"}
-                </span>
-                <span
-                  className="truncate text-[14px] text-black"
-                  title={lead.email || ""}
-                >
-                  {lead.email || "—"}
-                </span>
+              <span className="flex flex-col leading-tight gap-0.5">
+                {editingNameId === lead.id ? (
+                  <input
+                    type="text"
+                    value={editingNameVal}
+                    autoFocus
+                    onChange={(e) => setEditingNameVal(e.target.value)}
+                    onBlur={() => saveEditedName(lead)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEditedName(lead);
+                      if (e.key === "Escape") { setEditingNameId(null); setEditingNameVal(""); }
+                    }}
+                    className="border border-[#cc785c] bg-white px-1 py-0.5 text-[15px] font-semibold text-black outline-none"
+                  />
+                ) : (
+                  <span
+                    className="cursor-text text-[16px] font-semibold text-black hover:underline"
+                    title="Click to edit name"
+                    onClick={() => { setEditingNameId(lead.id); setEditingNameVal(lead.name || ""); }}
+                  >
+                    {lead.name || "—"}
+                  </span>
+                )}
                 <span className="text-[14px] tabular-nums text-black">
                   {lead.contact || "—"}
+                </span>
+                <span className="text-[13px] text-stone-600">
+                  {lead.student_class || ""}
                 </span>
               </span>
               {/* Purpose wraps onto multiple lines so admins can read
@@ -792,6 +877,14 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         />
       )}
 
+      {apptPicker && (
+        <ApptPickerOverlay
+          lead={apptPicker.lead}
+          appointments={apptPicker.appointments}
+          onPick={(appt) => openSessionForAppt(apptPicker.lead, appt)}
+          onClose={() => setApptPicker(null)}
+        />
+      )}
       {sessionLead && (
         <SessionPopup
           lead={sessionLead}

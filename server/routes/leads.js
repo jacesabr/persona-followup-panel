@@ -68,7 +68,7 @@ async function checkLeadAccess(req, res, leadId) {
 }
 
 function validateLeadInput(body) {
-  const { name, contact, email, purpose, service_date } = body;
+  const { name, contact, email, purpose, service_date, student_class } = body;
   if (!isString(name) || name.trim().length < 1 || name.length > 200) {
     return "name must be a non-empty string up to 200 chars";
   }
@@ -82,6 +82,11 @@ function validateLeadInput(body) {
   }
   if (!isString(purpose) || purpose.trim().length < 1 || purpose.length > 200) {
     return "purpose must be a non-empty string up to 200 chars";
+  }
+  if (student_class !== undefined && student_class !== null) {
+    if (!isString(student_class) || student_class.length > 100) {
+      return "student_class must be a string up to 100 chars";
+    }
   }
   // Reject bare "YYYY-MM-DDTHH:mm" strings: Postgres TIMESTAMPTZ would
   // silently reinterpret them as UTC, shifting the stored time by the
@@ -100,9 +105,19 @@ function validatePatchFields(body) {
       return "counsellor_id must be a string of length 1..50 (or null to unassign)";
     }
   }
+  if (body.name !== undefined) {
+    if (!isString(body.name) || body.name.trim().length < 1 || body.name.length > 200) {
+      return "name must be a non-empty string up to 200 chars";
+    }
+  }
   if (body.purpose !== undefined) {
     if (!isString(body.purpose) || body.purpose.trim().length < 1 || body.purpose.length > 200) {
       return "purpose must be a non-empty string up to 200 chars";
+    }
+  }
+  if (body.student_class !== undefined && body.student_class !== null) {
+    if (!isString(body.student_class) || body.student_class.length > 100) {
+      return "student_class must be a string up to 100 chars";
     }
   }
   if (body.service_date) {
@@ -186,7 +201,7 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    let { name, contact, email, purpose, service_date, counsellor_id, inquiry_date, status: bodyStatus } = req.body;
+    let { name, contact, email, purpose, service_date, student_class, counsellor_id, inquiry_date, status: bodyStatus } = req.body;
 
     // Counsellor sessions: clamp counsellor_id to self regardless of body.
     // Admin sessions: counsellor_id is REQUIRED and must reference a real
@@ -233,6 +248,7 @@ router.post("/", async (req, res, next) => {
     const cleanName = name.trim();
     const cleanPurpose = purpose.trim();
     const cleanEmail = email ? email.trim().toLowerCase() : null;
+    const cleanClass = student_class ? student_class.trim() || null : null;
     const cleanInquiry = inquiry_date && inquiry_date !== "" ? inquiry_date : null;
 
     // counsellor_name column is left in the schema for legacy display
@@ -240,10 +256,10 @@ router.post("/", async (req, res, next) => {
     // creates — counsellor_id is the single source of truth going
     // forward.
     const { rows } = await pool.query(
-      `INSERT INTO leads (id, name, contact, email, purpose, service_date, counsellor_id, status, inquiry_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::date, CURRENT_DATE))
+      `INSERT INTO leads (id, name, contact, email, purpose, student_class, service_date, counsellor_id, status, inquiry_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::date, CURRENT_DATE))
        RETURNING *`,
-      [id, cleanName, contact, cleanEmail, cleanPurpose, service_date || null, counsellor_id, status, cleanInquiry]
+      [id, cleanName, contact, cleanEmail, cleanPurpose, cleanClass, service_date || null, counsellor_id, status, cleanInquiry]
     );
 
     backupLeadEvent("create", rows[0]).catch(() => {});
@@ -261,8 +277,8 @@ router.patch("/:id", async (req, res, next) => {
     // Counsellors cannot reassign ownership; admin can. counsellor_name
     // is no longer accepted on writes — counsellor_id is the single
     // source of truth for ownership going forward.
-    const allowedAll = ["counsellor_id", "status", "purpose", "service_date"];
-    const allowedCounsellor = ["status", "purpose", "service_date"];
+    const allowedAll = ["counsellor_id", "status", "purpose", "service_date", "name", "student_class"];
+    const allowedCounsellor = ["status", "purpose", "service_date", "name", "student_class"];
     const allowed = req.user?.kind === "admin" ? allowedAll : allowedCounsellor;
     const fields = Object.keys(req.body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return res.status(400).json({ error: "no valid fields to update" });
@@ -295,7 +311,8 @@ router.patch("/:id", async (req, res, next) => {
     const set = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
     const values = [id, ...fields.map((f) => {
       const v = req.body[f];
-      if (f === "purpose" && typeof v === "string") return v.trim();
+      if ((f === "purpose" || f === "name") && typeof v === "string") return v.trim();
+      if (f === "student_class") return (typeof v === "string" && v.trim()) ? v.trim() : null;
       return v;
     })];
 

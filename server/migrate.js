@@ -186,6 +186,7 @@ ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS password_hash  TEXT;
 -- support recovery (same shape as counsellors.password_plain above).
 -- Removed 2026-05-13; see that block for the migration rationale.
 ALTER TABLE intake_students DROP COLUMN IF EXISTS password_plain;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS student_class TEXT;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS lead_id        TEXT REFERENCES leads(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS counsellor_id  TEXT REFERENCES counsellors(id) ON DELETE SET NULL;
 ALTER TABLE intake_students ADD COLUMN IF NOT EXISTS display_name   TEXT;
