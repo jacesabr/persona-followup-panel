@@ -264,7 +264,7 @@ export default function StudentDashboard({
           <section className={section ? "" : "mt-10"}>
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
             <p className="mt-1 text-sm text-stone-800">
-              Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
+              Letters of recommendation, internship certificates, NGO documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
             <RequiredDocsBlock
               docs={requiredDocs}

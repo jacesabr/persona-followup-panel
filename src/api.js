@@ -256,6 +256,10 @@ export const api = {
   // explicitly added it.
   createLorSelf: ({ recipient_name, recipient_role, reason_brief }) =>
     request("POST", "/api/required-docs/me", { recipient_name, recipient_role, reason_brief }),
+  // Staff: create a new required-doc row (any kind except sop) for a
+  // student. Used by the "Add document" button in the admin panel.
+  createRequiredDocForStudent: (studentId, data) =>
+    request("POST", `/api/required-docs/student/${encodeURIComponent(studentId)}`, data),
 
   // ----------------------------------------------------------------
   // Applications. Per-(student × school) tracking. Replaces the

@@ -26,7 +26,7 @@ const router = express.Router();
 const isPositiveInt = (s) => /^[1-9][0-9]*$/.test(String(s));
 const isString = (v) => typeof v === "string";
 
-const KINDS = new Set(["lor", "internship", "sop"]);
+const KINDS = new Set(["lor", "internship", "sop", "ngo"]);
 
 function wordCount(s) {
   if (typeof s !== "string") return 0;
@@ -89,7 +89,7 @@ router.get("/student/:student_id", requireStaff, async (req, res, next) => {
          LEFT JOIN intake_files f ON f.id = r.final_file_id
         WHERE r.student_id = $1
         ORDER BY
-          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'sop' THEN 3 ELSE 4 END,
+          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
           r.seq`,
       [sid]
     );
@@ -259,7 +259,7 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
       const allRows = await client.query(
         `SELECT id, kind, seq, marked_done_at, requested_at
            FROM intake_required_docs
-          WHERE student_id = $1 AND kind IN ('lor','internship')
+          WHERE student_id = $1 AND kind IN ('lor','internship','ngo')
           ORDER BY kind, seq
           FOR UPDATE`,
         [sid]
@@ -267,13 +267,13 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
       const rows = allRows.rows;
       if (rows.length === 0) {
         await client.query("ROLLBACK");
-        return res.status(400).json({ error: "no LOR or internship rows to send" });
+        return res.status(400).json({ error: "no LOR, internship, or NGO rows to send" });
       }
       const notDone = rows.filter((r) => !r.marked_done_at);
       if (notDone.length > 0) {
         await client.query("ROLLBACK");
         return res.status(409).json({
-          error: "all LOR / internship rows must be marked done before sending",
+          error: "all LOR / internship / NGO rows must be marked done before sending",
           notDone: notDone.map((r) => `${r.kind}#${r.seq}`),
         });
       }
@@ -288,7 +288,7 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
         `UPDATE intake_required_docs
             SET requested_at = $1, deadline_at = $2, updated_at = NOW()
           WHERE student_id = $3
-            AND kind IN ('lor','internship')
+            AND kind IN ('lor','internship','ngo')
             AND marked_done_at IS NOT NULL
             AND requested_at IS NULL`,
         [now, deadline, sid]
@@ -311,6 +311,65 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
     } finally {
       client.release();
     }
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/required-docs/student/:student_id — staff creates a new row
+// for any kind (lor / internship / ngo). Auto-allocates next seq for
+// that kind. Used by the "Add document" button in the admin panel.
+router.post("/student/:student_id", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    const sid = req.params.student_id;
+    const own = await pool.query(
+      `SELECT counsellor_id FROM intake_students WHERE student_id = $1`,
+      [sid]
+    );
+    if (own.rows.length === 0) return res.status(404).json({ error: "student not found" });
+    if (
+      req.user.kind === "counsellor" &&
+      own.rows[0].counsellor_id !== req.user.counsellorId
+    ) {
+      return res.status(404).json({ error: "student not found" });
+    }
+    const body = req.body || {};
+    const kind = isString(body.kind) ? body.kind.trim() : "";
+    if (!KINDS.has(kind) || kind === "sop") {
+      return res.status(400).json({ error: "kind must be lor, internship, or ngo" });
+    }
+    const recipient_name  = isString(body.recipient_name)  ? body.recipient_name.trim()  : "";
+    const recipient_role  = isString(body.recipient_role)  ? body.recipient_role.trim()  : "";
+    const reason_brief    = isString(body.reason_brief)    ? body.reason_brief.trim()    : "";
+    const company_name    = isString(body.company_name)    ? body.company_name.trim()    : "";
+    const company_website = isString(body.company_website) ? body.company_website.trim() : "";
+    const activity_brief  = isString(body.activity_brief)  ? body.activity_brief.trim()  : "";
+    if (wordCount(reason_brief) > 20)   return res.status(400).json({ error: "reason_brief exceeds 20 words" });
+    if (wordCount(activity_brief) > 30) return res.status(400).json({ error: "activity_brief exceeds 30 words" });
+    const seqRes = await pool.query(
+      `SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq
+         FROM intake_required_docs
+        WHERE student_id = $1 AND kind = $2`,
+      [sid, kind]
+    );
+    const nextSeq = seqRes.rows[0].next_seq;
+    const ins = await pool.query(
+      `INSERT INTO intake_required_docs
+         (student_id, kind, seq, recipient_name, recipient_role, reason_brief,
+          company_name, company_website, activity_brief, student_accepted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       RETURNING id`,
+      [sid, kind, nextSeq,
+       recipient_name || null, recipient_role || null, reason_brief || null,
+       company_name || null, company_website || null, activity_brief || null]
+    );
+    audit(req, {
+      table: "intake_required_docs",
+      id: String(ins.rows[0].id),
+      action: "create_required_doc_staff",
+      diff: { kind, seq: nextSeq, recipient_name, company_name },
+    });
+    res.json({ ok: true, id: String(ins.rows[0].id) });
   } catch (e) {
     next(e);
   }
@@ -341,7 +400,7 @@ router.get("/me", requireStudent, async (req, res, next) => {
          LEFT JOIN intake_files f ON f.id = r.final_file_id
         WHERE r.student_id = $1
         ORDER BY
-          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'sop' THEN 3 ELSE 4 END,
+          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
           r.seq`,
       [req.user.studentId]
     );
@@ -621,6 +680,26 @@ export async function seedRequiredDocsForStudent(client, studentId, answers) {
        WHERE student_id = $1 AND kind = 'internship'
          AND seq > $2 AND requested_at IS NULL`,
     [studentId, liveInternCount]
+  );
+
+  // Mandatory internship slots: always ensure seq 1 and 2 exist even if
+  // the student's intake had fewer entries. ON CONFLICT DO NOTHING
+  // preserves any existing data (name/website/etc.) already seeded above.
+  for (const mandatorySeq of [1, 2]) {
+    await client.query(
+      `INSERT INTO intake_required_docs (student_id, kind, seq)
+       VALUES ($1, 'internship', $2)
+       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
+      [studentId, mandatorySeq]
+    );
+  }
+
+  // NGO — one mandatory slot, always present.
+  await client.query(
+    `INSERT INTO intake_required_docs (student_id, kind, seq)
+     VALUES ($1, 'ngo', 1)
+     ON CONFLICT (student_id, kind, seq) DO NOTHING`,
+    [studentId]
   );
 
   // SOP — exactly one row, auto-created. Idempotent via the

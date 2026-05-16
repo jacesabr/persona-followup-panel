@@ -906,6 +906,13 @@ SELECT t.id, t.assignee_kind,
         (t.assignee_kind = 'counsellor' AND t.assignee_id IS NOT NULL)
      OR (t.assignee_kind = 'admin' AND t.assignee_admin_username IS NOT NULL)
        );
+
+-- Widen intake_required_docs.kind to include 'ngo'.
+-- DROP + re-ADD is idempotent: each deploy removes the old constraint
+-- (whatever version it is) and adds the latest definition.
+ALTER TABLE intake_required_docs DROP CONSTRAINT IF EXISTS intake_required_docs_kind_check;
+ALTER TABLE intake_required_docs ADD CONSTRAINT intake_required_docs_kind_check
+  CHECK (kind IN ('lor', 'internship', 'sop', 'ngo'));
 `;
 
 export async function migrate() {
