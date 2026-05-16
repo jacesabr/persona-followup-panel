@@ -883,12 +883,17 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
       api.listRequiredDocsForStudent(studentId).catch(() => []),
       api.listApplicationsForStudent(studentId).catch(() => []),
     ]).then(([reqDocs, apps]) => {
+      // listApplicationsForStudent returns { pending, active, archived }.
+      // StudentDashboard expects a flat array (matching listMyApplications shape).
+      const appsFlat = Array.isArray(apps)
+        ? apps
+        : [...(apps.pending || []), ...(apps.active || []), ...(apps.archived || [])];
       setStudentPreviewData({
         files: detail.files || [],
         answers: extractAnswers(detail.student?.data),
         resumes: detail.resumes || [],
         requiredDocs: reqDocs,
-        applications: apps,
+        applications: appsFlat,
       });
     });
   }, [detail, studentId]);
@@ -914,7 +919,7 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
       onClick={onClose}
     >
       <div
-        className="m-0 flex min-h-screen w-full max-w-6xl flex-col border-x border-stone-300 bg-[#f4f0e6] shadow-2xl sm:my-4 sm:min-h-[calc(100vh-2rem)]"
+        className="relative m-0 flex min-h-screen w-full max-w-6xl flex-col border-x border-stone-300 bg-[#f4f0e6] shadow-2xl sm:my-4 sm:min-h-[calc(100vh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-4 backdrop-blur">
@@ -937,15 +942,11 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {detail && !detail.error && (
               <button
-                onClick={() => setShowStudentView((v) => !v)}
-                title="Toggle between admin view and student's actual panel view"
-                className={`inline-flex shrink-0 items-center gap-1 border px-3 py-1.5 text-xs uppercase tracking-[0.15em] transition ${
-                  showStudentView
-                    ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
-                    : "border-stone-400 bg-white text-black hover:border-stone-700"
-                }`}
+                onClick={() => setShowStudentView(true)}
+                title="Open the student's panel as they see it"
+                className="inline-flex shrink-0 items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700 hover:bg-stone-50"
               >
-                <Eye className="h-3.5 w-3.5" /> {showStudentView ? "Admin view" : "Student view"}
+                <Eye className="h-3.5 w-3.5" /> Student view
               </button>
             )}
             {(detail?.files || []).some((f) => !f.superseded_at) && (
@@ -1010,20 +1011,44 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
           {detail?.error && (
             <p className="text-xs text-red-700">{detail.error}</p>
           )}
-          {detail && !detail.error && showStudentView && (
-            studentPreviewData
-              ? <AdminStudentView
-                  studentId={studentId}
-                  studentName={detail.student?.display_name || detail.student?.username || ""}
-                  previewData={studentPreviewData}
-                  answers={extractAnswers(detail.student?.data)}
-                />
-              : <p className="text-xs text-black">Loading preview…</p>
-          )}
-          {detail && !detail.error && !showStudentView && (
+          {detail && !detail.error && (
             <StudentDetail detail={detail} role={role} onRefresh={refreshDetail} />
           )}
         </div>
+
+        {/* Student-view overlay — sits on top of the admin detail modal.
+            Renders the full student panel (tabs + content) so admin can
+            browse exactly what the student sees. Closes independently. */}
+        {showStudentView && detail && !detail.error && (
+          <div
+            className="absolute inset-0 z-10 flex flex-col bg-[#f4f0e6]"
+            style={{ overflowY: "auto" }}
+          >
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-stone-300 bg-[#f4f0e6]/95 px-5 py-3 backdrop-blur">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
+                Student view — {detail.student?.display_name || detail.student?.username || ""}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowStudentView(false)}
+                className="inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-xs uppercase tracking-[0.15em] text-black transition hover:border-stone-700"
+              >
+                <X className="h-3.5 w-3.5" /> Close student view
+              </button>
+            </div>
+            <div className="flex-1 px-4 py-4 sm:px-6">
+              {studentPreviewData
+                ? <AdminStudentView
+                    studentId={studentId}
+                    studentName={detail.student?.display_name || detail.student?.username || ""}
+                    previewData={studentPreviewData}
+                    answers={extractAnswers(detail.student?.data)}
+                  />
+                : <p className="text-xs text-black">Loading student panel…</p>
+              }
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2078,10 +2103,6 @@ function AdminStudentView({ studentId, studentName, previewData, answers }) {
 
   return (
     <div className="font-serif text-black">
-      <div className="mb-4 border border-[#cc785c] bg-[#fdf4ef] px-4 py-2 text-xs text-[#cc785c]">
-        Admin preview — {studentName}'s panel as they see it. Read-only.
-      </div>
-
       {/* Tab nav */}
       <nav className="mb-6 flex flex-wrap items-center gap-2">
         {tabs.map((t) => {
