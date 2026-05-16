@@ -7,6 +7,7 @@ import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
 import { PANEL_CHAPTERS } from "../lib/intakeSchema.js";
+import FinancialDocuments from "./FinancialDocuments.jsx";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -1608,7 +1609,7 @@ function RequiredDocsStaff({ studentId, role }) {
   };
 
   const sendBulk = async () => {
-    if (!confirm(`Send all marked-done LOR & Internship requests to the student? Deadline: 5 business days.`)) return;
+    if (!confirm(`Send all marked-done LOR, Internship & NGO requests to the student? Deadline: 5 business days.`)) return;
     setBulkBusy(true);
     try {
       await api.sendRequiredDocRequests(studentId);
@@ -1776,10 +1777,10 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
           <span className="font-semibold">Reason:</span> {doc.reason_brief || "—"}
         </p>
       )}
-      {doc.kind === "internship" && (
+      {(doc.kind === "internship" || doc.kind === "ngo") && (
         <p className="mt-2 text-base text-black">
           {doc.company_website ? <><span className="font-semibold">Website:</span> {doc.company_website} — </> : null}
-          <span className="font-semibold">What they did:</span> {doc.activity_brief || "—"}
+          <span className="font-semibold">{doc.kind === "ngo" ? "What they did:" : "What they did:"}</span> {doc.activity_brief || "—"}
         </p>
       )}
 
@@ -1787,7 +1788,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
         rows={5}
         value={draft || ""}
         onChange={(e) => onDraftChange(e.target.value)}
-        placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship document. The student will print this on the recommender's letterhead."}
+        placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship / NGO document. The student will print this on the recommender's letterhead."}
         className="mt-2 w-full border border-stone-300 bg-[#faf9f5] p-2 font-serif text-sm text-black outline-none focus:border-stone-900"
       />
 
@@ -1846,6 +1847,173 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
   );
 }
 
+// AddRequiredDocCard — inline form to create an extra required-doc row
+// (LOR, Internship, or NGO) for a student from the admin panel.
+function AddRequiredDocCard({ studentId, onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState("internship");
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientRole, setRecipientRole] = useState("");
+  const [reasonBrief, setReasonBrief] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companyWebsite, setCompanyWebsite] = useState("");
+  const [activityBrief, setActivityBrief] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const reset = () => {
+    setKind("internship");
+    setRecipientName(""); setRecipientRole(""); setReasonBrief("");
+    setCompanyName(""); setCompanyWebsite(""); setActivityBrief("");
+    setErr(null);
+  };
+  const cancel = () => { reset(); setOpen(false); };
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const payload = { kind };
+      if (kind === "lor") {
+        payload.recipient_name = recipientName.trim();
+        payload.recipient_role = recipientRole.trim();
+        payload.reason_brief = reasonBrief.trim();
+      } else {
+        payload.company_name = companyName.trim();
+        payload.company_website = companyWebsite.trim();
+        payload.activity_brief = activityBrief.trim();
+      }
+      await api.createRequiredDocForStudent(studentId, payload);
+      reset();
+      setOpen(false);
+      onAdded?.();
+    } catch (e) {
+      setErr(e.message || "Could not add document.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-2 border-2 border-dashed border-stone-300 bg-white px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-700 transition hover:border-stone-700 hover:text-black"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add document
+      </button>
+    );
+  }
+
+  return (
+    <div className="border-2 border-stone-300 bg-white px-4 py-3 space-y-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-black">Add a required document</p>
+
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Type</span>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm text-black outline-none focus:border-stone-700"
+        >
+          <option value="lor">LOR (Letter of Recommendation)</option>
+          <option value="internship">Internship</option>
+          <option value="ngo">NGO</option>
+        </select>
+      </label>
+
+      {kind === "lor" ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Recipient name</span>
+            <input
+              type="text"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="e.g. Mr Rajiv Mehta"
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Role / relation</span>
+            <input
+              type="text"
+              value={recipientRole}
+              onChange={(e) => setRecipientRole(e.target.value)}
+              placeholder="e.g. Class XII Maths teacher"
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Why this person (≤ 20 words)</span>
+            <input
+              type="text"
+              value={reasonBrief}
+              onChange={(e) => setReasonBrief(e.target.value)}
+              placeholder="e.g. taught Maths for 2 years; saw student build the timetable tool"
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">{kind === "ngo" ? "Organisation name" : "Company name"}</span>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder={kind === "ngo" ? "e.g. Teach for India" : "e.g. Google"}
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Website (optional)</span>
+            <input
+              type="text"
+              value={companyWebsite}
+              onChange={(e) => setCompanyWebsite(e.target.value)}
+              placeholder={kind === "ngo" ? "e.g. teachforindia.org" : "e.g. google.com"}
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">What the student did (≤ 30 words)</span>
+            <input
+              type="text"
+              value={activityBrief}
+              onChange={(e) => setActivityBrief(e.target.value)}
+              placeholder="e.g. tutored 20 rural students in Maths for 3 months"
+              className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
+            />
+          </label>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-stone-900 bg-stone-900 px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white transition hover:bg-stone-700 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-stone-800 transition hover:border-stone-700"
+        >
+          Cancel
+        </button>
+        {err && <span className="text-xs text-red-700">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // AdminStudentView — renders the student's PanelTabs layout using
 // admin-fetched data. Matches the tab structure the student sees:
@@ -1858,6 +2026,7 @@ function AdminStudentView({ studentId, studentName, previewData, answers }) {
   const tabs = [
     { id: "overview",      label: "Overview" },
     { id: "documents",     label: "Your documents" },
+    { id: "financial",     label: "Financial documents" },
     { id: "required-docs", label: "Recommendation documents" },
     { id: "resume",        label: "Your resume" },
     { id: "status",        label: "Application status" },
@@ -1913,6 +2082,11 @@ function AdminStudentView({ studentId, studentName, previewData, answers }) {
           adminStudentId={studentId}
           adminPreviewData={previewData}
         />
+      )}
+
+      {/* Financial documents — uses existing staff read-only mode */}
+      {activeTab === "financial" && (
+        <FinancialDocuments studentId={studentId} />
       )}
 
       {/* Application status */}
@@ -2007,4 +2181,8 @@ function downloadStudentsCsv(rows) {
   a.href = url;
   const stamp = new Date().toISOString().slice(0, 10);
   a.download = `persona-students-${stamp}.csv`;
-  document.body
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
