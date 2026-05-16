@@ -1610,7 +1610,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
     { id: "financial", label: "Financial documents" },
-    { id: "required-docs", label: "Required documents" },
+    { id: "required-docs", label: "Recommendation documents" },
     { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
     ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),

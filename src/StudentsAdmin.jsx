@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2, Eye } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
-import {
+import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
   ChapterSummaryBlock,
@@ -346,44 +346,17 @@ function GatherEverythingCallout() {
         Tell the student to bring everything
       </p>
       <p className="mt-2 text-sm leading-relaxed text-stone-800">
-        Ask for every document on day one. Counsellor follow-ups, visa paperwork, and
-        financial review all stall on the same thing — missing scans. Drop whatever
-        the student has into "Starter documents" below; the rest they'll upload
-        themselves on the Financial documents and Profile tabs once logged in.
+        Ask for every document on day one. Drop whatever the student has into "Starter documents" below; the rest they'll upload themselves once logged in.
       </p>
-      <div className="mt-3 grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-700">
-            Profile / student docs
-          </p>
-          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[13px] text-stone-800 marker:text-stone-400">
-            <li>Aadhar, PAN, passport (front/back/last)</li>
-            <li>Passport-size photo</li>
-            <li>10th / 11th / 12th marksheets</li>
-            <li>12th admit card &amp; predicted scores</li>
-            <li>UG transcripts, final degree, semester sheets</li>
-            <li>IELTS / TOEFL / SAT / ACT / AP results</li>
-            <li>Activity / internship / award certificates</li>
-          </ul>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-700">
-            Financial docs
-          </p>
-          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[13px] text-stone-800 marker:text-stone-400">
-            <li>3 years of ITRs (each filer)</li>
-            <li>Salary slips, employment letter, Form 16</li>
-            <li>Business registration, GST, 3-year balance sheets</li>
-            <li>Parents PAN &amp; Aadhar</li>
-            <li>Loan sanction + disbursal letters (if any)</li>
-            <li>CA net worth statements</li>
-            <li>Sponsor affidavits (notarised)</li>
-            <li>Bank statements, FD copies + cert, balance cert</li>
-            <li>Bank manager contact (name / email / phone)</li>
-            <li>Student's 10-year international travel history</li>
-          </ul>
-        </div>
-      </div>
+      <ul className="mt-3 list-disc space-y-0.5 pl-5 text-[13px] text-stone-800 marker:text-stone-400">
+        <li>Aadhar, PAN, passport (front/back/last)</li>
+        <li>Passport-size photo</li>
+        <li>10th / 11th / 12th marksheets</li>
+        <li>12th admit card &amp; predicted scores</li>
+        <li>UG transcripts, final degree, semester sheets</li>
+        <li>IELTS / TOEFL / SAT / ACT / AP results</li>
+        <li>Activity / internship / award certificates</li>
+      </ul>
     </div>
   );
 }
@@ -795,6 +768,8 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionErr, setActionErr] = useState(null);
+  const [showStudentView, setShowStudentView] = useState(false);
+  const [studentPreviewData, setStudentPreviewData] = useState(null);
 
   const refreshDetail = useCallback(async () => {
     try {
@@ -868,6 +843,23 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
     return () => clearInterval(t);
   }, [detail, refreshDetail]);
 
+  // Build admin preview data once detail is loaded.
+  useEffect(() => {
+    if (!detail || detail.error) return;
+    Promise.all([
+      api.listRequiredDocsForStudent(studentId).catch(() => []),
+      api.listApplicationsForStudent(studentId).catch(() => []),
+    ]).then(([reqDocs, apps]) => {
+      setStudentPreviewData({
+        files: detail.files || [],
+        answers: extractAnswers(detail.student?.data),
+        resumes: detail.resumes || [],
+        requiredDocs: reqDocs,
+        applications: apps,
+      });
+    });
+  }, [detail, studentId]);
+
   // Esc closes; lock body scroll while open.
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -910,6 +902,19 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {detail && !detail.error && (
+              <button
+                onClick={() => setShowStudentView((v) => !v)}
+                title="Toggle between admin view and student's actual panel view"
+                className={`inline-flex shrink-0 items-center gap-1 border px-3 py-1.5 text-xs uppercase tracking-[0.15em] transition ${
+                  showStudentView
+                    ? "border-[#cc785c] bg-[#cc785c] text-white hover:bg-[#b86a4f]"
+                    : "border-stone-400 bg-white text-black hover:border-stone-700"
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" /> {showStudentView ? "Admin view" : "Student view"}
+              </button>
+            )}
             {(detail?.files || []).some((f) => !f.superseded_at) && (
               <a
                 href={`/api/students/${studentId}/files/all.zip`}
@@ -972,7 +977,24 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
           {detail?.error && (
             <p className="text-xs text-red-700">{detail.error}</p>
           )}
-          {detail && !detail.error && (
+          {detail && !detail.error && showStudentView && (
+            <div>
+              <div className="mb-4 border border-[#cc785c] bg-[#fdf4ef] px-4 py-2 text-xs text-[#cc785c]">
+                Admin preview — showing {headerName}'s panel exactly as they see it. Read-only.
+              </div>
+              {studentPreviewData ? (
+                <StudentDashboard
+                  studentName={detail.student?.display_name || detail.student?.username || ""}
+                  embedded
+                  adminStudentId={studentId}
+                  adminPreviewData={studentPreviewData}
+                />
+              ) : (
+                <p className="text-xs text-black">Loading preview…</p>
+              )}
+            </div>
+          )}
+          {detail && !detail.error && !showStudentView && (
             <StudentDetail detail={detail} role={role} onRefresh={refreshDetail} />
           )}
         </div>

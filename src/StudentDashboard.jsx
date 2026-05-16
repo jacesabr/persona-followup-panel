@@ -69,16 +69,22 @@ function getDocSummary(fieldId) {
 //   "documents"      — uploaded-file previews only
 //   "required-docs"  — LOR / internship / SOP lifecycle only
 //   "resume"         — generated resume only
-export default function StudentDashboard({ studentName, onExit, embedded = false, section = null }) {
-  const [files, setFiles] = useState(null);
-  const [answers, setAnswers] = useState(null);
-  const [resumes, setResumes] = useState(null);
-  const [requiredDocs, setRequiredDocs] = useState(null);
-  const [myApplications, setMyApplications] = useState(null);
+export default function StudentDashboard({
+  studentName, onExit, embedded = false, section = null,
+  // Admin preview: when provided, skip all /me/ API calls and use this data instead.
+  adminStudentId = null,
+  adminPreviewData = null,
+}) {
+  const [files, setFiles] = useState(adminPreviewData?.files ?? null);
+  const [answers, setAnswers] = useState(adminPreviewData?.answers ?? null);
+  const [resumes, setResumes] = useState(adminPreviewData?.resumes ?? null);
+  const [requiredDocs, setRequiredDocs] = useState(adminPreviewData?.requiredDocs ?? null);
+  const [myApplications, setMyApplications] = useState(adminPreviewData?.applications ?? null);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
 
   const load = useCallback(async () => {
+    if (adminPreviewData) return;
     try {
       const [fileList, record, resumeList, reqDocs, apps] = await Promise.all([
         listMyFiles(),
@@ -96,7 +102,7 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
     } catch (e) {
       setError(e?.message || "Couldn't load your information.");
     }
-  }, []);
+  }, [adminPreviewData]);
 
   // Keep `resumes` reachable inside the polling tick without putting
   // it in the effect's deps. The previous version listed `resumes` in
@@ -217,7 +223,7 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
                   <ChapterSummaryBlock
                     key={chapter.id}
                     chapter={chapter}
-                    studentId={null}
+                    studentId={adminStudentId}
                   />
                 ))
               )}
@@ -246,7 +252,7 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
                     key={f.id}
                     file={f}
                     fieldIndex={fieldIndex}
-                    studentId={null}
+                    studentId={adminStudentId}
                   />
                 ))
               )}
@@ -256,13 +262,13 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
 
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length > 0 && (
           <section className={section ? "" : "mt-10"}>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
             <p className="mt-1 text-sm text-stone-800">
               Letters of recommendation, internship documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
             <RequiredDocsBlock
               docs={requiredDocs}
-              studentId={null}
+              studentId={adminStudentId}
               onAfterChange={load}
             />
           </section>
@@ -279,7 +285,7 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
             </p>
             <RequiredDocsBlock
               docs={[]}
-              studentId={null}
+              studentId={adminStudentId}
               onAfterChange={load}
               showAddCardWhenEmpty
             />
@@ -288,7 +294,7 @@ export default function StudentDashboard({ studentName, onExit, embedded = false
 
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && section === "required-docs" && (
           <section>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
             <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
               Nothing's been requested yet — your counsellor will populate this list once they review your intake.
             </p>
