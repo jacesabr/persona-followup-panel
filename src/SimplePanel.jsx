@@ -133,7 +133,7 @@ export default function SimplePanel({
             onClick={() => setTab("documents")}
           />
           <FolderTab
-            label="Outstanding Marksheets"
+            label="Outstanding Documents"
             active={tab === "marksheets"}
             onClick={() => setTab("marksheets")}
           />

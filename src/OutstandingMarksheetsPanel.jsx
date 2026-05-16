@@ -135,7 +135,7 @@ export default function OutstandingMarksheetsPanel({ role = "admin", onViewStude
     <>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
         <div className="flex items-baseline gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Outstanding Marksheets</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Outstanding Documents</h2>
           <span className="text-[10px] uppercase tracking-[0.2em] text-stone-500">
             {outstanding.length} {outstanding.length === 1 ? "student" : "students"}
           </span>
