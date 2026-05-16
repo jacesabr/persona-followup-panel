@@ -77,6 +77,8 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   // appointment (id + scheduled_for from the leads list response) into
   // the popup so it can scope notes + tasks to that one session.
   const [sessionLead, setSessionLead] = useState(null);
+  // The lead whose Followup popup is open (null = closed).
+  const [followupLead, setFollowupLead] = useState(null);
 
   // counsellorId scopes server-side when admin is impersonating so the
   // wire response only carries that counsellor's leads. For a counsellor
@@ -691,9 +693,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               >
                 {lead.service_date ? formatDateInIst(lead.service_date) : "Set…"}
               </button>
-              <span className="text-[14px] text-black">
-                {lead.service_date ? formatDateInIst(lead.service_date) : "—"}
-              </span>
+              <button
+                onClick={() => setFollowupLead(lead)}
+                title="Set follow-up date"
+                className="w-full cursor-pointer border border-stone-300 bg-white px-1.5 py-1.5 text-left text-[14px] text-black outline-none hover:border-[#cc785c] hover:text-[#cc785c]"
+              >
+                {lead.followup_date ? formatDateInIst(lead.followup_date) : "Set…"}
+              </button>
               <span>
                 <button
                   onClick={() => setHistoryLead(lead)}
@@ -770,6 +776,19 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         <HistoryPopup
           lead={historyLead}
           onClose={() => setHistoryLead(null)}
+        />
+      )}
+
+      {followupLead && (
+        <FollowupPopup
+          lead={followupLead}
+          onClose={() => setFollowupLead(null)}
+          onSaved={(updatedLead) => {
+            setLeads((prev) =>
+              prev.map((l) => (l.id === updatedLead.id ? { ...l, ...updatedLead } : l))
+            );
+            setFollowupLead(null);
+          }}
         />
       )}
 
@@ -1230,6 +1249,301 @@ function HistoryRow({
 // are tinted yellow, the current upcoming one is tinted green. Clicking a
 // past day shows the notes from that day (read-only). Clicking today / a
 // future day reveals a notes textarea + Confirm button.
+// ============================================================
+// Followup popup
+// ============================================================
+// Lightweight "next check-in" date setter. Not tied to the appointment
+// calendar — saves directly to leads.followup_date + leads.followup_notes.
+// Notes are required (server enforces, UI validates first).
+function FollowupPopup({ lead, onClose, onSaved }) {
+  const [viewMonth, setViewMonth] = useState(() => {
+    const anchor = lead.followup_date || new Date().toISOString();
+    const istInput = utcIsoToIstInput(anchor);
+    const ymd = istInput ? istInput.slice(0, 10) : todayIstYmd();
+    const [y, m] = ymd.split("-").map(Number);
+    return { y, m };
+  });
+  const [selectedYmd, setSelectedYmd] = useState(() => {
+    if (!lead.followup_date) return null;
+    const ist = utcIsoToIstInput(lead.followup_date);
+    return ist ? ist.slice(0, 10) : null;
+  });
+  const [time, setTime] = useState(() => {
+    if (!lead.followup_date) return DEFAULT_TIME_IST;
+    const ist = utcIsoToIstInput(lead.followup_date);
+    return ist ? ist.slice(11) : DEFAULT_TIME_IST;
+  });
+  const [notes, setNotes] = useState(lead.followup_notes || "");
+  const [busy, setBusy] = useState(false);
+  const [submitErr, setSubmitErr] = useState(null);
+
+  const todayYmd = todayIstYmd();
+  const isPast = (ymd) => ymd < todayYmd;
+
+  const monthLabel = new Date(
+    Date.UTC(viewMonth.y, viewMonth.m - 1, 1)
+  ).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  const cells = useMemo(() => {
+    const { y, m } = viewMonth;
+    const first = new Date(Date.UTC(y, m - 1, 1));
+    const startWeekday = first.getUTCDay();
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const out = [];
+    for (let i = 0; i < startWeekday; i++) out.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ymd = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      out.push({ d, ymd });
+    }
+    while (out.length % 7 !== 0) out.push(null);
+    return out;
+  }, [viewMonth]);
+
+  const navMonth = (delta) => {
+    if (notes.trim() && !window.confirm("Discard typed notes and change month?")) return;
+    setViewMonth(({ y, m }) => {
+      const next = m + delta;
+      if (next < 1) return { y: y - 1, m: 12 };
+      if (next > 12) return { y: y + 1, m: 1 };
+      return { y, m: next };
+    });
+    setSelectedYmd(null);
+    setNotes("");
+    setTime(DEFAULT_TIME_IST);
+    setSubmitErr(null);
+  };
+
+  const onPickDay = (ymd) => {
+    if (!ymd || isPast(ymd)) return;
+    if (ymd === selectedYmd) return;
+    setSelectedYmd(ymd);
+    setSubmitErr(null);
+  };
+
+  const tryClose = () => {
+    if (notes.trim() && !window.confirm("Discard typed notes?")) return;
+    onClose();
+  };
+
+  const stateRef = useRef({});
+  stateRef.current = { busy, onClose };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && !stateRef.current.busy) stateRef.current.onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const confirm = async () => {
+    if (!selectedYmd) return;
+    if (!notes.trim()) {
+      setSubmitErr("A note is required — describe why you're following up.");
+      return;
+    }
+    const iso = localInputToUtcIso(`${selectedYmd}T${time}`);
+    if (!iso) { setSubmitErr("Invalid date/time."); return; }
+    if (new Date(iso).getTime() <= Date.now()) {
+      setSubmitErr("Pick a date/time in the future.");
+      return;
+    }
+    setBusy(true);
+    setSubmitErr(null);
+    try {
+      const updated = await api.setFollowup(lead.id, {
+        followup_date: iso,
+        followup_notes: notes.trim(),
+      });
+      onSaved(updated);
+    } catch (e) {
+      setSubmitErr(e.message);
+      setBusy(false);
+    }
+  };
+
+  const clearFollowup = async () => {
+    if (!window.confirm("Clear the follow-up date and note?")) return;
+    setBusy(true);
+    try {
+      const updated = await api.setFollowup(lead.id, { followup_date: null });
+      onSaved(updated);
+    } catch (e) {
+      setSubmitErr(e.message);
+      setBusy(false);
+    }
+  };
+
+  const existingFollowupYmd = lead.followup_date
+    ? utcIsoToIstInput(lead.followup_date).slice(0, 10)
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div
+        className="absolute inset-0 bg-stone-900/30"
+        onClick={busy ? undefined : tryClose}
+      />
+      <div className="relative z-10 w-full max-w-sm border border-stone-300 bg-white shadow-xl">
+        <header className="flex items-start justify-between border-b border-stone-200 px-4 py-2.5">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-[#cc785c]">
+              {lead.name}
+            </p>
+            <p className="text-[12px] text-black">Set Follow-up</p>
+          </div>
+          <button
+            onClick={tryClose}
+            disabled={busy}
+            className="text-black hover:text-black disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="px-4 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <button onClick={() => navMonth(-1)} disabled={busy} className="text-black hover:text-black disabled:opacity-50">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-[13px] font-semibold tracking-tight">{monthLabel}</span>
+            <button onClick={() => navMonth(1)} disabled={busy} className="text-black hover:text-black disabled:opacity-50">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-[0.08em] text-black">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d, i) => (
+              <span key={i} className="py-0.5">{d}</span>
+            ))}
+          </div>
+
+          <div className="mt-1 grid grid-cols-7 gap-0.5">
+            {cells.map((c, i) => {
+              if (!c) return <span key={i} className="aspect-square" />;
+              const past = isPast(c.ymd);
+              const isToday = c.ymd === todayYmd;
+              const isSel = c.ymd === selectedYmd;
+              const isExisting = c.ymd === existingFollowupYmd;
+              let bg = past
+                ? "bg-stone-100 text-stone-400 cursor-not-allowed"
+                : "bg-white hover:bg-stone-100 cursor-pointer";
+              if (!past && isExisting) bg = "bg-green-200 hover:bg-green-300 cursor-pointer";
+              if (isSel) bg += " ring-2 ring-[#cc785c]";
+              let todayClass = "";
+              if (isToday && !past) {
+                todayClass = isExisting ? "ring-1 ring-inset ring-[#cc785c]" : "font-bold text-[#cc785c]";
+              }
+              return (
+                <button
+                  key={i}
+                  onClick={() => onPickDay(c.ymd)}
+                  disabled={busy || past}
+                  className={`aspect-square text-[12px] tabular-nums text-black outline-none ${bg} ${todayClass} disabled:opacity-50`}
+                >
+                  {c.d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectedYmd && (
+          <div className="border-t border-stone-200 px-4 py-3">
+            <p className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-black">
+              {formatDateInIst(`${selectedYmd}T00:00:00Z`)}
+            </p>
+
+            <div className="mb-2 flex items-center gap-2">
+              <label className="text-[11px] uppercase tracking-[0.15em] text-black">
+                Time (IST)
+              </label>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="border border-stone-300 bg-white px-1.5 py-0.5 text-[12px] outline-none focus:border-[#cc785c]"
+              />
+            </div>
+
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Why are you following up? What to discuss…"
+              className="w-full resize-none border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c]"
+            />
+            <p className="mt-0.5 text-[11px] text-stone-800">Note required</p>
+
+            {submitErr && (
+              <p className="mt-1.5 text-[12px] text-red-700">{submitErr}</p>
+            )}
+
+            <div className="mt-2 flex items-center justify-between">
+              {lead.followup_date ? (
+                <button
+                  onClick={clearFollowup}
+                  disabled={busy}
+                  className="text-[11px] uppercase tracking-[0.18em] text-red-600 hover:text-red-800 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setSelectedYmd(null); setNotes(""); setTime(DEFAULT_TIME_IST); setSubmitErr(null); }}
+                  disabled={busy}
+                  className="text-[11px] uppercase tracking-[0.18em] text-black hover:text-black disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirm}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
+                >
+                  {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!selectedYmd && lead.followup_date && (
+          <div className="border-t border-stone-200 px-4 py-3">
+            <p className="mb-1 text-[12px] text-black">
+              Currently set to{" "}
+              <span className="font-semibold">{formatDateInIst(lead.followup_date)}</span>
+            </p>
+            {lead.followup_notes && (
+              <p className="mb-2 text-[12px] text-stone-800">{lead.followup_notes}</p>
+            )}
+            {submitErr && (
+              <p className="mb-1.5 text-[12px] text-red-700">{submitErr}</p>
+            )}
+            <button
+              onClick={clearFollowup}
+              disabled={busy}
+              className="text-[11px] uppercase tracking-[0.18em] text-red-600 hover:text-red-800 disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Clear follow-up"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CalendarPopup({ lead, onClose, onCreated }) {
   const [appointments, setAppointments] = useState([]);
   const [loadingAppts, setLoadingAppts] = useState(true);

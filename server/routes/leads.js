@@ -488,6 +488,53 @@ router.delete("/:id", requireAdmin, async (req, res, next) => {
   }
 });
 
+// PUT /api/leads/:id/followup — set or clear the counsellor-facing
+// "next check-in" date + required note. Separate from the formal
+// appointment calendar: this is a lightweight reminder column, not
+// a session-note entry. Notes are required when setting a date; both
+// fields are cleared together when followup_date is null.
+router.put("/:id/followup", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!(await checkLeadAccess(req, res, id))) return;
+
+    const { followup_date, followup_notes } = req.body;
+
+    if (followup_date === null || followup_date === undefined) {
+      // Clear the followup entirely.
+      const { rows } = await pool.query(
+        `UPDATE leads SET followup_date = NULL, followup_notes = NULL, updated_at = NOW()
+         WHERE id = $1 RETURNING *`,
+        [id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "lead not found" });
+      backupLeadEvent("followup-clear", rows[0]).catch(() => {});
+      return res.json(rows[0]);
+    }
+
+    if (!isValidUtcIso(followup_date)) {
+      return res.status(400).json({ error: "followup_date must be ISO 8601 with explicit timezone" });
+    }
+    if (new Date(followup_date).getTime() <= Date.now()) {
+      return res.status(400).json({ error: "followup_date must be in the future" });
+    }
+    if (!followup_notes || typeof followup_notes !== "string" || !followup_notes.trim()) {
+      return res.status(400).json({ error: "A note is required when setting a follow-up date" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE leads SET followup_date = $2, followup_notes = $3, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, followup_date, followup_notes.trim()]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "lead not found" });
+    backupLeadEvent("followup-set", rows[0]).catch(() => {});
+    res.json(rows[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get("/:id/appointments", async (req, res, next) => {
   try {
     const { id } = req.params;

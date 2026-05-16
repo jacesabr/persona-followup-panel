@@ -119,6 +119,8 @@ export const api = {
     request("POST", `/api/leads/${leadId}/appointments`, body),
   updateAppointment: (leadId, apptId, body) =>
     request("PATCH", `/api/leads/${leadId}/appointments/${apptId}`, body),
+  setFollowup: (leadId, body) =>
+    request("PUT", `/api/leads/${leadId}/followup`, body),
   // Counsellor task list (separate from per-lead actionables). Default
   // hides archived; pass includeArchived to retrieve both sets.
   // appointmentId narrows the list to tasks logged inside one specific

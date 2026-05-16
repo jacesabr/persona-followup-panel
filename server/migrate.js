@@ -155,6 +155,12 @@ ALTER TABLE leads DROP COLUMN IF EXISTS counsellor_name;
 -- appointment insert without any read benefit.
 DROP INDEX IF EXISTS idx_lead_appointments_lead_id;
 
+-- Followup date + notes: counsellor-set "next check-in" separate from
+-- the formal appointment calendar. Stored directly on the lead row so
+-- the followup table can surface it without a subquery.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS followup_date TIMESTAMPTZ;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS followup_notes TEXT;
+
 -- ============================================================
 -- STUDENT INTAKE TABLES (merged in from persona-intake repo).
 -- All additive, all CREATE/ALTER … IF NOT EXISTS, all FKs
