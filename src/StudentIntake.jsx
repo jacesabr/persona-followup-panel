@@ -1377,12 +1377,48 @@ function ThankYouScreen({ name, onProceed, onLogout, busy }) {
 }
 
 // ============================================================
-// StudentAutomationBanner — lets a student request that Jace runs the
-// manual AI automation on their account. Creates a manual_ai_requests row
-// ('student' kind) and notifies Jace via mailto. Polls every 60s while
-// pending; shows a "complete" state once ai_artifacts_generated_at is set.
+// StudentAutomationBanner
+//
+// Three states:
+//   idle     — student hasn't submitted yet; submit button + notes
+//   pending  — request sent, waiting for developer to run automation
+//   complete — ai_artifacts_generated_at is set; all drafts ready
+//
+// In all states except idle, a "Continue the application yourself"
+// button is shown below so the student isn't stuck waiting.
 // ============================================================
-function StudentAutomationBanner() {
+
+// Step-by-step status bar shown in pending + complete states.
+function AutomationStatusBar({ pending, complete }) {
+  const steps = [
+    { label: "Submitted", done: true },
+    { label: "Being processed", done: complete },
+    { label: "Ready", done: complete },
+  ];
+  return (
+    <div className="mt-4 flex items-center gap-0">
+      {steps.map((s, i) => (
+        <div key={s.label} className="flex flex-1 items-center">
+          <div className="flex flex-col items-center">
+            <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+              s.done ? "bg-[#cc785c] text-white" : "border-2 border-stone-300 bg-white text-stone-400"
+            }`}>
+              {s.done ? <Check className="h-3 w-3" /> : i + 1}
+            </div>
+            <span className={`mt-1 whitespace-nowrap text-[10px] uppercase tracking-[0.12em] ${
+              s.done ? "text-[#cc785c]" : "text-stone-400"
+            }`}>{s.label}</span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className={`mb-4 h-0.5 flex-1 ${steps[i + 1].done ? "bg-[#cc785c]" : "bg-stone-200"}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StudentAutomationBanner({ onContinue }) {
   const [status, setStatus] = useState(null); // null = loading
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState("");
@@ -1396,9 +1432,7 @@ function StudentAutomationBanner() {
     } catch { /* silent — banner is non-critical */ }
   }, []);
 
-  useEffect(() => {
-    pollStatus();
-  }, [pollStatus]);
+  useEffect(() => { pollStatus(); }, [pollStatus]);
 
   // Poll every 60s while pending.
   useEffect(() => {
@@ -1411,13 +1445,11 @@ function StudentAutomationBanner() {
     setBusy(true); setErr(null);
     try {
       await api.requestStudentAiFill(notes.trim() || null);
-      // Open prefilled mailto to notify Jace.
       const body = [
         `Hi Jace,`,
         ``,
-        `A student has submitted their documents and is requesting the automation run.`,
-        ``,
-        `Please open Claude Code and run the automation for this student.`,
+        `A student has submitted their documents for manual processing.`,
+        `Please open Claude Code and run the automation script for this student.`,
         notes.trim() ? `\nStudent note: ${notes.trim()}` : "",
       ].join("\n");
       window.open(
@@ -1433,60 +1465,83 @@ function StudentAutomationBanner() {
     }
   };
 
-  if (status === null) return null; // loading — don't flash
+  if (status === null) return null;
 
+  const ContinueButton = () => (
+    <button
+      type="button"
+      onClick={onContinue}
+      className="inline-flex items-center gap-2 border border-stone-900 bg-white px-4 py-2 text-xs uppercase tracking-[0.2em] text-black transition hover:bg-stone-50"
+    >
+      Continue the application yourself <ArrowRight className="h-3 w-3" />
+    </button>
+  );
+
+  // ── Complete ──────────────────────────────────────────────
   if (status.artifacts_ready) {
     return (
-      <div className="mb-6 border border-emerald-300 bg-emerald-50 px-5 py-4">
+      <div className="mb-8 border border-emerald-300 bg-emerald-50 px-6 py-5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
-          AI profile complete
+          Profile generation complete
         </p>
-        <p className="mt-1 text-sm text-stone-800">
-          Your resume, SOP draft, and LOR suggestions are ready. Check the Resume and Required documents tabs.
+        <AutomationStatusBar pending={false} complete={true} />
+        <p className="mt-4 text-sm text-stone-800">
+          Your resume, SOP draft, and LOR suggestions have been generated. Review them in the tabs above.
         </p>
+        <div className="mt-4">
+          <ContinueButton />
+        </div>
       </div>
     );
   }
 
+  // ── Pending ───────────────────────────────────────────────
   if (status.pending) {
     return (
-      <div className="mb-6 border border-amber-300 bg-amber-50 px-5 py-4">
+      <div className="mb-8 border border-amber-200 bg-amber-50 px-6 py-5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-700">
-          Automation queued
+          Request sent — awaiting processing
         </p>
-        <p className="mt-1 text-sm text-stone-800">
-          Your request is with Jace. Your resume and application drafts will appear here once the run completes — usually within a few hours.
+        <AutomationStatusBar pending={true} complete={false} />
+        <p className="mt-4 text-sm text-stone-800">
+          Our team has received your documents and will manually generate your resume, SOP, and LOR suggestions. This usually takes a few hours. You'll see them appear in the Resume and Required documents tabs when ready.
         </p>
+        <div className="mt-4">
+          <ContinueButton />
+        </div>
       </div>
     );
   }
 
+  // ── Idle ──────────────────────────────────────────────────
   return (
-    <div className="mb-6 border border-stone-300 bg-white px-5 py-4">
+    <div className="mb-8 border border-stone-300 bg-white px-6 py-5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
-        Submit for AI automation
+        Send documents for processing
       </p>
-      <p className="mt-1 text-sm text-stone-800">
-        Once you've uploaded your documents, send them to Jace. He'll run the automation to generate your resume, SOP draft, and LOR suggestions — usually ready within a few hours.
+      <p className="mt-2 text-sm text-stone-800">
+        Once you've uploaded your documents above, click below to notify our team. Right now a team member manually reviews your documents and generates your resume, SOP draft, and LOR suggestions — this will be automated in the future. Typically ready within a few hours.
       </p>
+
       {showNotes ? (
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Anything Jace should know? e.g. 'Use Mr Sharma as Class XII Maths teacher'"
+          placeholder="Anything our team should know? e.g. 'Use Mr Sharma as Class XII Maths teacher for the LOR'"
           rows={3}
-          className="mt-3 w-full border border-stone-300 bg-stone-50 px-3 py-2 text-sm outline-none focus:border-stone-700"
+          className="mt-4 w-full border border-stone-300 bg-stone-50 px-3 py-2 text-sm outline-none focus:border-stone-700"
         />
       ) : (
         <button
           type="button"
           onClick={() => setShowNotes(true)}
-          className="mt-2 text-xs text-stone-500 underline hover:text-stone-800"
+          className="mt-3 text-xs text-stone-500 underline hover:text-stone-800"
         >
-          Add a note (optional)
+          Add a note for the team (optional)
         </button>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={submit}
@@ -1494,13 +1549,20 @@ function StudentAutomationBanner() {
           className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-          {busy ? "Sending…" : "Send for automation"}
+          {busy ? "Sending…" : "Send for manual processing"}
         </button>
         {err && (
           <span className="inline-flex items-center gap-1 text-xs text-red-700">
             <AlertCircle className="h-3 w-3" /> {err}
           </span>
         )}
+      </div>
+
+      <div className="mt-5 border-t border-stone-200 pt-4">
+        <p className="mb-2 text-xs text-stone-500">
+          Don't want to wait? Fill in your profile yourself and we'll still review it.
+        </p>
+        <ContinueButton />
       </div>
     </div>
   );
@@ -1596,7 +1658,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
       belowHeader={panelSwitcher}
     >
       <main className="pb-16">
-        {activeTab === "overview" && <StudentAutomationBanner />}
+        {activeTab === "overview" && <StudentAutomationBanner onContinue={() => switchTo("documents")} />}
         {dashboardSection && (
           <StudentDashboard
             key={`${dashboardSection}-${overviewKey}`}
