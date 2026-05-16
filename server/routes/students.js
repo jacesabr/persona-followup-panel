@@ -908,8 +908,14 @@ router.get("/", requireStaff, async (req, res, next) => {
 // render green/red boxes without N separate per-student round-trips.
 // IMPORTANT: this route MUST stay above GET /:student_id so Express
 // doesn't treat the literal "financial-summary" as a student_id param.
-router.get("/financial-summary", requireAdmin, async (req, res, next) => {
+router.get("/financial-summary", requireStaff, async (req, res, next) => {
   try {
+    const params = [];
+    let scopeClause = "";
+    if (req.user.kind === "counsellor") {
+      params.push(req.user.counsellorId);
+      scopeClause = `AND s.counsellor_id = $${params.length}`;
+    }
     const { rows } = await pool.query(`
       SELECT
         s.student_id, s.username, s.display_name,
@@ -928,8 +934,9 @@ router.get("/financial-summary", requireAdmin, async (req, res, next) => {
       LEFT JOIN intake_financial_dossier d ON d.student_id = s.student_id
       WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
         AND s.username IS NOT NULL
+        ${scopeClause}
       ORDER BY s.created_at DESC
-    `);
+    `, params);
     res.json(rows.map((r) => {
       const dossier = r.dossier || {};
       const trips = Array.isArray(dossier.travelTrips) ? dossier.travelTrips : [];

@@ -2265,10 +2265,10 @@ function StudentSubTab({ label, active, onClick }) {
 }
 
 // ============================================================
-// StudentCommsTab — admin-only table of every active student's
-// login username. Passwords are hashed server-side and cannot
-// be retrieved; the Reset button issues a new one-time password
-// shown via CredentialsModal in the parent.
+// StudentCommsTab — table of every active student's login username,
+// visible to admins and counsellors (counsellors see their own students
+// only, scoped server-side). Passwords are hashed and unrecoverable;
+// the Reset button issues a new one-time password via CredentialsModal.
 // ============================================================
 function StudentCommsTab({ students, loading, onResetPassword }) {
   const [resetting, setResetting] = useState(null);
