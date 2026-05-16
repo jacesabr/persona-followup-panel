@@ -29,6 +29,7 @@ import {
   syncRecord,
   loadRecord,
   transitionPhase,
+  listMyFiles,
 } from "./intakeFiles.js";
 import StudentDashboard from "./StudentDashboard.jsx";
 import FinancialDocuments from "./FinancialDocuments.jsx";
@@ -1148,93 +1149,56 @@ function SaveIndicator({ state }) {
 // ============================================================
 function Welcome({ name, onStart }) {
   return (
-    <div className="animate-fadeUp py-20">
-      <p className="text-[10px] uppercase tracking-[0.3em] text-black">Step 01</p>
-      <h1 className="mt-2 font-serif text-5xl leading-[1.05] md:text-6xl">
-        Welcome to Persona,
-        <br />
-        {name}.
-      </h1>
-      <p className="mt-6 max-w-xl text-base leading-relaxed text-black">
-        We'll walk through your profile a page at a time. We save as you go, so come
-        back any time. Skip what doesn't apply.
-      </p>
-      <UploadEverythingCallout />
-      <div className="mt-10 flex items-center gap-4">
-        <button
-          onClick={onStart}
-          className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-white transition hover:bg-stone-800"
-        >
-          Let's start <ArrowRight className="h-4 w-4" />
-        </button>
-        <span className="text-xs text-black">press Enter ↵</span>
+    <div className="animate-fadeUp">
+      {/* Above-the-fold: greeting + CTA only — fits any laptop viewport */}
+      <div className="flex min-h-[calc(100vh-8rem)] flex-col justify-center py-8">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-black">Step 01</p>
+        <h1 className="mt-1 font-serif text-4xl leading-[1.05]">
+          Welcome to Persona, {name}.
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-stone-800">
+          Walk through your profile a page at a time — we save as you go.
+        </p>
+        <div className="mt-6 flex items-center gap-4">
+          <button
+            onClick={onStart}
+            className="inline-flex items-center gap-2 border border-stone-900 bg-stone-900 px-6 py-3 text-sm uppercase tracking-[0.2em] text-white transition hover:bg-stone-800"
+          >
+            Let's start <ArrowRight className="h-4 w-4" />
+          </button>
+          <span className="text-xs text-black">press Enter ↵</span>
+        </div>
+        <p className="mt-4 text-xs text-stone-500">↓ Scroll to upload documents first (optional)</p>
       </div>
 
-      <SmartAutofillTrialCard />
+      {/* Below-the-fold: document checklist + starter uploader */}
+      <div className="grid gap-5 pb-12 md:grid-cols-2">
+        <UploadEverythingCallout />
+        <StarterDocUploader />
+      </div>
     </div>
   );
 }
 
-// Advisory block on the welcome screen. Two lists: the financial
-// documents and the student/profile documents we'll ask for. Surfaced
-// at intake start so the student can pull everything together up-front
-// instead of stopping mid-form to scan one more sheet. Counsellor-side
-// "Add student" form re-uses this copy (UploadEverythingAddStudent
-// below) so both sides see the same checklist before kick-off.
+// Advisory block on the welcome screen. Lists the profile/student
+// documents to gather before starting. Financial docs are handled
+// separately on the Financial documents tab.
 function UploadEverythingCallout() {
   return (
-    <div className="mt-10 border-l-4 border-[#cc785c] bg-white/60 px-6 py-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
-        Before you start
+    <div className="border border-stone-900/15 bg-white/60 px-4 py-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
+        Have these scanned and ready
       </p>
-      <h2 className="mt-2 font-serif text-2xl leading-tight">
-        Gather every document you can — now.
-      </h2>
-      <p className="mt-2 text-sm leading-relaxed text-stone-800">
-        If you upload everything up front, the rest of this process is dramatically
-        smoother. Counsellor follow-ups, visa paperwork, and university financial
-        review all stall on the same thing: <em className="not-italic font-medium">missing scans</em>.
-        Hours of back-and-forth disappear if you can drop them here on day one.
-      </p>
-      <div className="mt-4 grid gap-5 md:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-700">
-            Profile / student documents
-          </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-800 marker:text-stone-400">
-            <li>Aadhar &amp; PAN cards</li>
-            <li>Passport — front, back, last page</li>
-            <li>Passport-style photo</li>
-            <li>10th / 11th / 12th marksheets</li>
-            <li>12th admit card &amp; predicted-scores sheet (if any)</li>
-            <li>UG transcripts, final degree, semester sheets</li>
-            <li>IELTS / TOEFL / SAT / ACT / AP results</li>
-            <li>Activity, internship, scholarship, character-reference certificates</li>
-          </ul>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-700">
-            Financial documents
-          </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-800 marker:text-stone-400">
-            <li>3 years of ITRs for each filer</li>
-            <li>Salary slips (last 3 months), employment letter, Form 16</li>
-            <li>Business registration, GST, 3 years of audited balance sheets</li>
-            <li>Parent PAN &amp; Aadhar — both parents</li>
-            <li>Loan sanction + disbursal letters (if applicable)</li>
-            <li>CA-certified net worth statements</li>
-            <li>Notarised sponsor affidavits</li>
-            <li>Bank statements (savings + business), FD copies + certificate, balance certificate</li>
-            <li>Bank manager's direct contact (name / email / phone)</li>
-            <li>Student's last 10 years of international travel — country, purpose, dates</li>
-          </ul>
-        </div>
-      </div>
-      <p className="mt-4 text-xs text-stone-700">
-        The financial side lives on the <em className="not-italic font-medium">Financial documents</em> tab
-        after you finish the intake — but if the scans are already at hand, drop them in
-        as you go. Every extra document saved here is a phone call you don't have to take later.
-      </p>
+      <ul className="mt-2.5 list-disc space-y-0.5 pl-5 text-sm text-stone-800 marker:text-stone-400">
+        <li>Aadhar &amp; PAN cards</li>
+        <li>Passport — front, back, last page</li>
+        <li>Passport-style photo</li>
+        <li>10th / 11th / 12th marksheets</li>
+        <li>12th admit card &amp; predicted sheet</li>
+        <li>UG transcripts, final degree, semester sheets</li>
+        <li>IELTS / TOEFL / SAT / ACT / AP results</li>
+        <li>Activity, internship &amp; certificate copies</li>
+      </ul>
     </div>
   );
 }
@@ -1245,38 +1209,124 @@ function UploadEverythingCallout() {
 // run them through Gemini, transcribe each, and pre-fill the form
 // fields we can. The wiring to Gemini isn't built yet, so the card
 // renders as a teaser with no working file input.
-function SmartAutofillTrialCard() {
+// Working multi-file uploader on the welcome screen. Uploads land under
+// fieldId 'starter_doc' — the same slot the admin "with-docs" create path
+// uses. Loads existing starter_doc files on mount so the list is correct
+// whether the student is visiting for the first time or returning via Back.
+function StarterDocUploader() {
+  const [serverFiles, setServerFiles] = useState(null);
+  const [uploads, setUploads] = useState([]);
+  const nextRowRef = useRef(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listMyFiles()
+      .then((all) => {
+        if (cancelled) return;
+        const starters = (all || []).filter((f) => f.field_id === "starter_doc");
+        setServerFiles(starters);
+        const maxIdx = starters.reduce((m, f) => Math.max(m, f.row_index ?? -1), -1);
+        nextRowRef.current = maxIdx + 1;
+      })
+      .catch(() => {
+        if (!cancelled) setServerFiles([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleFiles = useCallback(async (files) => {
+    for (const file of files) {
+      const rowIndex = nextRowRef.current++;
+      const id = `${rowIndex}_${file.name}`;
+      setUploads((prev) => [...prev, { id, name: file.name, size: file.size, status: "uploading" }]);
+      const v = await validateFile(file, {
+        accept: "image/jpeg,image/png,application/pdf",
+        maxSizeMB: 25,
+      });
+      if (!v.ok) {
+        setUploads((prev) =>
+          prev.map((u) => (u.id === id ? { ...u, status: "error", error: v.error } : u))
+        );
+        continue;
+      }
+      try {
+        await uploadFile(file, {
+          fieldId: "starter_doc",
+          rowIndex,
+          accept: "image/jpeg,image/png,application/pdf",
+        });
+        setUploads((prev) =>
+          prev.map((u) => (u.id === id ? { ...u, status: "done" } : u))
+        );
+      } catch (e) {
+        setUploads((prev) =>
+          prev.map((u) => (u.id === id ? { ...u, status: "error", error: e.message } : u))
+        );
+      }
+    }
+  }, []);
+
+  const onInputChange = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (picked.length) handleFiles(picked);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) handleFiles(files);
+  };
+
+  const allFiles = [
+    ...(serverFiles || []).map((f) => ({ key: `s_${f.id}`, name: f.original_name, size: f.size, status: "done" })),
+    ...uploads,
+  ];
+
   return (
-    <div className="mt-12 border border-dashed border-stone-400 bg-white/40 px-6 py-5">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-[#cc785c]">
-          Smart auto-fill · trial
-        </p>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-stone-700">
-          Currently unavailable — we're testing this
-        </p>
-      </div>
-      <p className="mt-3 text-base leading-relaxed text-black">
-        Drop every document you'll be using in this application — Aadhar,
-        passport, 10th/11th/12th marksheets, IELTS / SAT results, transcripts,
-        certificates, anything — into the box below. We'll read each one,
-        transcribe the contents, and pre-fill as many form fields as we can so
-        you don't have to type from your scans.
+    <div className="border border-stone-900/15 bg-white/60 px-4 py-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-700">
+        Upload documents now <span className="font-normal text-stone-500">(optional)</span>
       </p>
-      <div
-        aria-disabled
-        className="mt-4 flex cursor-not-allowed flex-col items-center justify-center gap-2 border border-dashed border-stone-300 bg-stone-50 px-6 py-10 text-center opacity-60"
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="image/jpeg,image/png,application/pdf"
+        className="hidden"
+        onChange={onInputChange}
+      />
+      {allFiles.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {allFiles.map((f) => (
+            <li key={f.key || f.id} className="flex items-center gap-2 text-[13px] text-stone-800">
+              {f.status === "uploading" ? (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-stone-500" />
+              ) : f.status === "error" ? (
+                <AlertCircle className="h-3 w-3 shrink-0 text-red-600" />
+              ) : (
+                <Check className="h-3 w-3 shrink-0 text-emerald-600" />
+              )}
+              <span className="truncate">{f.name}</span>
+              {f.size != null && (
+                <span className="ml-auto shrink-0 text-stone-400">{humanSize(f.size)}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDrop={onDrop}
+        onDragOver={(e) => e.preventDefault()}
+        className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 border border-dashed border-stone-300 bg-stone-50 py-4 text-sm text-stone-600 transition hover:border-stone-500 hover:text-stone-800"
       >
-        <Upload className="h-6 w-6 text-stone-500" />
-        <p className="text-sm text-stone-700">
-          Drop files here — or click to choose
-        </p>
-        <p className="text-xs text-stone-500">JPG · PNG · PDF · max 25 MB each</p>
-      </div>
-      <p className="mt-3 text-sm text-stone-700">
-        For now, please walk through the form below — your counsellor will help
-        if anything is unclear.
-      </p>
+        <Upload className="h-4 w-4" />
+        {serverFiles === null ? "Loading…" : "Drop files or click to choose"}
+      </button>
+      <p className="mt-1.5 text-[11px] text-stone-500">JPG · PNG · PDF · max 25 MB each</p>
     </div>
   );
 }
@@ -1319,6 +1369,136 @@ function ThankYouScreen({ name, onProceed, onLogout, busy }) {
         {busy && (
           <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-black">
             <Loader2 className="h-3 w-3 animate-spin" /> Wrapping up…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// StudentAutomationBanner — lets a student request that Jace runs the
+// manual AI automation on their account. Creates a manual_ai_requests row
+// ('student' kind) and notifies Jace via mailto. Polls every 60s while
+// pending; shows a "complete" state once ai_artifacts_generated_at is set.
+// ============================================================
+function StudentAutomationBanner() {
+  const [status, setStatus] = useState(null); // null = loading
+  const [busy, setBusy] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [showNotes, setShowNotes] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const s = await api.getStudentAiFillStatus();
+      setStatus(s);
+    } catch { /* silent — banner is non-critical */ }
+  }, []);
+
+  useEffect(() => {
+    pollStatus();
+  }, [pollStatus]);
+
+  // Poll every 60s while pending.
+  useEffect(() => {
+    if (!status?.pending) return;
+    const t = setInterval(pollStatus, 60_000);
+    return () => clearInterval(t);
+  }, [status?.pending, pollStatus]);
+
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.requestStudentAiFill(notes.trim() || null);
+      // Open prefilled mailto to notify Jace.
+      const body = [
+        `Hi Jace,`,
+        ``,
+        `A student has submitted their documents and is requesting the automation run.`,
+        ``,
+        `Please open Claude Code and run the automation for this student.`,
+        notes.trim() ? `\nStudent note: ${notes.trim()}` : "",
+      ].join("\n");
+      window.open(
+        `mailto:jace100233260@gmail.com` +
+        `?subject=${encodeURIComponent("Student automation request")}` +
+        `&body=${encodeURIComponent(body)}`
+      );
+      await pollStatus();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status === null) return null; // loading — don't flash
+
+  if (status.artifacts_ready) {
+    return (
+      <div className="mb-6 border border-emerald-300 bg-emerald-50 px-5 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
+          AI profile complete
+        </p>
+        <p className="mt-1 text-sm text-stone-800">
+          Your resume, SOP draft, and LOR suggestions are ready. Check the Resume and Required documents tabs.
+        </p>
+      </div>
+    );
+  }
+
+  if (status.pending) {
+    return (
+      <div className="mb-6 border border-amber-300 bg-amber-50 px-5 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-700">
+          Automation queued
+        </p>
+        <p className="mt-1 text-sm text-stone-800">
+          Your request is with Jace. Your resume and application drafts will appear here once the run completes — usually within a few hours.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 border border-stone-300 bg-white px-5 py-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cc785c]">
+        Submit for AI automation
+      </p>
+      <p className="mt-1 text-sm text-stone-800">
+        Once you've uploaded your documents, send them to Jace. He'll run the automation to generate your resume, SOP draft, and LOR suggestions — usually ready within a few hours.
+      </p>
+      {showNotes ? (
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Anything Jace should know? e.g. 'Use Mr Sharma as Class XII Maths teacher'"
+          rows={3}
+          className="mt-3 w-full border border-stone-300 bg-stone-50 px-3 py-2 text-sm outline-none focus:border-stone-700"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowNotes(true)}
+          className="mt-2 text-xs text-stone-500 underline hover:text-stone-800"
+        >
+          Add a note (optional)
+        </button>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-xs uppercase tracking-[0.2em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+          {busy ? "Sending…" : "Send for automation"}
+        </button>
+        {err && (
+          <span className="inline-flex items-center gap-1 text-xs text-red-700">
+            <AlertCircle className="h-3 w-3" /> {err}
           </span>
         )}
       </div>
@@ -1416,6 +1596,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
       belowHeader={panelSwitcher}
     >
       <main className="pb-16">
+        {activeTab === "overview" && <StudentAutomationBanner />}
         {dashboardSection && (
           <StudentDashboard
             key={`${dashboardSection}-${overviewKey}`}

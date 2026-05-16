@@ -285,6 +285,13 @@ export const api = {
   // { counsellor: { id, name, email } | null }. Used by the Application
   // status tab to surface ownership (and flag "not assigned yet").
   getMyCounsellor: () => request("GET", "/api/students/me/counsellor"),
+  // Student self-submits for manual AI automation. Idempotent — safe to call
+  // multiple times; returns existing pending row if one already exists.
+  requestStudentAiFill: (notes = null) =>
+    request("POST", "/api/students/me/request-ai-fill", { notes }),
+  // Poll status: has_request, pending, processed, artifacts_ready.
+  getStudentAiFillStatus: () =>
+    request("GET", "/api/students/me/ai-fill-status"),
   // AI artifact pipeline — manual-fill request workflow.
   // Counsellor clicks "Request manual fill" on the create-student
   // banner; this inserts a row into manual_ai_requests so Jace sees
