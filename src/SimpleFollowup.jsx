@@ -73,12 +73,9 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
   const [calendarLead, setCalendarLead] = useState(null);
   // The lead whose history popup is currently open (null = closed).
   const [historyLead, setHistoryLead] = useState(null);
-  // The lead whose Session popup is open. When set we pass the upcoming
-  // appointment (id + scheduled_for from the leads list response) into
-  // the popup so it can scope notes + tasks to that one session.
+  // The lead whose Session popup is open. _allAppointments carries the
+  // full list so the popup's dropdown can switch between appointments.
   const [sessionLead, setSessionLead] = useState(null);
-  // Appointment picker shown before SessionPopup when a lead has multiple appointments.
-  const [apptPicker, setApptPicker] = useState(null); // { lead, appointments }
   // The lead whose Followup popup is open (null = closed).
   const [followupLead, setFollowupLead] = useState(null);
   // Inline name editing: id of the lead being edited + the draft value.
@@ -300,14 +297,13 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   };
 
-  // Open an appointment picker for a lead, then open SessionPopup for
-  // the chosen appointment. If there are no existing appointments we
-  // skip the picker and directly create an ad-hoc row.
+  // Load appointments then open SessionPopup directly. If there are no
+  // existing appointments, create a non-scheduled row immediately so the
+  // popup has an apptId to bind notes to.
   const openSession = async (lead) => {
     try {
       const appointments = await api.listAppointments(lead.id);
       if (appointments.length === 0) {
-        // No history — create ad-hoc and open immediately.
         const { appointment } = await api.createAppointment(lead.id, {
           scheduled_for: new Date().toISOString(),
           ad_hoc: true,
@@ -324,48 +320,14 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           next_appointment_id: appointment.id,
           next_appointment_scheduled_for: appointment.scheduled_for,
           next_appointment_ad_hoc: true,
+          _allAppointments: [appointment],
         });
       } else {
-        setApptPicker({ lead, appointments });
+        // Open directly — dropdown inside the popup handles appointment selection.
+        setSessionLead({ ...lead, _allAppointments: appointments });
       }
     } catch (e) {
       setError(e.message || "Couldn't load appointments.");
-    }
-  };
-
-  // Called from the picker when the counsellor selects an appointment.
-  const openSessionForAppt = async (lead, appt) => {
-    setApptPicker(null);
-    if (appt === "adhoc") {
-      // Create or reuse an ad-hoc row.
-      try {
-        const { appointment } = await api.createAppointment(lead.id, {
-          scheduled_for: new Date().toISOString(),
-          ad_hoc: true,
-        });
-        setLeads((prev) =>
-          prev.map((l) =>
-            l.id === lead.id
-              ? { ...l, next_appointment_id: appointment.id, next_appointment_scheduled_for: appointment.scheduled_for }
-              : l
-          )
-        );
-        setSessionLead({
-          ...lead,
-          next_appointment_id: appointment.id,
-          next_appointment_scheduled_for: appointment.scheduled_for,
-          next_appointment_ad_hoc: true,
-        });
-      } catch (e) {
-        setError(e.message || "Couldn't start a session.");
-      }
-    } else {
-      setSessionLead({
-        ...lead,
-        next_appointment_id: appt.id,
-        next_appointment_scheduled_for: appt.scheduled_for,
-        next_appointment_ad_hoc: appt.ad_hoc,
-      });
     }
   };
 
@@ -877,14 +839,6 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
         />
       )}
 
-      {apptPicker && (
-        <ApptPickerOverlay
-          lead={apptPicker.lead}
-          appointments={apptPicker.appointments}
-          onPick={(appt) => openSessionForAppt(apptPicker.lead, appt)}
-          onClose={() => setApptPicker(null)}
-        />
-      )}
       {sessionLead && (
         <SessionPopup
           lead={sessionLead}
@@ -1233,10 +1187,10 @@ function HistoryRow({
   saveErr,
 }) {
   // Formal past appointments with no notes → loud "Session Missed" warning.
-  // Ad-hoc rows without notes → quieter message (they weren't formal sessions).
+  // Non-scheduled rows without notes → quieter message (they weren't formal sessions).
   const isPast = new Date(appt.scheduled_for).getTime() < Date.now();
   const sessionMissed = isPast && !appt.notes && !appt.ad_hoc;
-  const adHocNoNotes = isPast && !appt.notes && appt.ad_hoc;
+  const nonScheduledNoNotes = isPast && !appt.notes && appt.ad_hoc;
 
   // The row's primary header is the moment the note was created (i.e.,
   // when the appointment row was inserted). Per request: every history
@@ -1318,9 +1272,9 @@ function HistoryRow({
         <p className="mt-1 text-[18px] font-bold uppercase tracking-wide text-red-600">
           Session Missed: No Session Notes Created
         </p>
-      ) : adHocNoNotes ? (
+      ) : nonScheduledNoNotes ? (
         <p className="mt-1 text-[14px] text-black">
-          No notes added for this quick call.
+          No notes added for this non-scheduled appointment.
         </p>
       ) : (
         <p className="mt-1 text-[15px] leading-relaxed text-black">
@@ -2108,114 +2062,51 @@ function CalendarPopup({ lead, onClose, onCreated }) {
 // ============================================================
 // Shown before SessionPopup when a lead has multiple appointments so the
 // counsellor can choose which session they're making notes for.
-function ApptPickerOverlay({ lead, appointments, onPick, onClose }) {
-  const now = Date.now();
-  const sorted = [...appointments].sort(
-    (a, b) => new Date(b.scheduled_for) - new Date(a.scheduled_for)
-  );
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-sm border border-stone-300 bg-white shadow-lg">
-        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
-          <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-black">
-            Make Notes for — {lead.name}
-          </span>
-          <button
-            onClick={onClose}
-            className="text-stone-500 hover:text-black"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex flex-col divide-y divide-stone-100">
-          {sorted.map((appt) => {
-            const isPast = new Date(appt.scheduled_for).getTime() < now;
-            return (
-              <button
-                key={appt.id}
-                onClick={() => onPick(appt)}
-                className="flex items-center justify-between px-4 py-2.5 text-left text-[13px] text-black hover:bg-stone-50"
-              >
-                <span>
-                  {appt.ad_hoc ? (
-                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-stone-500">[quick call]</span>
-                  ) : isPast ? (
-                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-stone-500">[past]</span>
-                  ) : (
-                    <span className="mr-1.5 text-[11px] uppercase tracking-wide text-[#cc785c]">[upcoming]</span>
-                  )}
-                  {formatDateInIst(appt.scheduled_for)}
-                </span>
-                {appt.notes && (
-                  <span className="ml-2 text-[11px] text-stone-400">has notes</span>
-                )}
-              </button>
-            );
-          })}
-          <button
-            onClick={() => onPick("adhoc")}
-            className="px-4 py-2.5 text-left text-[13px] text-stone-600 hover:bg-stone-50"
-          >
-            + New ad-hoc note
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ============================================================
 // Session popup
 // ============================================================
-// Opens against ONE specific appointment — either the lead's next upcoming
-// session, or (when none is upcoming) the most recent past session that
-// hasn't yet been replaced by a followup. Surfaced via
-// lead.next_appointment_id from the leads list response, which COALESCEs
-// upcoming with most-recent-past server-side.
-// Two stacked sections:
-//   1. Notes — textarea bound to lead_appointments.notes. Save button
-//      writes back via PATCH /leads/:id/appointments/:apptId.
-//   2. Tasks from this session — lists every counsellor_task with
-//      appointment_id = this one, plus an inline "add task" form. New
-//      tasks get appointment_id set on the server, so they later render
-//      a "from session of <date>" badge in the tasks panel.
-//
-// Auto-assigns new tasks to the lead's counsellor_id (the person who
-// runs the session). Counsellor sessions: server clamps assignee_id to
-// self anyway, so the body field is moot. Admin sessions: the lead's
-// counsellor is the right default; admin can reassign in the tasks
-// panel afterward if needed.
+// Opens directly (no picker overlay). lead._allAppointments carries the
+// full list so the dropdown in the header can switch between any scheduled
+// appointment or a new non-scheduled one. On switch the notes + tasks
+// sections reload for the newly selected appointment.
 function SessionPopup({ lead, onClose, onAppointmentPatched }) {
-  const apptId = lead.next_appointment_id;
-  const apptDate = lead.next_appointment_scheduled_for;
-  const isAdHoc = !!lead.next_appointment_ad_hoc;
-  // When apptDate is in the past, the popup is being used to document a
-  // session that already happened — render a small badge so the counsellor
-  // sees at a glance that this isn't an upcoming one. Once they book a
-  // followup, the leads-list refetch retargets the button to the new
-  // upcoming row and this badge naturally goes away.
-  const isPastSession =
-    apptDate && new Date(apptDate).getTime() < Date.now();
+  const now = Date.now();
+  const [localAppts, setLocalAppts] = useState(lead._allAppointments || []);
+  const [creatingAdhoc, setCreatingAdhoc] = useState(false);
+
+  // Default selection: server-computed next appt, else first upcoming, else first past.
+  const [selectedId, setSelectedId] = useState(() => {
+    const appts = lead._allAppointments || [];
+    if (lead.next_appointment_id) return String(lead.next_appointment_id);
+    const upcoming = appts
+      .filter((a) => !a.ad_hoc && new Date(a.scheduled_for).getTime() >= now)
+      .sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for));
+    if (upcoming.length) return String(upcoming[0].id);
+    const past = appts
+      .filter((a) => !a.ad_hoc)
+      .sort((a, b) => new Date(b.scheduled_for) - new Date(a.scheduled_for));
+    if (past.length) return String(past[0].id);
+    if (appts.length) return String(appts[0].id);
+    return "";
+  });
+
+  // Derive the currently-selected appointment object.
+  const currentAppt = localAppts.find((a) => String(a.id) === selectedId) || null;
+  const apptId = currentAppt ? currentAppt.id : lead.next_appointment_id;
+  const apptDate = currentAppt ? currentAppt.scheduled_for : lead.next_appointment_scheduled_for;
+  const isNonScheduled = currentAppt ? !!currentAppt.ad_hoc : !!lead.next_appointment_ad_hoc;
+  const isPastSession = apptDate && new Date(apptDate).getTime() < now;
 
   const [notes, setNotes] = useState("");
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesErr, setNotesErr] = useState(null);
 
-  // Editable IST datetime-local input for the appointment time. Pre-
-  // filled from the lead's current scheduled_for; the Save button only
-  // lights up when the local input differs, so a counsellor can't
-  // accidentally PATCH the same value (and re-trigger an audit row).
-  const [dateInput, setDateInput] = useState(
-    apptDate ? utcIsoToIstInput(apptDate) : ""
-  );
+  const [dateInput, setDateInput] = useState(apptDate ? utcIsoToIstInput(apptDate) : "");
   const [savingDate, setSavingDate] = useState(false);
   const [dateErr, setDateErr] = useState(null);
-  // Re-sync the input when the parent passes a new lead with a
-  // different scheduled_for (e.g. after the patch resolves and we
-  // bubble service_date back up). Without this the input stays on the
-  // user's last-typed value even after a successful save.
+
+  // Re-sync date input whenever the selected appointment changes.
   useEffect(() => {
     setDateInput(apptDate ? utcIsoToIstInput(apptDate) : "");
   }, [apptDate]);
@@ -2232,11 +2123,14 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
   const [creatingTask, setCreatingTask] = useState(false);
   const [createErr, setCreateErr] = useState(null);
 
-  // Load notes (from the appointment row) + tasks-for-this-session in
-  // parallel on open. listAppointments returns every appointment for the
-  // lead; filter to the one we care about. Cheaper than a new endpoint.
+  // Reload notes + tasks whenever the selected appointment changes.
   useEffect(() => {
+    if (!apptId) return;
     let cancelled = false;
+    setNotesLoaded(false);
+    setNotes("");
+    setTasksLoading(true);
+    setTasksErr(null);
     Promise.all([api.listAppointments(lead.id), api.listTasks({ appointmentId: apptId })])
       .then(([appts, ts]) => {
         if (cancelled) return;
@@ -2247,26 +2141,43 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
       })
       .catch((e) => {
         if (cancelled) return;
-        if (!notesLoaded) setNotesErr(e.message);
+        setNotesErr(e.message);
         setTasksErr(e.message);
       })
       .finally(() => {
         if (!cancelled) setTasksLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead.id, apptId]);
+
+  // When the user picks "Non-scheduled appointment" from the dropdown, create
+  // (or reuse) an adhoc row immediately so notes have an apptId to bind to.
+  const handleSelectChange = async (val) => {
+    if (val === "__adhoc__") {
+      setCreatingAdhoc(true);
+      try {
+        const { appointment } = await api.createAppointment(lead.id, {
+          scheduled_for: new Date().toISOString(),
+          ad_hoc: true,
+        });
+        setLocalAppts((prev) => [...prev, appointment]);
+        setSelectedId(String(appointment.id));
+      } catch (e) {
+        setNotesErr(e.message || "Couldn't create appointment.");
+      } finally {
+        setCreatingAdhoc(false);
+      }
+    } else {
+      setSelectedId(val);
+    }
+  };
 
   const saveNotes = async () => {
     setSavingNotes(true);
     setNotesErr(null);
     try {
-      // Notes-only PATCH leaves lead=null in the response; ignore it.
-      await api.updateAppointment(lead.id, apptId, {
-        notes: notes.trim() || null,
-      });
+      await api.updateAppointment(lead.id, apptId, { notes: notes.trim() || null });
     } catch (e) {
       setNotesErr(e.message);
     } finally {
@@ -2277,16 +2188,11 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
   const saveDate = async () => {
     setDateErr(null);
     const utc = localInputToUtcIso(dateInput);
-    if (!utc) {
-      setDateErr("Pick a valid date and time.");
-      return;
-    }
+    if (!utc) { setDateErr("Pick a valid date and time."); return; }
     setSavingDate(true);
     try {
       const { appointment, lead: updatedLead } = await api.updateAppointment(
-        lead.id,
-        apptId,
-        { scheduled_for: utc }
+        lead.id, apptId, { scheduled_for: utc }
       );
       onAppointmentPatched?.(appointment, updatedLead);
     } catch (e) {
@@ -2298,10 +2204,7 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
 
   const submitTask = async () => {
     const text = newText.trim();
-    if (!text) {
-      setCreateErr("Task text is required.");
-      return;
-    }
+    if (!text) { setCreateErr("Task text is required."); return; }
     setCreatingTask(true);
     setCreateErr(null);
     try {
@@ -2311,10 +2214,6 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
         text,
         due_date: newDue,
         priority: newPriority,
-        // Server clamps to self for counsellor sessions; for admin we
-        // pass the lead's counsellor as the natural assignee. Empty
-        // string would fail validation, so fall back to undefined and
-        // let the server reject if a lead with no counsellor is hit.
         assignee_id: lead.counsellor_id || undefined,
       });
       setTasks((p) => [...p, created]);
@@ -2327,48 +2226,99 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
     }
   };
 
+  // Build dropdown options: scheduled appointments first (upcoming then past),
+  // then existing non-scheduled ones, then the option to create a new one.
+  const scheduled = [...localAppts]
+    .filter((a) => !a.ad_hoc)
+    .sort((a, b) => {
+      const aFuture = new Date(a.scheduled_for).getTime() >= now ? 0 : 1;
+      const bFuture = new Date(b.scheduled_for).getTime() >= now ? 0 : 1;
+      if (aFuture !== bFuture) return aFuture - bFuture;
+      return new Date(a.scheduled_for) - new Date(b.scheduled_for);
+    });
+  const nonScheduled = localAppts.filter((a) => a.ad_hoc);
+
+  const apptLabel = (a) => {
+    const isFuture = new Date(a.scheduled_for).getTime() >= now;
+    const prefix = a.ad_hoc ? "Non-scheduled" : isFuture ? "Upcoming" : "Past";
+    return `${prefix} — ${formatDateInIst(a.scheduled_for)}`;
+  };
+
+  const showDropdown = localAppts.length > 0;
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
       <div
         className="absolute inset-0 bg-stone-900/30"
-        onClick={savingNotes || creatingTask ? undefined : onClose}
+        onClick={savingNotes || creatingTask || creatingAdhoc ? undefined : onClose}
       />
       <div className="relative z-10 flex max-h-[85vh] w-full max-w-xl flex-col border border-stone-300 bg-white shadow-xl">
         <header className="flex items-start justify-between border-b border-stone-200 px-5 py-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">
-              Make Notes
-              {isAdHoc && (
-                <span className="ml-2 border border-red-700 bg-red-50 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.18em] text-red-700">
-                  Ad-hoc · pre-appointment quick call
-                </span>
-              )}
-              {!isAdHoc && isPastSession && (
-                <span className="ml-2 border border-stone-400 px-1.5 py-0.5 text-[9px] tracking-[0.18em] text-black">
-                  Past · awaiting notes
-                </span>
-              )}
-            </p>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[#cc785c]">Make Notes</p>
             <h3 className="mt-0.5 text-xl font-semibold tracking-tight text-black">
               {lead.name}
             </h3>
-            {/* Editable IST datetime — counsellors set the date here when
-                logging an ad-hoc call, or move an existing appointment if
-                the slot needs to shift. Save button only enables when the
-                input differs from the persisted value, so a no-op tap can't
-                spam the audit log. */}
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+
+            {/* Appointment selector — shown when there are existing appointments */}
+            {showDropdown && (
+              <div className="mt-2">
+                <label className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
+                  This note is for
+                </label>
+                <select
+                  value={selectedId}
+                  onChange={(e) => handleSelectChange(e.target.value)}
+                  disabled={creatingAdhoc || savingNotes || savingDate}
+                  className="mt-1 block w-full border border-stone-300 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[#cc785c] disabled:opacity-50"
+                >
+                  {scheduled.length > 0 && (
+                    <optgroup label="Scheduled appointments">
+                      {scheduled.map((a) => (
+                        <option key={a.id} value={String(a.id)}>
+                          {apptLabel(a)}{a.notes ? " (has notes)" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {nonScheduled.length > 0 && (
+                    <optgroup label="Non-scheduled">
+                      {nonScheduled.map((a) => (
+                        <option key={a.id} value={String(a.id)}>
+                          {apptLabel(a)}{a.notes ? " (has notes)" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <option value="__adhoc__">
+                    {creatingAdhoc ? "Creating…" : "+ New non-scheduled appointment"}
+                  </option>
+                </select>
+              </div>
+            )}
+
+            {/* Status badge (only when no dropdown, or for context) */}
+            {!showDropdown && isNonScheduled && (
+              <p className="mt-1 text-[11px] text-stone-600">Non-scheduled appointment</p>
+            )}
+            {!showDropdown && !isNonScheduled && isPastSession && (
+              <p className="mt-1 text-[11px] text-stone-600">Past session — awaiting notes</p>
+            )}
+
+            {/* Editable appointment date/time */}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 type="datetime-local"
                 value={dateInput}
                 onChange={(e) => setDateInput(e.target.value)}
-                disabled={savingDate}
+                disabled={savingDate || creatingAdhoc}
                 className="border border-stone-300 bg-white px-2 py-1 text-[13px] tabular-nums outline-none focus:border-[#cc785c] disabled:opacity-50"
               />
               <button
                 onClick={saveDate}
                 disabled={
                   savingDate ||
+                  creatingAdhoc ||
                   !dateInput ||
                   (apptDate && dateInput === utcIsoToIstInput(apptDate))
                 }
@@ -2379,14 +2329,12 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
               </button>
               <span className="text-[11px] text-stone-700">IST</span>
             </div>
-            {dateErr && (
-              <p className="mt-1 text-[12px] text-red-700">{dateErr}</p>
-            )}
+            {dateErr && <p className="mt-1 text-[12px] text-red-700">{dateErr}</p>}
           </div>
           <button
             onClick={onClose}
-            disabled={savingNotes || creatingTask}
-            className="text-black hover:text-black disabled:opacity-50"
+            disabled={savingNotes || creatingTask || creatingAdhoc}
+            className="ml-3 shrink-0 text-black hover:text-black disabled:opacity-50"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -2404,16 +2352,14 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
               placeholder="What was discussed, next steps, anything to remember…"
               rows={5}
               maxLength={2000}
-              disabled={!notesLoaded}
-              className="w-full resize-y border border-stone-300 bg-white px-3 py-2 text-[14px] outline-none focus:border-[#cc785c]"
+              disabled={!notesLoaded || creatingAdhoc}
+              className="w-full resize-y border border-stone-300 bg-white px-3 py-2 text-[14px] outline-none focus:border-[#cc785c] disabled:opacity-50"
             />
-            {notesErr && (
-              <p className="mt-1 text-xs text-red-700">{notesErr}</p>
-            )}
+            {notesErr && <p className="mt-1 text-xs text-red-700">{notesErr}</p>}
             <div className="mt-2 flex justify-end">
               <button
                 onClick={saveNotes}
-                disabled={!notesLoaded || savingNotes}
+                disabled={!notesLoaded || savingNotes || creatingAdhoc}
                 className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
               >
                 {savingNotes && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -2426,7 +2372,6 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-black">
               Tasks from this session
             </p>
-
             {tasksLoading ? (
               <div className="flex items-center justify-center py-4 text-black">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -2434,9 +2379,7 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
             ) : tasksErr ? (
               <p className="text-xs text-red-700">{tasksErr}</p>
             ) : tasks.length === 0 ? (
-              <p className="text-[13px]  text-black">
-                None yet — add the first one below.
-              </p>
+              <p className="text-[13px] text-black">None yet — add the first one below.</p>
             ) : (
               <ul className="space-y-1.5">
                 {tasks.map((t) => (
@@ -2445,10 +2388,7 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
                     className="flex items-start gap-2 border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-[13px]"
                   >
                     {t.priority && (
-                      <Star
-                        className="mt-0.5 h-3 w-3 shrink-0 text-[#cc785c]"
-                        fill="currentColor"
-                      />
+                      <Star className="mt-0.5 h-3 w-3 shrink-0 text-[#cc785c]" fill="currentColor" />
                     )}
                     <span className="flex-1 text-black">{t.text}</span>
                     <span className="shrink-0 text-[11px] tabular-nums text-black">
@@ -2458,7 +2398,6 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
                 ))}
               </ul>
             )}
-
             <div className="mt-3 border border-stone-200 bg-white px-3 py-2.5">
               <input
                 type="text"
@@ -2492,17 +2431,11 @@ function SessionPopup({ lead, onClose, onAppointmentPatched }) {
                   disabled={creatingTask || !newText.trim()}
                   className="ml-auto inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white hover:bg-[#b86a4f] disabled:opacity-50"
                 >
-                  {creatingTask ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Plus className="h-3 w-3" />
-                  )}
+                  {creatingTask ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
                   Add task
                 </button>
               </div>
-              {createErr && (
-                <p className="mt-1 text-xs text-red-700">{createErr}</p>
-              )}
+              {createErr && <p className="mt-1 text-xs text-red-700">{createErr}</p>}
             </div>
           </section>
         </div>

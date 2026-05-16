@@ -231,8 +231,13 @@ export default function InvoicesAdmin() {
         : await api.createInvoice(payload);
       setDraft(saved);
       await refreshInvoices();
-      flash(draft.id ? "Invoice updated" : "Invoice saved");
-    } catch (e) { setError(e.message); }
+      return saved;
+    } catch (e) { setError(e.message); return null; }
+  }
+
+  async function confirmAndPreview() {
+    const saved = await persistDraft();
+    if (saved) setView("preview");
   }
 
   async function approveDraft() {
@@ -336,6 +341,7 @@ export default function InvoicesAdmin() {
           onStartNew={startNew}
           onStartNewWithType={startNewWithType}
           onOpen={openInvoice}
+          onDelete={removeInvoice}
           onGoHistory={() => setView("history")}
         />
       )}
@@ -366,10 +372,9 @@ export default function InvoicesAdmin() {
           setDraft={setDraft}
           company={company}
           onChooseType={chooseType}
-          onSave={persistDraft}
+          onConfirm={confirmAndPreview}
           onApprove={approveDraft}
           onCancel={() => { setView("home"); setDraft(null); }}
-          onPreview={() => setView("preview")}
         />
       )}
 
@@ -415,9 +420,13 @@ function SubNavButton({ active, onClick, icon, label }) {
 // Home view — recent invoices + type picker shortcut
 // =============================================================
 
-function HomeView({ invoices, company, logoBase64, signatureBase64, onStartNew, onStartNewWithType, onOpen, onGoHistory }) {
+function HomeView({ invoices, company, logoBase64, signatureBase64, onStartNew, onStartNewWithType, onOpen, onDelete, onGoHistory }) {
+  const drafts = useMemo(
+    () => [...invoices].filter((i) => !i.approved).sort((a, b) => (b.date || "").localeCompare(a.date || "")),
+    [invoices]
+  );
   const recent = useMemo(
-    () => [...invoices].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8),
+    () => [...invoices].filter((i) => i.approved).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8),
     [invoices]
   );
 
@@ -518,18 +527,37 @@ function HomeView({ invoices, company, logoBase64, signatureBase64, onStartNew, 
         ))}
       </div>
 
-      {invoices.length === 0 ? (
+      {invoices.length === 0 && (
         <div className="border border-dashed border-stone-300 bg-stone-50 px-6 py-12 text-center">
           <FileText className="mx-auto mb-3 h-6 w-6 text-stone-400" />
           <div className="text-sm font-semibold text-stone-800">No invoices yet</div>
           <div className="mt-1 text-sm text-stone-700">Click <strong>New invoice</strong> above to issue your first one.</div>
         </div>
-      ) : (
+      )}
+
+      {drafts.length > 0 && (
+        <div className="mb-6">
+          <div className="mb-2 flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold tracking-tight">Drafts</h3>
+            <span className="text-[12px] text-stone-600">{drafts.length} unsaved</span>
+          </div>
+          <div className="border border-stone-300 bg-white">
+            <div className="grid grid-cols-[1.2fr_1.5fr_1.2fr_1fr_auto] items-center gap-3 border-b border-stone-300 bg-stone-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-stone-600">
+              <span>Number</span><span>Customer</span><span>Type</span><span className="text-right">Total</span><span />
+            </div>
+            {drafts.map((inv) => (
+              <DraftRow key={inv.id} inv={inv} company={company} onContinue={() => onOpen(inv.id)} onDelete={() => onDelete(inv.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recent.length > 0 && (
         <div>
           <div className="mb-2 flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold tracking-tight">Recent</h3>
+            <h3 className="text-sm font-semibold tracking-tight">Recent signed</h3>
             <div className="flex items-center gap-3 text-[12px] text-stone-700">
-              <span>{invoices.length} total · {last30.length} in last 30 days</span>
+              <span>{invoices.filter((i) => i.approved).length} total · {last30.length} in last 30 days</span>
               <button onClick={onGoHistory} className="underline hover:text-stone-900">View all →</button>
             </div>
           </div>
@@ -570,6 +598,38 @@ function RecentRow({ inv, company, onOpen }) {
         )}
       </div>
     </button>
+  );
+}
+
+function DraftRow({ inv, company, onContinue, onDelete }) {
+  const totals = totalsFor(inv, company.state);
+  const sym = inv.type === "b2b_intl" ? CURRENCY_SYMBOLS[inv.currency] || `${inv.currency} ` : "₹ ";
+  const meta = INVOICE_TYPES[inv.type];
+  return (
+    <div className="grid grid-cols-[1.2fr_1.5fr_1.2fr_1fr_auto] items-center gap-3 border-b border-stone-200 px-3 py-2 text-sm text-stone-900 last:border-b-0">
+      <div>
+        <div className="font-semibold">{inv.invoiceNumber}</div>
+        <div className="text-[11px] text-stone-600">{formatDate(inv.date)}</div>
+      </div>
+      <div className="truncate">{inv.customer?.name || "—"}</div>
+      <div className="text-[11px] uppercase tracking-[0.14em] text-stone-600">{meta?.label || inv.type}</div>
+      <div className="text-right font-mono text-sm">{sym}{formatNum(totals.grand)}</div>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={onContinue}
+          className="inline-flex items-center gap-1 border border-stone-400 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-stone-900 hover:bg-stone-50"
+        >
+          Continue
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Delete draft"
+          className="text-stone-400 hover:text-red-600"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1067,7 +1127,7 @@ function sampleFillFor(type) {
   return null;
 }
 
-function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onSave, onApprove, onCancel, onPreview }) {
+function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onConfirm, onApprove, onCancel }) {
   return (
     <div>
       <div className="mb-4 flex items-center gap-2">
@@ -1108,9 +1168,7 @@ function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onSave,
           setDraft={setDraft}
           company={company}
           onBack={() => setStep(3)}
-          onSave={onSave}
-          onApprove={onApprove}
-          onPreview={onPreview}
+          onConfirm={onConfirm}
         />
       )}
     </div>
@@ -1281,7 +1339,7 @@ function LineItemEditor({ type, item, index, onChange, onRemove, canRemove, curr
         <div className="grid grid-cols-3 gap-3">
           <Field label="Student name"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.studentName || ""} onChange={(e) => onChange({ studentName: e.target.value })} /></Field>
           <Field label="Service" w="col-span-2"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.service || ""} onChange={(e) => onChange({ service: e.target.value })} placeholder="e.g. SOP review and university shortlisting" /></Field>
-          <Field label={`Amount (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.amount ?? 0} onChange={(e) => onChange({ amount: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label={`Amount (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.amount || ""} onChange={(e) => onChange({ amount: parseFloat(e.target.value) || 0 })} /></Field>
         </div>
       )}
 
@@ -1291,7 +1349,7 @@ function LineItemEditor({ type, item, index, onChange, onRemove, canRemove, curr
           <Field label="Student name"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.studentName || ""} onChange={(e) => onChange({ studentName: e.target.value })} /></Field>
           <Field label="Intake"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.intake || ""} onChange={(e) => onChange({ intake: e.target.value })} placeholder="e.g. Sep-2026" /></Field>
           <Field label="Course" w="col-span-2"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.course || ""} onChange={(e) => onChange({ course: e.target.value })} /></Field>
-          <Field label={`Commission (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.commission ?? 0} onChange={(e) => onChange({ commission: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label={`Commission (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.commission || ""} onChange={(e) => onChange({ commission: parseFloat(e.target.value) || 0 })} /></Field>
           <Field label="University" w="col-span-3"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.university || ""} onChange={(e) => onChange({ university: e.target.value })} /></Field>
         </div>
       )}
@@ -1304,17 +1362,17 @@ function LineItemEditor({ type, item, index, onChange, onRemove, canRemove, curr
           <Field label="Enrolment date"><input type="date" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.enrolmentDate || ""} onChange={(e) => onChange({ enrolmentDate: e.target.value })} /></Field>
           <Field label="University" w="col-span-2"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.university || ""} onChange={(e) => onChange({ university: e.target.value })} /></Field>
           <Field label="Course" w="col-span-2"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={item.course || ""} onChange={(e) => onChange({ course: e.target.value })} /></Field>
-          <Field label={`Tuition fee (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.tuitionFee ?? 0} onChange={(e) => onChange({ tuitionFee: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="University rate %"><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.uniRate ?? 0} onChange={(e) => onChange({ uniRate: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label="Partner rate %"><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.partnerRate ?? 0} onChange={(e) => onChange({ partnerRate: parseFloat(e.target.value) || 0 })} /></Field>
-          <Field label={`Commission (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.commission ?? 0} onChange={(e) => onChange({ commission: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label={`Tuition fee (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.tuitionFee || ""} onChange={(e) => onChange({ tuitionFee: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="University rate %"><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.uniRate || ""} onChange={(e) => onChange({ uniRate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label="Partner rate %"><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.partnerRate || ""} onChange={(e) => onChange({ partnerRate: parseFloat(e.target.value) || 0 })} /></Field>
+          <Field label={`Commission (${sym.trim()})`}><input type="number" className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={item.commission || ""} onChange={(e) => onChange({ commission: parseFloat(e.target.value) || 0 })} /></Field>
         </div>
       )}
     </div>
   );
 }
 
-function StepReview({ draft, setDraft, company, onBack, onSave, onApprove, onPreview }) {
+function StepReview({ draft, setDraft, company, onBack, onConfirm }) {
   const totals = totalsFor(draft, company.state);
   const sym = draft.type === "b2b_intl" ? CURRENCY_SYMBOLS[draft.currency] || `${draft.currency} ` : "₹ ";
   return (
@@ -1344,18 +1402,8 @@ function StepReview({ draft, setDraft, company, onBack, onSave, onApprove, onPre
 
       <WizNav
         onBack={onBack}
-        nextLabel={draft.id ? "Update" : "Save draft"}
-        onNext={onSave}
-        extra={
-          <>
-            <button onClick={onPreview} disabled={!draft.id} className="inline-flex items-center gap-1 border border-stone-400 bg-white px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-stone-900 hover:bg-stone-50 disabled:opacity-40">
-              Preview & PDF
-            </button>
-            <button onClick={onApprove} disabled={!draft.id} className="inline-flex items-center gap-1 border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-emerald-800 disabled:opacity-40">
-              Approve & sign
-            </button>
-          </>
-        }
+        nextLabel="Save Draft"
+        onNext={onConfirm}
       />
     </div>
   );
