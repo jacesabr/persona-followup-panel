@@ -339,6 +339,8 @@ function collectUrgentItems({ requiredDocs, applications }) {
     if (!badge.label.startsWith("Day 3") && !badge.label.startsWith("Day 4") && !badge.label.startsWith("Day 5")) continue;
     const label = d.kind === "lor"
       ? `LOR ${d.seq} — ${d.recipient_name || "recommender"}`
+      : d.kind === "ngo"
+      ? `NGO ${d.seq} — ${d.company_name || "organisation"}`
       : `Internship ${d.seq} — ${d.company_name || "company"}`;
     items.push({
       key: `doc_${d.id}`,
@@ -630,11 +632,14 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
 
   const kindLabel = doc.kind === "lor" ? `LOR ${doc.seq}` :
                     doc.kind === "internship" ? `Internship ${doc.seq}` :
+                    doc.kind === "ngo" ? `NGO ${doc.seq}` :
                     "Statement of Purpose";
 
   const summary = doc.kind === "lor"
     ? `${doc.recipient_name || "—"} · ${doc.recipient_role || "—"}`
     : doc.kind === "internship"
+    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
+    : doc.kind === "ngo"
     ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
     : "Drafted by your counsellor; approved by admin.";
 

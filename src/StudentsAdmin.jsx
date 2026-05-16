@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2, Eye } from "lucide-react";
+import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2, Eye, Plus, CheckCircle2 } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
 import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
+import { PANEL_CHAPTERS } from "../lib/intakeSchema.js";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -978,21 +979,14 @@ function StudentDetailModal({ studentId, role, onClose, onActionDone }) {
             <p className="text-xs text-red-700">{detail.error}</p>
           )}
           {detail && !detail.error && showStudentView && (
-            <div>
-              <div className="mb-4 border border-[#cc785c] bg-[#fdf4ef] px-4 py-2 text-xs text-[#cc785c]">
-                Admin preview — showing {headerName}'s panel exactly as they see it. Read-only.
-              </div>
-              {studentPreviewData ? (
-                <StudentDashboard
+            studentPreviewData
+              ? <AdminStudentView
+                  studentId={studentId}
                   studentName={detail.student?.display_name || detail.student?.username || ""}
-                  embedded
-                  adminStudentId={studentId}
-                  adminPreviewData={studentPreviewData}
+                  previewData={studentPreviewData}
+                  answers={extractAnswers(detail.student?.data)}
                 />
-              ) : (
-                <p className="text-xs text-black">Loading preview…</p>
-              )}
-            </div>
+              : <p className="text-xs text-black">Loading preview…</p>
           )}
           {detail && !detail.error && !showStudentView && (
             <StudentDetail detail={detail} role={role} onRefresh={refreshDetail} />
@@ -1568,10 +1562,11 @@ function RequiredDocsStaff({ studentId, role }) {
 
   const lors = docs.filter((d) => d.kind === "lor");
   const interns = docs.filter((d) => d.kind === "internship");
+  const ngos = docs.filter((d) => d.kind === "ngo");
   const sop = docs.find((d) => d.kind === "sop");
 
-  const allLIDone = [...lors, ...interns].every((d) => d.marked_done_at);
-  const anyLIPending = [...lors, ...interns].some((d) => d.marked_done_at && !d.requested_at);
+  const allLIDone = [...lors, ...interns, ...ngos].every((d) => d.marked_done_at);
+  const anyLIPending = [...lors, ...interns, ...ngos].some((d) => d.marked_done_at && !d.requested_at);
 
   const saveDraft = async (id) => {
     setBusy((p) => ({ ...p, [id]: true }));
@@ -1657,24 +1652,35 @@ function RequiredDocsStaff({ studentId, role }) {
 
       <div className="space-y-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Internships</p>
-        {interns.length > 0 ? (
-          interns.map((d) => (
-            <DocStaffCard
-              key={d.id}
-              doc={d}
-              draft={drafts[d.id] ?? ""}
-              onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
-              onSave={() => saveDraft(d.id)}
-              onToggleDone={() => toggleDone(d)}
-              busy={!!busy[d.id]}
-            />
-          ))
-        ) : (
-          <p className="border border-dashed border-stone-300 bg-white px-3 py-2 text-sm text-stone-800">
-            Student hasn't sent any internship briefs yet — no company details have been submitted in their intake.
-          </p>
-        )}
+        {interns.map((d) => (
+          <DocStaffCard
+            key={d.id}
+            doc={d}
+            draft={drafts[d.id] ?? ""}
+            onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
+            onSave={() => saveDraft(d.id)}
+            onToggleDone={() => toggleDone(d)}
+            busy={!!busy[d.id]}
+          />
+        ))}
       </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">NGO</p>
+        {ngos.map((d) => (
+          <DocStaffCard
+            key={d.id}
+            doc={d}
+            draft={drafts[d.id] ?? ""}
+            onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
+            onSave={() => saveDraft(d.id)}
+            onToggleDone={() => toggleDone(d)}
+            busy={!!busy[d.id]}
+          />
+        ))}
+      </div>
+
+      <AddRequiredDocCard studentId={studentId} onAdded={refresh} />
 
       {sop && (
         <div className="space-y-2">
@@ -1702,7 +1708,7 @@ function RequiredDocsStaff({ studentId, role }) {
             ? anyLIPending
               ? "All drafts ready. Send when you're set."
               : "All requests already sent."
-            : `Mark every LOR & internship as done before sending.`}
+            : `Mark every LOR, internship & NGO as done before sending.`}
         </span>
         <button
           type="button"
@@ -1726,6 +1732,8 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
     ? `LOR ${doc.seq} — ${doc.recipient_name || "(no name)"} · ${doc.recipient_role || "(no role)"}`
     : doc.kind === "internship"
     ? `Internship ${doc.seq} — ${doc.company_name || "(no company)"}`
+    : doc.kind === "ngo"
+    ? `NGO ${doc.seq} — ${doc.company_name || "(no organisation)"}`
     : "SOP";
 
   return (
@@ -1838,6 +1846,125 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
   );
 }
 
+// ============================================================
+// AdminStudentView — renders the student's PanelTabs layout using
+// admin-fetched data. Matches the tab structure the student sees:
+//   Overview · Your documents · Recommendation documents · Your resume
+//   Application status · Profile documents · Resume & extras · Your story
+// All data comes from the admin's detail endpoint — no student-session
+// API calls. Form chapter tabs are read-only (no saves).
+// ============================================================
+function AdminStudentView({ studentId, studentName, previewData, answers }) {
+  const tabs = [
+    { id: "overview",      label: "Overview" },
+    { id: "documents",     label: "Your documents" },
+    { id: "required-docs", label: "Recommendation documents" },
+    { id: "resume",        label: "Your resume" },
+    { id: "status",        label: "Application status" },
+    ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),
+  ];
+
+  const [activeTab, setActiveTab] = useState("overview");
+
+  const dashboardSection = {
+    overview: "summary",
+    documents: "documents",
+    "required-docs": "required-docs",
+    resume: "resume",
+  }[activeTab] || null;
+
+  const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
+  const grouped = useMemo(() => groupAnswersBySchema(answers || {}), [answers]);
+
+  return (
+    <div className="font-serif text-black">
+      <div className="mb-4 border border-[#cc785c] bg-[#fdf4ef] px-4 py-2 text-xs text-[#cc785c]">
+        Admin preview — {studentName}'s panel as they see it. Read-only.
+      </div>
+
+      {/* Tab nav */}
+      <nav className="mb-6 flex flex-wrap items-center gap-2">
+        {tabs.map((t) => {
+          const isActive = t.id === activeTab;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActiveTab(t.id)}
+              className={`whitespace-nowrap border px-4 py-2 text-sm transition ${
+                isActive
+                  ? "border-[#cc785c] bg-[#cc785c] text-white"
+                  : "border-stone-300 bg-white text-black hover:border-stone-900"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Data tabs — use StudentDashboard with admin preview data */}
+      {dashboardSection && (
+        <StudentDashboard
+          key={dashboardSection}
+          studentName={studentName}
+          embedded
+          section={dashboardSection}
+          adminStudentId={studentId}
+          adminPreviewData={previewData}
+        />
+      )}
+
+      {/* Application status */}
+      {activeTab === "status" && (
+        <div className="space-y-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-black">Application status</p>
+          {(previewData.applications || []).length === 0 ? (
+            <p className="border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">No applications on file.</p>
+          ) : (
+            (previewData.applications || []).map((app) => (
+              <div key={app.id} className="border border-stone-200 bg-white px-4 py-3">
+                <p className="font-medium text-black">{app.university}</p>
+                <p className="mt-0.5 text-sm text-stone-800">
+                  {app.program && <span>{app.program} · </span>}
+                  {app.country && <span>{app.country} · </span>}
+                  <span className="uppercase tracking-[0.1em]">{app.status || "pending"}</span>
+                  {app.deadline && <span> · due {app.deadline}</span>}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Panel chapter tabs — read-only summary of the student's form answers */}
+      {activeChapter && (
+        <div>
+          <p className="mb-4 text-[10px] uppercase tracking-[0.3em] text-black">▸ {activeChapter.title}</p>
+          <div className="space-y-5">
+            {activeChapter.pages.map((page) => {
+              const chapterGroup = grouped.find((g) => g.id === activeChapter.id);
+              const pageGroup = chapterGroup?.pages?.find((p) => p.id === page.id);
+              return pageGroup ? (
+                <ChapterSummaryBlock
+                  key={page.id}
+                  chapter={{ id: activeChapter.id, title: activeChapter.title, pages: [pageGroup] }}
+                  studentId={studentId}
+                  headless
+                />
+              ) : (
+                <div key={page.id} className="border border-dashed border-stone-200 px-4 py-3 text-sm text-stone-800">
+                  {page.title} — not filled in yet.
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // CSV download for the visible roster rows. Common parent-meeting prep
 // path. Uses RFC 4180 quoting (wrap fields in "..", escape any embedded
 // double-quote by doubling it). Date stamps the filename so a counsellor
@@ -1880,8 +2007,4 @@ function downloadStudentsCsv(rows) {
   a.href = url;
   const stamp = new Date().toISOString().slice(0, 10);
   a.download = `persona-students-${stamp}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+  document.body
