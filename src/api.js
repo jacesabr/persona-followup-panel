@@ -196,6 +196,7 @@ export const api = {
   // archived rows (hidden by default so the active roster stays clean).
   listStudents: ({ includeArchived = false } = {}) =>
     request("GET", `/api/students${includeArchived ? "?include_archived=true" : ""}`),
+  listStudentsFinancialSummary: () => request("GET", "/api/students/financial-summary"),
   assignStudentCounsellor: (studentId, counsellorId) =>
     request("PATCH", `/api/students/${studentId}/assign-counsellor`, { counsellor_id: counsellorId }),
   // Detail: full intake data + uploaded files + resumes for one

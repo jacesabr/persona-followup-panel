@@ -49,6 +49,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
   const [filter, setFilter] = useState("");
   const [credentialsModal, setCredentialsModal] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [subTab, setSubTab] = useState("roster");
 
   const refresh = useCallback(async () => {
     try {
@@ -98,81 +99,113 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
 
   return (
     <div>
-      <CreateStudentForm role={role} counsellors={counsellors} onCreated={onCreated} />
-
-      <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
-          {showArchived ? "Archived students" : "Students"}{students.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-black">
-              ({filteredStudents.length}
-              {filteredStudents.length !== students.length ? ` of ${students.length}` : ""})
-            </span>
-          )}
-        </h2>
-        <div className="flex items-center gap-2">
-          {loading && <Loader2 className="h-4 w-4 animate-spin text-black" />}
-          <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
-            <Search className="h-3 w-3 text-black" />
-            <input
-              type="search"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="filter…"
-              className="w-40 bg-transparent text-xs outline-none"
-            />
-          </div>
-          <button
-            onClick={() => { setShowArchived((v) => !v); setFilter(""); }}
-            title={showArchived ? "Hide archived students" : "Show archived students"}
-            className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] transition ${
-              showArchived
-                ? "border-stone-700 bg-stone-700 text-white hover:bg-stone-800"
-                : "border-stone-300 bg-white text-black hover:border-stone-700"
-            }`}
-          >
-            <Archive className="h-3 w-3" /> {showArchived ? "Active" : "Archived"}
-          </button>
-          <button
-            onClick={() => downloadStudentsCsv(filteredStudents)}
-            disabled={filteredStudents.length === 0}
-            title="Download visible rows as CSV"
-            className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:opacity-30"
-          >
-            <Download className="h-3 w-3" /> CSV
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <p className="mb-3 inline-flex items-center gap-2 text-xs text-red-700">
-          <AlertCircle className="h-3 w-3" /> {error}
-        </p>
-      )}
-
-      {students.length === 0 && !loading && !error && (
-        <p className="mt-6 text-sm  text-black">
-          No students yet. Sign someone up using the form above.
-        </p>
-      )}
-      {students.length > 0 && filteredStudents.length === 0 && (
-        <p className="mt-6 text-sm  text-black">
-          No students match "{filter}".
-        </p>
-      )}
-
-      <div className="space-y-2">
-        {filteredStudents.map((s) => (
-          <StudentRow
-            key={s.student_id}
-            row={s}
-            role={role}
-            onOpen={() => setModalStudentId(s.student_id)}
-            onResetPassword={(account) => setCredentialsModal(account)}
-            onArchived={() => refresh()}
+      <div className="mb-5 flex items-end gap-1 border-b border-stone-300">
+        <StudentSubTab label="Roster" active={subTab === "roster"} onClick={() => setSubTab("roster")} />
+        <StudentSubTab
+          label="Financial Documents"
+          active={subTab === "financial"}
+          onClick={() => setSubTab("financial")}
+        />
+        {role === "admin" && (
+          <StudentSubTab
+            label="Communication IDs"
+            active={subTab === "comms"}
+            onClick={() => setSubTab("comms")}
           />
-        ))}
+        )}
       </div>
-      {!showArchived && students.length === 0 && !loading && !error && null /* handled above */}
+
+      {subTab === "roster" && (
+        <>
+          <CreateStudentForm role={role} counsellors={counsellors} onCreated={onCreated} />
+
+          <div className="mt-8 mb-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-300 pb-2">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-black">
+              {showArchived ? "Archived students" : "Students"}{students.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-black">
+                  ({filteredStudents.length}
+                  {filteredStudents.length !== students.length ? ` of ${students.length}` : ""})
+                </span>
+              )}
+            </h2>
+            <div className="flex items-center gap-2">
+              {loading && <Loader2 className="h-4 w-4 animate-spin text-black" />}
+              <div className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1">
+                <Search className="h-3 w-3 text-black" />
+                <input
+                  type="search"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="filter…"
+                  className="w-40 bg-transparent text-xs outline-none"
+                />
+              </div>
+              <button
+                onClick={() => { setShowArchived((v) => !v); setFilter(""); }}
+                title={showArchived ? "Hide archived students" : "Show archived students"}
+                className={`inline-flex items-center gap-1 border px-2 py-1 text-[10px] uppercase tracking-[0.15em] transition ${
+                  showArchived
+                    ? "border-stone-700 bg-stone-700 text-white hover:bg-stone-800"
+                    : "border-stone-300 bg-white text-black hover:border-stone-700"
+                }`}
+              >
+                <Archive className="h-3 w-3" /> {showArchived ? "Active" : "Archived"}
+              </button>
+              <button
+                onClick={() => downloadStudentsCsv(filteredStudents)}
+                disabled={filteredStudents.length === 0}
+                title="Download visible rows as CSV"
+                className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:opacity-30"
+              >
+                <Download className="h-3 w-3" /> CSV
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <p className="mb-3 inline-flex items-center gap-2 text-xs text-red-700">
+              <AlertCircle className="h-3 w-3" /> {error}
+            </p>
+          )}
+
+          {students.length === 0 && !loading && !error && (
+            <p className="mt-6 text-sm  text-black">
+              No students yet. Sign someone up using the form above.
+            </p>
+          )}
+          {students.length > 0 && filteredStudents.length === 0 && (
+            <p className="mt-6 text-sm  text-black">
+              No students match "{filter}".
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {filteredStudents.map((s) => (
+              <StudentRow
+                key={s.student_id}
+                row={s}
+                role={role}
+                onOpen={() => setModalStudentId(s.student_id)}
+                onResetPassword={(account) => setCredentialsModal(account)}
+                onArchived={() => refresh()}
+              />
+            ))}
+          </div>
+          {!showArchived && students.length === 0 && !loading && !error && null /* handled above */}
+        </>
+      )}
+
+      {subTab === "comms" && role === "admin" && (
+        <StudentCommsTab
+          students={students}
+          loading={loading}
+          onResetPassword={(account) => setCredentialsModal(account)}
+        />
+      )}
+
+      {subTab === "financial" && (
+        <StudentFinancialChecklist role={role} />
+      )}
 
       {credentialsModal && (
         <CredentialsModal
@@ -2185,4 +2218,225 @@ function downloadStudentsCsv(rows) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// StudentSubTab — secondary tab bar inside the Students section.
+// Styled smaller than the parent FolderTab to signal hierarchy.
+// ============================================================
+function StudentSubTab({ label, active, onClick }) {
+  if (active) {
+    return (
+      <button
+        onClick={onClick}
+        className="relative z-10 -mb-px border border-stone-300 border-b-transparent bg-[#faf9f5] px-4 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-black"
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="border border-stone-200 bg-stone-50 px-4 py-1 text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:bg-stone-100 hover:text-black"
+    >
+      {label}
+    </button>
+  );
+}
+
+// ============================================================
+// StudentCommsTab — admin-only table of every active student's
+// login username. Passwords are hashed server-side and cannot
+// be retrieved; the Reset button issues a new one-time password
+// shown via CredentialsModal in the parent.
+// ============================================================
+function StudentCommsTab({ students, loading, onResetPassword }) {
+  const [resetting, setResetting] = useState(null);
+  const [resetErr, setResetErr] = useState(null);
+
+  const handleReset = async (student) => {
+    setResetting(student.student_id);
+    setResetErr(null);
+    try {
+      const account = await api.resetStudentPassword(student.student_id);
+      onResetPassword({ ...account, display_name: student.display_name });
+    } catch (e) {
+      setResetErr(e.message);
+    } finally {
+      setResetting(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-stone-600">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-4 text-sm text-stone-800">
+        Login credentials for every active student. Passwords are hashed and cannot be retrieved — use Reset to issue a new one-time password.
+      </p>
+      {resetErr && (
+        <p className="mb-3 inline-flex items-center gap-2 text-xs text-red-700">
+          <AlertCircle className="h-3 w-3" /> {resetErr}
+        </p>
+      )}
+      {students.length === 0 ? (
+        <p className="text-sm text-stone-600">No students yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-stone-300 text-left text-[10px] uppercase tracking-[0.2em] text-stone-600">
+                <th className="pb-2 pr-8 font-normal">Name</th>
+                <th className="pb-2 pr-8 font-normal">Username (login ID)</th>
+                <th className="pb-2 pr-8 font-normal">Counsellor</th>
+                <th className="pb-2 pr-8 font-normal">Created</th>
+                <th className="pb-2 font-normal">Password</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {students.map((s) => (
+                <tr key={s.student_id}>
+                  <td className="py-2.5 pr-8 font-medium text-black">
+                    {s.display_name || s.username}
+                  </td>
+                  <td className="py-2.5 pr-8 font-mono text-xs text-stone-700">
+                    {s.username}
+                  </td>
+                  <td className="py-2.5 pr-8 text-stone-700">
+                    {s.counsellor_name || "—"}
+                  </td>
+                  <td className="py-2.5 pr-8 tabular-nums text-stone-700">
+                    {s.created_at ? new Date(s.created_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="py-2.5">
+                    <button
+                      onClick={() => handleReset(s)}
+                      disabled={!!resetting}
+                      className="inline-flex items-center gap-1 border border-stone-300 bg-white px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black transition hover:border-stone-700 disabled:opacity-40"
+                    >
+                      {resetting === s.student_id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <KeyRound className="h-3 w-3" />
+                      )}
+                      Reset
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// StudentFinancialChecklist — one row per student, one column per
+// financial section. Green box = at least one file uploaded (or
+// travel trips logged); red box = nothing yet; grey "N/A" = student
+// marked the section as not applicable (loan only).
+// Loads from GET /api/students/financial-summary.
+// ============================================================
+const FIN_SECTIONS = [
+  { key: "itr", label: "ITR" },
+  { key: "income", label: "Income" },
+  { key: "business", label: "Business" },
+  { key: "kyc", label: "KYC" },
+  { key: "loan", label: "Loan" },
+  { key: "networth", label: "Net Worth" },
+  { key: "affidavit", label: "Affidavit" },
+  { key: "banking", label: "Banking" },
+  { key: "travel", label: "Travel" },
+];
+
+function StudentFinancialChecklist({ role }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    api.listStudentsFinancialSummary()
+      .then(setRows)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-stone-600">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <p className="inline-flex items-center gap-2 py-8 text-xs text-red-700">
+        <AlertCircle className="h-3 w-3" /> {error}
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-4 text-sm text-stone-800">
+        Financial document status across all active students. Green = at least one file uploaded for that section; red = nothing uploaded yet; grey = not applicable.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-stone-600">No students yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-stone-300 text-left text-[10px] uppercase tracking-[0.2em] text-stone-600">
+                <th className="pb-2 pr-6 font-normal">Student</th>
+                {role === "admin" && <th className="pb-2 pr-6 font-normal">Counsellor</th>}
+                {FIN_SECTIONS.map((s) => (
+                  <th key={s.key} className="pb-2 pr-2 text-center font-normal">{s.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {rows.map((r) => (
+                <tr key={r.student_id}>
+                  <td className="py-2.5 pr-6">
+                    <span className="font-medium text-black">{r.display_name || r.username}</span>
+                    {r.display_name && (
+                      <span className="ml-2 font-mono text-[10px] text-stone-500">{r.username}</span>
+                    )}
+                  </td>
+                  {role === "admin" && (
+                    <td className="py-2.5 pr-6 text-stone-700">{r.counsellor_name || "—"}</td>
+                  )}
+                  {FIN_SECTIONS.map((s) => {
+                    const val = r.sections[s.key];
+                    return (
+                      <td key={s.key} className="py-2.5 pr-2 text-center">
+                        {val === null ? (
+                          <span className="inline-block rounded border border-stone-300 bg-stone-100 px-2 py-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-500">N/A</span>
+                        ) : val ? (
+                          <span className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700">✓</span>
+                        ) : (
+                          <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }

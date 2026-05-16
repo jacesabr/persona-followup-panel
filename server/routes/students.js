@@ -902,6 +902,60 @@ router.get("/", requireStaff, async (req, res, next) => {
   }
 });
 
+// GET /api/students/financial-summary — admin-only one-shot aggregate of
+// per-student financial document status. Returns one row per active student
+// with a boolean per financial section so the admin checklist tab can
+// render green/red boxes without N separate per-student round-trips.
+// IMPORTANT: this route MUST stay above GET /:student_id so Express
+// doesn't treat the literal "financial-summary" as a student_id param.
+router.get("/financial-summary", requireAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        s.student_id, s.username, s.display_name,
+        c.name AS counsellor_name,
+        d.data AS dossier,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_itr\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS itr_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_income\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS income_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_business\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS business_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_kyc\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS kyc_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_loan\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS loan_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_networth\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS networth_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_affidavit\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS affidavit_files,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_banking\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS banking_files
+      FROM intake_students s
+      LEFT JOIN counsellors c ON c.id = s.counsellor_id
+      LEFT JOIN intake_financial_dossier d ON d.student_id = s.student_id
+      WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
+        AND s.username IS NOT NULL
+      ORDER BY s.created_at DESC
+    `);
+    res.json(rows.map((r) => {
+      const dossier = r.dossier || {};
+      const trips = Array.isArray(dossier.travelTrips) ? dossier.travelTrips : [];
+      return {
+        student_id: r.student_id,
+        username: r.username,
+        display_name: r.display_name,
+        counsellor_name: r.counsellor_name,
+        sections: {
+          itr: Number(r.itr_files) > 0,
+          income: Number(r.income_files) > 0,
+          business: Number(r.business_files) > 0,
+          kyc: Number(r.kyc_files) > 0,
+          loan: dossier.studentLoanTaken === false ? null : Number(r.loan_files) > 0,
+          networth: Number(r.networth_files) > 0,
+          affidavit: Number(r.affidavit_files) > 0,
+          banking: Number(r.banking_files) > 0,
+          travel: trips.length > 0,
+        },
+      };
+    }));
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/students/:student_id — full detail. Admin sees any; counsellor
 // sees only their own creations. Returns the intake data + uploaded
 // files + resumes for the admin "students panel" detail view.
