@@ -726,7 +726,7 @@ function StudentRow({ row, role, onOpen, onResetPassword, onArchived }) {
           </p>
         </button>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {!row.is_archived && (
+          {!row.is_archived ? (
             <>
               <button
                 onClick={resetPassword}
@@ -740,10 +740,17 @@ function StudentRow({ row, role, onOpen, onResetPassword, onArchived }) {
               >
                 Archive
               </button>
+              {role === "admin" && (
+                <button
+                  onClick={hardDelete}
+                  className="border border-red-400 bg-red-50 px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-red-700 hover:bg-red-100"
+                >
+                  Delete
+                </button>
+              )}
             </>
-          )}
-          {row.is_archived && (
-            <div className="flex items-center gap-1.5">
+          ) : (
+            <>
               {role === "admin" && (
                 <>
                   <button
@@ -760,7 +767,7 @@ function StudentRow({ row, role, onOpen, onResetPassword, onArchived }) {
                   </button>
                 </>
               )}
-            </div>
+            </>
           )}
           <button
             onClick={onOpen}
