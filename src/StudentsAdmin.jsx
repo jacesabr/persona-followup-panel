@@ -166,6 +166,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
             role={role}
             onOpen={() => setModalStudentId(s.student_id)}
             onResetPassword={(account) => setCredentialsModal(account)}
+            onArchived={() => refresh()}
           />
         ))}
       </div>
@@ -645,9 +646,9 @@ function ProgressLabel({ row }) {
 }
 
 // ============================================================
-// StudentRow — collapsed roster row + expandable detail view.
+// StudentRow — collapsed roster row + inline action buttons.
 // ============================================================
-function StudentRow({ row, role, onOpen, onResetPassword }) {
+function StudentRow({ row, role, onOpen, onResetPassword, onArchived }) {
   const resetPassword = async (e) => {
     e.stopPropagation();
     if (!confirm(`Reset password for "${row.username}"? The new password will be shown once.`)) return;
@@ -659,13 +660,49 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
     }
   };
 
+  const archive = async (e) => {
+    e.stopPropagation();
+    const reason = prompt(`Archive "${row.display_name || row.username}"?\n\nEnter a reason (optional):`);
+    if (reason === null) return; // cancelled
+    try {
+      await api.archiveStudent(row.student_id, reason || null);
+      onArchived?.();
+    } catch (e) {
+      alert(`Archive failed: ${e.message}`);
+    }
+  };
+
+  const unarchive = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Restore "${row.display_name || row.username}"?`)) return;
+    try {
+      await api.unarchiveStudent(row.student_id);
+      onArchived?.();
+    } catch (e) {
+      alert(`Restore failed: ${e.message}`);
+    }
+  };
+
+  const hardDelete = async (e) => {
+    e.stopPropagation();
+    const name = row.display_name || row.username;
+    const typed = prompt(`Permanently delete ${name}?\n\nThis removes all DB rows and cannot be undone. Storage blobs are kept.\n\nType DELETE to confirm:`);
+    if (typed !== "DELETE") return;
+    try {
+      await api.deleteStudent(row.student_id);
+      onArchived?.();
+    } catch (e) {
+      alert(`Delete failed: ${e.message}`);
+    }
+  };
+
   return (
-    <div data-student-row={row.student_id} className={`border bg-white ${row.is_archived ? "border-stone-400 opacity-70" : "border-stone-300"}`}>
-      <button
-        onClick={onOpen}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50"
-      >
-        <div className="min-w-0 flex-1">
+    <div data-student-row={row.student_id} className={`border bg-white ${row.is_archived ? "border-stone-400 opacity-60" : "border-stone-300"}`}>
+      <div className="flex w-full items-center gap-3 px-4 py-3">
+        <button
+          onClick={onOpen}
+          className="min-w-0 flex-1 text-left hover:opacity-80"
+        >
           <p className="truncate font-semibold text-black">
             {row.display_name || row.username}
             {row.display_name && (
@@ -687,18 +724,52 @@ function StudentRow({ row, role, onOpen, onResetPassword }) {
             {row.lead_name && <> {" · "} from lead: <span className="text-black">{row.lead_name}</span></>}
             {row.counsellor_name && <> {" · "} by: {row.counsellor_name}</>}
           </p>
+        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {!row.is_archived && (
+            <>
+              <button
+                onClick={resetPassword}
+                className="border border-stone-300 px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700"
+              >
+                Reset pw
+              </button>
+              <button
+                onClick={archive}
+                className="border border-amber-400 bg-amber-50 px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-amber-800 hover:bg-amber-100"
+              >
+                Archive
+              </button>
+            </>
+          )}
+          {row.is_archived && (
+            <div className="flex items-center gap-1.5">
+              {role === "admin" && (
+                <>
+                  <button
+                    onClick={unarchive}
+                    className="border border-emerald-500 bg-emerald-50 px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-emerald-800 hover:bg-emerald-100"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    onClick={hardDelete}
+                    className="border border-red-400 bg-red-50 px-2 py-1.5 text-[10px] uppercase tracking-[0.15em] text-red-700 hover:bg-red-100"
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          <button
+            onClick={onOpen}
+            className="border border-stone-400 bg-stone-100 px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-black hover:bg-stone-200"
+          >
+            View →
+          </button>
         </div>
-        {!row.is_archived && (
-          <span className="ml-3 hidden shrink-0 items-center gap-1 sm:inline-flex">
-            <button
-              onClick={resetPassword}
-              className="border border-stone-300 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-black hover:border-stone-700 hover:text-black"
-            >
-              Reset pw
-            </button>
-          </span>
-        )}
-      </button>
+      </div>
     </div>
   );
 }
