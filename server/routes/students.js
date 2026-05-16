@@ -31,6 +31,25 @@ import { generateResumeHtml } from "../pdf.js";
 
 const router = express.Router();
 
+// Append-only R2 audit trail for student lifecycle events (archive /
+// unarchive / delete). Each call writes one JSON blob at:
+//   students/{student_id}/{event}-{epoch}.json
+// The delete snapshot includes every associated table's rows so the
+// record is self-contained for future manual restoration.
+async function backupStudentEvent(event, studentId, payload) {
+  try {
+    const storage = getStorage();
+    const key = `students/${studentId}/${event}-${Date.now()}.json`;
+    await storage.putBlob({
+      key,
+      body: Buffer.from(JSON.stringify({ event, student_id: studentId, payload, timestamp: new Date().toISOString() }, null, 2)),
+      contentType: "application/json",
+    });
+  } catch (e) {
+    console.error("[backup] student event failed:", e.message);
+  }
+}
+
 const UPLOADS_DIR = process.env.UPLOADS_DIR || "uploads";
 const MAX_FILE_MB = parseInt(process.env.MAX_FILE_MB || "10", 10);
 
@@ -616,6 +635,11 @@ router.post("/:student_id/archive", requireStaff, express.json(), async (req, re
     // Invalidate student sessions so they can't log in while archived.
     await pool.query(`DELETE FROM sessions WHERE student_id = $1`, [sid]);
     audit(req, { table: "intake_students", id: sid, action: "archive", diff: { reason } });
+    await backupStudentEvent("archive", sid, {
+      student: ownerRes.rows[0],
+      reason,
+      actor: req.user.kind === "admin" ? req.user.adminUsernameRaw : `counsellor:${req.user.counsellorId}`,
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -639,6 +663,10 @@ router.post("/:student_id/unarchive", requireStaff, express.json(), async (req, 
       [sid]
     );
     audit(req, { table: "intake_students", id: sid, action: "unarchive" });
+    await backupStudentEvent("unarchive", sid, {
+      actor: req.user.adminUsernameRaw,
+      previously_archived_at: row.archived_at,
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -726,37 +754,52 @@ router.post("/:student_id/hard-delete", requireStaff, async (req, res, next) => 
     if (typeof sid !== "string" || !sid.startsWith("s_")) {
       return res.status(400).json({ error: "student_id must start with s_" });
     }
+    // Collect full snapshot BEFORE the transaction so R2 has a
+    // complete record even if something goes wrong mid-delete.
+    const [studentSnap, filesSnap, resumesSnap, requiredDocsSnap, applicationsSnap, aiRequestsSnap] =
+      await Promise.all([
+        pool.query(
+          `SELECT s.*, c.name AS counsellor_name, l.name AS lead_name
+             FROM intake_students s
+             LEFT JOIN counsellors c ON c.id = s.counsellor_id
+             LEFT JOIN leads      l ON l.id = s.lead_id
+            WHERE s.student_id = $1`, [sid]),
+        pool.query(`SELECT id, field_id, row_index, original_name, size, mime_type, storage_path, ai_description, superseded_at, created_at FROM intake_files WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, label, style, domain, status, length_words, length_pages, created_at, updated_at FROM intake_resumes WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, kind, recipient_name, recipient_role, reason_brief, staff_draft, marked_done_at, requested_at, created_at FROM intake_required_docs WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, school_name, program_name, status, deadline, created_at FROM intake_applications WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, notes, force_redraft, created_at FROM manual_ai_requests WHERE student_id = $1 ORDER BY id`, [sid]),
+      ]);
+
+    if (studentSnap.rows.length === 0) return res.status(404).json({ error: "student not found" });
+    const profileBefore = studentSnap.rows[0];
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const before = await client.query(
-        `SELECT student_id, username, display_name, intake_phase, intake_complete,
-                ai_artifacts_generated_at IS NOT NULL AS pipeline_run,
-                created_at
-           FROM intake_students WHERE student_id = $1`,
-        [sid]
-      );
-      if (before.rows.length === 0) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({ error: "student not found" });
-      }
       const deleted = {};
-      const r1 = await client.query(`DELETE FROM intake_files WHERE student_id = $1`, [sid]);
-      deleted.intake_files = r1.rowCount;
-      const r2 = await client.query(`DELETE FROM intake_required_docs WHERE student_id = $1`, [sid]);
-      deleted.intake_required_docs = r2.rowCount;
-      const r3 = await client.query(`DELETE FROM intake_resumes WHERE student_id = $1`, [sid]);
-      deleted.intake_resumes = r3.rowCount;
-      const r4 = await client.query(`DELETE FROM intake_applications WHERE student_id = $1`, [sid]);
-      deleted.intake_applications = r4.rowCount;
-      const r5 = await client.query(`DELETE FROM manual_ai_requests WHERE student_id = $1`, [sid]);
-      deleted.manual_ai_requests = r5.rowCount;
-      const r6 = await client.query(`DELETE FROM sessions WHERE student_id = $1`, [sid]);
-      deleted.sessions = r6.rowCount;
-      const r7 = await client.query(`DELETE FROM intake_students WHERE student_id = $1`, [sid]);
-      deleted.intake_students = r7.rowCount;
+      deleted.intake_files        = (await client.query(`DELETE FROM intake_files          WHERE student_id = $1`, [sid])).rowCount;
+      deleted.intake_required_docs= (await client.query(`DELETE FROM intake_required_docs  WHERE student_id = $1`, [sid])).rowCount;
+      deleted.intake_resumes      = (await client.query(`DELETE FROM intake_resumes         WHERE student_id = $1`, [sid])).rowCount;
+      deleted.intake_applications = (await client.query(`DELETE FROM intake_applications    WHERE student_id = $1`, [sid])).rowCount;
+      deleted.manual_ai_requests  = (await client.query(`DELETE FROM manual_ai_requests     WHERE student_id = $1`, [sid])).rowCount;
+      deleted.sessions            = (await client.query(`DELETE FROM sessions               WHERE student_id = $1`, [sid])).rowCount;
+      deleted.intake_students     = (await client.query(`DELETE FROM intake_students         WHERE student_id = $1`, [sid])).rowCount;
       await client.query("COMMIT");
-      res.json({ student_id: sid, profile_before: before.rows[0], deleted });
+
+      // Write the full snapshot to R2 after a successful commit.
+      await backupStudentEvent("delete", sid, {
+        actor: req.user.adminUsernameRaw,
+        student: profileBefore,
+        files: filesSnap.rows,
+        resumes: resumesSnap.rows,
+        required_docs: requiredDocsSnap.rows,
+        applications: applicationsSnap.rows,
+        manual_ai_requests: aiRequestsSnap.rows,
+        deleted_counts: deleted,
+      });
+
+      res.json({ student_id: sid, profile_before: profileBefore, deleted });
     } catch (e) {
       await client.query("ROLLBACK").catch(() => {});
       throw e;
