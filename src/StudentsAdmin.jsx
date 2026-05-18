@@ -6,7 +6,7 @@ import ResumeMarkdown from "./ResumeMarkdown.jsx";
 import ResumePdfPicker from "./resumePdf/index.jsx";
 import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
-import { PANEL_CHAPTERS } from "../lib/intakeSchema.js";
+import { PANEL_CHAPTERS, CHAPTERS } from "../lib/intakeSchema.js";
 import FinancialDocuments from "./FinancialDocuments.jsx";
 import StudentDashboard, {
   extractAnswers,
@@ -1101,7 +1101,7 @@ function StudentDetail({ detail, role, onRefresh }) {
   }, [student?.data?.autofilled_keys]);
 
   // Each step is one focused slide. The flow is:
-  //   1. For each chapter's pages, in order:
+  //   1. For each chapter's pages, in schema order:
   //      a. Pages with NO uploaded files → a single "page" slide
   //         showing the form fields (typed answers).
   //      b. Pages with exactly one uploaded file → ONE combined slide
@@ -1112,15 +1112,43 @@ function StudentDetail({ detail, role, onRefresh }) {
   //         — the per-doc slides cover the files), then ONE "doc-only"
   //         slide per file (PDF + AI analysis only). Avoids
   //         re-rendering the whole activities list for every proof PDF.
+  //      d. Pages with files but no typed answers (e.g. admin-recovered
+  //         uploads whose answer slot wasn't updated) → "doc-only" slides
+  //         so no empty form is shown alongside the document.
   //   2. Resumes step.
   //   3. Required documents step.
   const steps = useMemo(() => {
     const out = [];
     const allFiles = files || [];
+
+    // Index the answer-enriched pages by id so we can look them up
+    // while iterating the full schema.
+    const groupedPageMap = new Map();
     grouped.forEach((chapter) => {
       chapter.pages.forEach((page) => {
-        const pageFiles = filesForPage(page, allFiles);
+        groupedPageMap.set(page.id, { chapterTitle: chapter.title, page });
+      });
+    });
+
+    // Walk ALL chapters/pages in schema order. A page is included when:
+    //   • the student answered at least one field on it (via groupedPageMap), OR
+    //   • there is at least one active uploaded file whose field_id belongs
+    //     to this page (catches admin-recovered files or any upload where the
+    //     answer slot in data.answers wasn't updated).
+    for (const chapter of CHAPTERS) {
+      for (const schemaPage of chapter.pages) {
+        const entry = groupedPageMap.get(schemaPage.id);
+        // Use the answer-enriched page when available so field values render.
+        const page = entry ? entry.page : schemaPage;
+        // Always check files against the full schema fields (unfiltered by
+        // isFieldVisible) so hidden/conditional file fields are still found.
+        const pageFiles = filesForPage(schemaPage, allFiles);
+        const hasAnswers = !!entry;
+
+        if (!hasAnswers && pageFiles.length === 0) continue;
+
         if (pageFiles.length === 0) {
+          // Answers only, no files.
           out.push({
             kind: "page",
             chapterTitle: chapter.title,
@@ -1128,18 +1156,9 @@ function StudentDetail({ detail, role, onRefresh }) {
             eyebrow: chapter.title,
             title: page.title,
           });
-          return;
-        }
-        if (pageFiles.length === 1) {
-          // Single-doc page: use the page title (e.g. "Aadhar Card",
-          // "Class 10 Marks Sheet"). Earlier UI used the raw filename
-          // here, which exposed UIDAI / portal-generated names like
-          // "EAadhaar_0656…_page-0001 (1).jpg (1).jpeg". Files uploaded
-          // by the system (Aadhaar PDFs, exported marksheets, scanned
-          // photos) carry unhelpful names; the field/page label is the
-          // reliable anchor for a single-doc slide. (Multi-doc pages
-          // still use docNameFor() because activity proofs etc. are
-          // student-named and the user-typed labels are useful.)
+        } else if (hasAnswers && pageFiles.length === 1) {
+          // Answers + single file: combined slide.
+          // Use page title, not filename — system-generated names are noisy.
           out.push({
             kind: "page-with-doc",
             chapterTitle: chapter.title,
@@ -1148,32 +1167,44 @@ function StudentDetail({ detail, role, onRefresh }) {
             eyebrow: `${chapter.title} · ${page.title}`,
             title: page.title,
           });
-          return;
-        }
-        // Multi-doc page: summary first (form fields with file rows
-        // hidden, since the per-doc slides that follow render every
-        // file with its AI analysis), then one slide per document.
-        out.push({
-          kind: "review",
-          chapterTitle: chapter.title,
-          page,
-          fileCount: pageFiles.length,
-          eyebrow: chapter.title,
-          title: `${page.title} · summary`,
-        });
-        pageFiles.forEach((file, i) => {
+        } else if (hasAnswers) {
+          // Answers + multiple files: summary + per-doc slides.
           out.push({
-            kind: "doc-only",
+            kind: "review",
             chapterTitle: chapter.title,
             page,
-            file,
-            eyebrow: `${chapter.title} · ${page.title}`,
-            title: `${i + 1}/${pageFiles.length}: ${docNameFor(file)}`,
+            fileCount: pageFiles.length,
+            eyebrow: chapter.title,
+            title: `${page.title} · summary`,
           });
-        });
-      });
-    });
-    if (grouped.length === 0) {
+          pageFiles.forEach((file, i) => {
+            out.push({
+              kind: "doc-only",
+              chapterTitle: chapter.title,
+              page,
+              file,
+              eyebrow: `${chapter.title} · ${page.title}`,
+              title: `${i + 1}/${pageFiles.length}: ${docNameFor(file)}`,
+            });
+          });
+        } else {
+          // Files exist but no typed answers — show doc-only slides so the
+          // admin sees the document without an empty/misleading form block.
+          pageFiles.forEach((file, i) => {
+            out.push({
+              kind: "doc-only",
+              chapterTitle: chapter.title,
+              page,
+              file,
+              eyebrow: `${chapter.title} · ${page.title}`,
+              title: pageFiles.length === 1 ? page.title : `${i + 1}/${pageFiles.length}: ${docNameFor(file)}`,
+            });
+          });
+        }
+      }
+    }
+
+    if (out.length === 0) {
       out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
