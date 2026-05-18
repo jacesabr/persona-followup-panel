@@ -2425,8 +2425,8 @@ const DOC_GROUPS = [
     cols: [
       { key: "marks10sheet", label: "10th marksheet" },
       { key: "marks11sheet", label: "11th marksheet" },
-      { key: "marks12sheet", label: "12th marksheet" },
       { key: "marks12predictedSheet", label: "12th predicted" },
+      { key: "marks12sheet", label: "12th final" },
       { key: "admitCardFile", label: "Admit card" },
       { key: "transcript", label: "Transcript" },
       { key: "finalDegree", label: "Final degree" },
@@ -2447,6 +2447,8 @@ const DOC_GROUPS = [
       { key: "resumeFile", label: "Resume" },
     ],
   },
+  // Required Docs group is rendered dynamically via student.req_docs.
+  { label: "Required Docs", special: true, dynamic: true },
   {
     label: "Financial",
     cols: [
@@ -2528,6 +2530,47 @@ function DocChip({ col, docs, onShowPopup }) {
   );
 }
 
+function ReqDocsGroup({ reqdocs, onShowPopup }) {
+  if (!reqdocs || reqdocs.length === 0) {
+    return <span className="text-[11px] text-stone-400">None set up yet.</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {reqdocs.map((rd) => {
+        const done = rd.kind === "sop" ? !!rd.approved_by_admin_at : !!rd.final_file;
+        const kindLabel =
+          rd.kind === "lor" ? `LOR ${rd.seq}`
+          : rd.kind === "internship" ? `Internship ${rd.seq}`
+          : rd.kind === "ngo" ? `NGO ${rd.seq}`
+          : "SOP";
+        const chipKey = `${rd.kind}-${rd.seq}`;
+        if (done) {
+          const popupFile =
+            rd.kind === "sop"
+              ? { original_name: "Statement of Purpose", size: null, created_at: rd.approved_by_admin_at }
+              : rd.final_file;
+          return (
+            <button
+              key={chipKey}
+              className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+              onClick={() => onShowPopup({ col: { label: kindLabel }, file: popupFile })}
+            >
+              ✓ {kindLabel}
+              {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+            </button>
+          );
+        }
+        return (
+          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+            ✗ {kindLabel}
+            {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function StudentDocCard({ student, role, onShowPopup }) {
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-5">
@@ -2544,15 +2587,26 @@ function StudentDocCard({ student, role, onShowPopup }) {
       </div>
       <div className="space-y-3">
         {DOC_GROUPS.map((group) => (
-          <div key={group.label} className="flex items-start gap-4">
-            <span className="w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-400">
+          <div
+            key={group.label}
+            className={`flex items-start gap-4${group.special ? " mt-1 border-t border-stone-100 pt-3" : ""}`}
+          >
+            <span
+              className={`w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em]${
+                group.special ? " text-indigo-500" : " text-stone-400"
+              }`}
+            >
               {group.label}
             </span>
-            <div className="flex flex-wrap gap-1.5">
-              {group.cols.map((col) => (
-                <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={onShowPopup} />
-              ))}
-            </div>
+            {group.dynamic ? (
+              <ReqDocsGroup reqdocs={student.req_docs} onShowPopup={onShowPopup} />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {group.cols.map((col) => (
+                  <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={onShowPopup} />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

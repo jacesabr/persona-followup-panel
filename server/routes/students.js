@@ -1006,7 +1006,28 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_loan\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS loan_count,
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_networth\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS networth_count,
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_affidavit\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS affidavit_count,
-        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_banking\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS banking_count
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_banking\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS banking_count,
+        (SELECT json_agg(
+          json_build_object(
+            'kind', r.kind, 'seq', r.seq,
+            'label', CASE r.kind
+                       WHEN 'lor' THEN r.recipient_name
+                       WHEN 'internship' THEN r.company_name
+                       WHEN 'ngo' THEN r.company_name
+                       ELSE NULL END,
+            'approved_by_admin_at', r.approved_by_admin_at,
+            'final_file', CASE WHEN f.id IS NOT NULL THEN
+              json_build_object('original_name', f.original_name, 'size', f.size, 'created_at', f.created_at)
+              ELSE NULL END
+          ) ORDER BY
+            CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
+            r.seq
+        )
+        FROM intake_required_docs r
+        LEFT JOIN intake_files f ON f.id = r.final_file_id
+        WHERE r.student_id = s.student_id
+          AND (r.kind != 'lor' OR r.student_accepted_at IS NOT NULL)
+        ) AS req_docs
       FROM intake_students s
       LEFT JOIN counsellors c ON c.id = s.counsellor_id
       LEFT JOIN intake_financial_dossier d ON d.student_id = s.student_id
@@ -1039,6 +1060,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         display_name: r.display_name,
         counsellor_name: r.counsellor_name,
         docs,
+        req_docs: r.req_docs || [],
       };
     }));
   } catch (e) {
