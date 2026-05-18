@@ -1014,13 +1014,14 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
                        WHEN 'lor' THEN r.recipient_name
                        WHEN 'internship' THEN r.company_name
                        WHEN 'ngo' THEN r.company_name
+                       WHEN 'extracurricular' THEN r.company_name
                        ELSE NULL END,
             'approved_by_admin_at', r.approved_by_admin_at,
             'final_file', CASE WHEN f.id IS NOT NULL THEN
               json_build_object('original_name', f.original_name, 'size', f.size, 'created_at', f.created_at)
               ELSE NULL END
           ) ORDER BY
-            CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
+            CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'extracurricular' THEN 4 WHEN 'sop' THEN 5 ELSE 6 END,
             r.seq
         )
         FROM intake_required_docs r

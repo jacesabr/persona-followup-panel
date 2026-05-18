@@ -26,7 +26,7 @@ const router = express.Router();
 const isPositiveInt = (s) => /^[1-9][0-9]*$/.test(String(s));
 const isString = (v) => typeof v === "string";
 
-const KINDS = new Set(["lor", "internship", "sop", "ngo"]);
+const KINDS = new Set(["lor", "internship", "sop", "ngo", "extracurricular"]);
 
 function wordCount(s) {
   if (typeof s !== "string") return 0;
@@ -89,7 +89,7 @@ router.get("/student/:student_id", requireStaff, async (req, res, next) => {
          LEFT JOIN intake_files f ON f.id = r.final_file_id
         WHERE r.student_id = $1
         ORDER BY
-          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
+          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'extracurricular' THEN 4 WHEN 'sop' THEN 5 ELSE 6 END,
           r.seq`,
       [sid]
     );
@@ -259,7 +259,7 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
       const allRows = await client.query(
         `SELECT id, kind, seq, marked_done_at, requested_at
            FROM intake_required_docs
-          WHERE student_id = $1 AND kind IN ('lor','internship','ngo')
+          WHERE student_id = $1 AND kind IN ('lor','internship','ngo','extracurricular')
           ORDER BY kind, seq
           FOR UPDATE`,
         [sid]
@@ -288,7 +288,7 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
         `UPDATE intake_required_docs
             SET requested_at = $1, deadline_at = $2, updated_at = NOW()
           WHERE student_id = $3
-            AND kind IN ('lor','internship','ngo')
+            AND kind IN ('lor','internship','ngo','extracurricular')
             AND marked_done_at IS NOT NULL
             AND requested_at IS NULL`,
         [now, deadline, sid]
@@ -336,7 +336,7 @@ router.post("/student/:student_id", requireStaff, express.json(), async (req, re
     const body = req.body || {};
     const kind = isString(body.kind) ? body.kind.trim() : "";
     if (!KINDS.has(kind) || kind === "sop") {
-      return res.status(400).json({ error: "kind must be lor, internship, or ngo" });
+      return res.status(400).json({ error: "kind must be lor, internship, ngo, or extracurricular" });
     }
     const recipient_name  = isString(body.recipient_name)  ? body.recipient_name.trim()  : "";
     const recipient_role  = isString(body.recipient_role)  ? body.recipient_role.trim()  : "";
@@ -400,7 +400,7 @@ router.get("/me", requireStudent, async (req, res, next) => {
          LEFT JOIN intake_files f ON f.id = r.final_file_id
         WHERE r.student_id = $1
         ORDER BY
-          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'sop' THEN 4 ELSE 5 END,
+          CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'extracurricular' THEN 4 WHEN 'sop' THEN 5 ELSE 6 END,
           r.seq`,
       [req.user.studentId]
     );

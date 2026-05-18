@@ -844,6 +844,23 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
 );
 CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items(invoice_id, position);
 
+-- Saved B2B partners for quick invoice pre-fill. Stores the same
+-- fields as the invoice customer object so selecting a partner
+-- auto-populates the customer step in the wizard.
+CREATE TABLE IF NOT EXISTS invoice_partners (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  email      TEXT,
+  phone      TEXT,
+  state      TEXT,
+  state_code TEXT,
+  gstin      TEXT,
+  address    TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_invoice_partners_name ON invoice_partners(lower(name));
+
 -- ============================================================
 -- counsellor_task_assignees — multi-assignee junction table.
 -- One task can target N people, where each row is either a
@@ -907,12 +924,12 @@ SELECT t.id, t.assignee_kind,
      OR (t.assignee_kind = 'admin' AND t.assignee_admin_username IS NOT NULL)
        );
 
--- Widen intake_required_docs.kind to include 'ngo'.
+-- Widen intake_required_docs.kind to include 'ngo' and 'extracurricular'.
 -- DROP + re-ADD is idempotent: each deploy removes the old constraint
 -- (whatever version it is) and adds the latest definition.
 ALTER TABLE intake_required_docs DROP CONSTRAINT IF EXISTS intake_required_docs_kind_check;
 ALTER TABLE intake_required_docs ADD CONSTRAINT intake_required_docs_kind_check
-  CHECK (kind IN ('lor', 'internship', 'sop', 'ngo'));
+  CHECK (kind IN ('lor', 'internship', 'sop', 'ngo', 'extracurricular'));
 `;
 
 export async function migrate() {

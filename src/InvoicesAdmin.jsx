@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2, Plus, Trash2, FileText, Settings as SettingsIcon, History as HistoryIcon,
   Home, ChevronLeft, ChevronRight, X, Check, Upload, Image as ImageIcon,
-  Edit2, Copy, Printer, Zap, Download,
+  Edit2, Copy, Printer, Zap, Download, Building2,
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -130,10 +130,11 @@ function blankInvoice(type, suggestedNumber) {
 // =============================================================
 
 export default function InvoicesAdmin() {
-  const [view, setView] = useState("home"); // home | wizard | history | settings | preview
+  const [view, setView] = useState("home"); // home | wizard | history | settings | partners | preview
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState(null);
   const [invoices, setInvoices] = useState([]);
+  const [partners, setPartners] = useState([]);
   const [company, setCompany] = useState(EMPTY_COMPANY);
   const [logoBase64, setLogoBase64] = useState(null);
   const [signatureBase64, setSignatureBase64] = useState(null);
@@ -145,15 +146,17 @@ export default function InvoicesAdmin() {
     let alive = true;
     (async () => {
       try {
-        const [coRes, invList] = await Promise.all([
+        const [coRes, invList, partnerList] = await Promise.all([
           api.getCompanySettings(),
           api.listInvoices(),
+          api.listPartners(),
         ]);
         if (!alive) return;
         setCompany({ ...EMPTY_COMPANY, ...(coRes.data || {}) });
         setLogoBase64(coRes.logoBase64 || null);
         setSignatureBase64(coRes.signatureBase64 || null);
         setInvoices(invList || []);
+        setPartners(partnerList || []);
       } catch (e) {
         if (alive) setError(e.message);
       } finally {
@@ -169,6 +172,13 @@ export default function InvoicesAdmin() {
     try {
       const list = await api.listInvoices();
       setInvoices(list || []);
+    } catch (e) { setError(e.message); }
+  };
+
+  const refreshPartners = async () => {
+    try {
+      const list = await api.listPartners();
+      setPartners(list || []);
     } catch (e) { setError(e.message); }
   };
 
@@ -308,6 +318,7 @@ export default function InvoicesAdmin() {
           <SubNavButton active={view === "home"}     onClick={() => { setView("home"); setDraft(null); }} icon={<Home className="h-3.5 w-3.5" />} label="Home" />
           <SubNavButton active={view === "history"}  onClick={() => { setView("history"); setDraft(null); }} icon={<HistoryIcon className="h-3.5 w-3.5" />} label="History" />
           <SubNavButton active={view === "settings"} onClick={() => { setView("settings"); setDraft(null); }} icon={<SettingsIcon className="h-3.5 w-3.5" />} label="Invoice Info" />
+          <SubNavButton active={view === "partners"} onClick={() => { setView("partners"); setDraft(null); }} icon={<Building2 className="h-3.5 w-3.5" />} label="Partners" />
         </div>
         {(view === "home" || view === "history") && (
           <button
@@ -364,6 +375,13 @@ export default function InvoicesAdmin() {
         />
       )}
 
+      {view === "partners" && (
+        <PartnersView
+          partners={partners}
+          onRefresh={refreshPartners}
+        />
+      )}
+
       {view === "wizard" && (
         <Wizard
           step={step}
@@ -371,6 +389,8 @@ export default function InvoicesAdmin() {
           draft={draft}
           setDraft={setDraft}
           company={company}
+          partners={partners}
+          onPartnerSaved={refreshPartners}
           onChooseType={chooseType}
           onConfirm={confirmAndPreview}
           onApprove={approveDraft}
@@ -1127,7 +1147,151 @@ function sampleFillFor(type) {
   return null;
 }
 
-function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onConfirm, onApprove, onCancel }) {
+// ============================================================
+// Partners view — manage the saved B2B business list
+// ============================================================
+
+const EMPTY_PARTNER_FORM = { name: "", email: "", phone: "", state: "", stateCode: "", gstin: "", address: "" };
+
+function PartnersView({ partners, onRefresh }) {
+  const [editing, setEditing] = useState(null); // null | "new" | partner object
+  const [form, setForm] = useState(EMPTY_PARTNER_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const pset = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const openNew = () => { setForm(EMPTY_PARTNER_FORM); setEditing("new"); setErr(null); };
+  const openEdit = (p) => {
+    setForm({ name: p.name, email: p.email, phone: p.phone, state: p.state, stateCode: p.stateCode, gstin: p.gstin, address: p.address });
+    setEditing(p);
+    setErr(null);
+  };
+  const cancel = () => { setEditing(null); setErr(null); };
+
+  const save = async () => {
+    if (!form.name.trim()) { setErr("Business name is required."); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      if (editing === "new") {
+        await api.createPartner(form);
+      } else {
+        await api.updatePartner(editing.id, form);
+      }
+      await onRefresh();
+      setEditing(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id) => {
+    if (!confirm("Remove this partner? This won't affect existing invoices.")) return;
+    setDeleting(id);
+    try {
+      await api.deletePartner(id);
+      await onRefresh();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-stone-900">Saved Partners</h2>
+          <p className="mt-0.5 text-sm text-stone-800">Business details saved here pre-fill the customer step when creating B2B invoices.</p>
+        </div>
+        {!editing && (
+          <button onClick={openNew} className="inline-flex items-center gap-1 border border-[#cc785c] bg-[#cc785c] px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-white hover:bg-[#b86a4f]">
+            <Plus className="h-3 w-3" /> Add partner
+          </button>
+        )}
+      </div>
+
+      {err && (
+        <div className="flex items-start justify-between border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <span>{err}</span>
+          <button onClick={() => setErr(null)} className="ml-2 text-red-600 hover:text-red-900"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+
+      {editing && (
+        <div className="border border-stone-400 bg-white p-4 space-y-3">
+          <p className="text-[11px] uppercase tracking-[0.15em] text-stone-600">{editing === "new" ? "New partner" : "Edit partner"}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Business name" w="col-span-2">
+              <input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={form.name} onChange={(e) => pset("name", e.target.value)} />
+            </Field>
+            <Field label="Email"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={form.email} onChange={(e) => pset("email", e.target.value)} /></Field>
+            <Field label="Phone"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={form.phone} onChange={(e) => pset("phone", e.target.value)} /></Field>
+            <Field label="State / Country">
+              <select className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={form.state} onChange={(e) => pset("state", e.target.value)}>
+                <option value="">— select state —</option>
+                {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                <option disabled>──────</option>
+                <option value="United Kingdom">United Kingdom</option>
+                <option value="United States">United States</option>
+                <option value="Australia">Australia</option>
+                <option value="Canada">Canada</option>
+                <option value="Other">Other</option>
+              </select>
+            </Field>
+            <Field label="State code"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={form.stateCode} onChange={(e) => pset("stateCode", e.target.value)} placeholder="e.g. 27" /></Field>
+            <Field label="GSTIN"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={form.gstin} onChange={(e) => pset("gstin", e.target.value)} /></Field>
+            <Field label="Address" w="col-span-2">
+              <textarea rows={2} className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={form.address} onChange={(e) => pset("address", e.target.value)} />
+            </Field>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={save} disabled={saving} className="inline-flex items-center gap-1 border border-stone-900 bg-stone-900 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-white hover:bg-stone-700 disabled:opacity-50">
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Save
+            </button>
+            <button onClick={cancel} className="border border-stone-300 px-3 py-1 text-[11px] uppercase tracking-[0.15em] text-stone-700 hover:border-stone-900">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {partners.length === 0 && !editing ? (
+        <div className="border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-700">
+          No saved partners yet. Add a partner above and it will appear in the dropdown when creating B2B invoices.
+        </div>
+      ) : (
+        <div className="divide-y divide-stone-200 border border-stone-300 bg-white">
+          {partners.map((p) => (
+            <div key={p.id} className="flex items-start justify-between gap-4 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-stone-900">{p.name}</p>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-stone-700">
+                  {p.gstin && <span className="font-mono">GSTIN: {p.gstin}</span>}
+                  {p.state && <span>{p.state}{p.stateCode ? ` (${p.stateCode})` : ""}</span>}
+                  {p.email && <span>{p.email}</span>}
+                  {p.phone && <span>{p.phone}</span>}
+                </div>
+                {p.address && <p className="mt-0.5 text-xs text-stone-600">{p.address}</p>}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button onClick={() => openEdit(p)} className="border border-stone-300 p-1 text-stone-600 hover:border-stone-700 hover:text-stone-900" title="Edit"><Edit2 className="h-3 w-3" /></button>
+                <button onClick={() => remove(p.id)} disabled={deleting === p.id} className="border border-stone-300 p-1 text-stone-600 hover:border-red-400 hover:text-red-600 disabled:opacity-40" title="Remove">
+                  {deleting === p.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Wizard({ step, setStep, draft, setDraft, company, partners, onPartnerSaved, onChooseType, onConfirm, onApprove, onCancel }) {
   return (
     <div>
       <div className="mb-4 flex items-center gap-2">
@@ -1160,7 +1324,7 @@ function Wizard({ step, setStep, draft, setDraft, company, onChooseType, onConfi
       </div>
 
       {step === 1 && <StepType onChoose={onChooseType} />}
-      {step === 2 && draft && <StepCustomer draft={draft} setDraft={setDraft} onBack={() => setStep(1)} onNext={() => setStep(3)} />}
+      {step === 2 && draft && <StepCustomer draft={draft} setDraft={setDraft} partners={partners || []} onPartnerSaved={onPartnerSaved} onBack={() => setStep(1)} onNext={() => setStep(3)} />}
       {step === 3 && draft && <StepItems draft={draft} setDraft={setDraft} company={company} onBack={() => setStep(2)} onNext={() => setStep(4)} />}
       {step === 4 && draft && (
         <StepReview
@@ -1196,10 +1360,40 @@ function StepType({ onChoose }) {
   );
 }
 
-function StepCustomer({ draft, setDraft, onBack, onNext }) {
+function StepCustomer({ draft, setDraft, partners, onPartnerSaved, onBack, onNext }) {
   const c = draft.customer || {};
   const set = (k, v) => setDraft((p) => ({ ...p, customer: { ...p.customer, [k]: v } }));
   const isIntl = draft.type === "b2b_intl";
+  const isB2B = draft.type !== "retail";
+  const [savingPartner, setSavingPartner] = useState(false);
+  const [partnerFlash, setPartnerFlash] = useState(null); // "saved" | "exists"
+
+  const applyPartner = (partnerId) => {
+    if (!partnerId) return;
+    const p = partners.find((x) => x.id === partnerId);
+    if (!p) return;
+    setDraft((prev) => ({
+      ...prev,
+      customer: { name: p.name, email: p.email, phone: p.phone, state: p.state, stateCode: p.stateCode, gstin: p.gstin, address: p.address },
+    }));
+  };
+
+  const saveToPartners = async () => {
+    if (!c.name) return;
+    setSavingPartner(true);
+    setPartnerFlash(null);
+    try {
+      await api.createPartner({ name: c.name, email: c.email, phone: c.phone, state: c.state, stateCode: c.stateCode, gstin: c.gstin, address: c.address });
+      await onPartnerSaved();
+      setPartnerFlash("saved");
+      setTimeout(() => setPartnerFlash(null), 2500);
+    } catch {
+      setPartnerFlash("error");
+      setTimeout(() => setPartnerFlash(null), 2500);
+    } finally {
+      setSavingPartner(false);
+    }
+  };
 
   const autofill = () => {
     const sample = sampleFillFor(draft.type);
@@ -1231,6 +1425,26 @@ function StepCustomer({ draft, setDraft, onBack, onNext }) {
           <Zap className="h-3 w-3" /> Fill with sample
         </button>
       </div>
+
+      {isB2B && (
+        <div className="flex items-center gap-3 border border-stone-300 bg-stone-50 px-3 py-2.5">
+          <Building2 className="h-3.5 w-3.5 shrink-0 text-stone-500" />
+          <span className="text-[11px] uppercase tracking-[0.15em] text-stone-600 whitespace-nowrap">Saved partner</span>
+          <select
+            className="flex-1 border border-stone-300 bg-white px-2 py-1 text-sm"
+            value=""
+            onChange={(e) => applyPartner(e.target.value)}
+          >
+            <option value="">— select to pre-fill —</option>
+            {partners.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.gstin ? ` · ${p.gstin}` : ""}</option>
+            ))}
+          </select>
+          {partners.length === 0 && (
+            <span className="text-xs text-stone-500">No saved partners yet</span>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 border border-stone-300 bg-white p-4">
         <Field label="Invoice number"><input className="w-full border border-stone-300 bg-white px-2 py-1 text-sm font-mono" value={draft.invoiceNumber} onChange={(e) => setDraft((p) => ({ ...p, invoiceNumber: e.target.value }))} /></Field>
@@ -1267,6 +1481,22 @@ function StepCustomer({ draft, setDraft, onBack, onNext }) {
         )}
         <Field label="Address" w="col-span-2"><textarea rows={3} className="w-full border border-stone-300 bg-white px-2 py-1 text-sm" value={c.address || ""} onChange={(e) => set("address", e.target.value)} /></Field>
       </div>
+
+      {isB2B && (
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={saveToPartners}
+            disabled={savingPartner || !c.name}
+            className="inline-flex items-center gap-1.5 border border-stone-300 bg-stone-50 px-2.5 py-1 text-[11px] uppercase tracking-[0.2em] text-stone-700 hover:border-stone-900 hover:bg-stone-100 disabled:opacity-40"
+          >
+            {savingPartner ? <Loader2 className="h-3 w-3 animate-spin" /> : <Building2 className="h-3 w-3" />}
+            {partnerFlash === "saved" ? "Saved!" : "Save to partners"}
+          </button>
+          {partnerFlash === "saved" && <span className="text-xs text-stone-600">Business added to saved partners</span>}
+          {partnerFlash === "error" && <span className="text-xs text-red-700">Could not save — try again</span>}
+        </div>
+      )}
 
       <WizNav onBack={onBack} onNext={onNext} nextDisabled={!c.name} />
     </div>

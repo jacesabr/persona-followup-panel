@@ -264,7 +264,7 @@ export default function StudentDashboard({
           <section className={section ? "" : "mt-10"}>
             <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
             <p className="mt-1 text-sm text-stone-800">
-              Letters of recommendation, internship certificates, NGO documents, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
+              Letters of recommendation, internship certificates, NGO documents, extracurricular letters, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
             <RequiredDocsBlock
               docs={requiredDocs}
@@ -341,6 +341,8 @@ function collectUrgentItems({ requiredDocs, applications }) {
       ? `LOR ${d.seq} — ${d.recipient_name || "recommender"}`
       : d.kind === "ngo"
       ? `NGO ${d.seq} — ${d.company_name || "organisation"}`
+      : d.kind === "extracurricular"
+      ? `Extracurricular ${d.seq} — ${d.company_name || "activity"}`
       : `Internship ${d.seq} — ${d.company_name || "company"}`;
     items.push({
       key: `doc_${d.id}`,
@@ -633,6 +635,7 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
   const kindLabel = doc.kind === "lor" ? `LOR ${doc.seq}` :
                     doc.kind === "internship" ? `Internship ${doc.seq}` :
                     doc.kind === "ngo" ? `NGO ${doc.seq}` :
+                    doc.kind === "extracurricular" ? `Extracurricular ${doc.seq}` :
                     "Statement of Purpose";
 
   const summary = doc.kind === "lor"
@@ -640,6 +643,8 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
     : doc.kind === "internship"
     ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
     : doc.kind === "ngo"
+    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
+    : doc.kind === "extracurricular"
     ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
     : "Drafted by your counsellor; approved by admin.";
 

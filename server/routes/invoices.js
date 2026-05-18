@@ -294,6 +294,73 @@ router.get("/next-number", requireAdmin, async (req, res, next) => {
   }
 });
 
+// ============================================================
+// Partners (saved businesses for invoice pre-fill)
+// Routes must be defined before /:id to avoid Express treating
+// "partners" as an invoice ID.
+// ============================================================
+
+router.get("/partners", requireAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM invoice_partners ORDER BY lower(name) ASC`
+    );
+    res.json(rows.map(rowToPartner));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/partners", requireAdmin, async (req, res, next) => {
+  try {
+    const { name, email, phone, state, stateCode, gstin, address } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const id = randomUUID();
+    const { rows } = await pool.query(
+      `INSERT INTO invoice_partners (id, name, email, phone, state, state_code, gstin, address)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id, name.trim(), email || null, phone || null, state || null, stateCode || null, gstin || null, address || null]
+    );
+    res.status(201).json(rowToPartner(rows[0]));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put("/partners/:id", requireAdmin, async (req, res, next) => {
+  try {
+    const { name, email, phone, state, stateCode, gstin, address } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE invoice_partners
+       SET name=$1, email=$2, phone=$3, state=$4, state_code=$5, gstin=$6, address=$7, updated_at=NOW()
+       WHERE id=$8 RETURNING *`,
+      [name.trim(), email || null, phone || null, state || null, stateCode || null, gstin || null, address || null, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "partner not found" });
+    res.json(rowToPartner(rows[0]));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete("/partners/:id", requireAdmin, async (req, res, next) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM invoice_partners WHERE id = $1`,
+      [req.params.id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: "partner not found" });
+    res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get("/:id", requireAdmin, async (req, res, next) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM invoices WHERE id = $1`, [req.params.id]);
@@ -586,6 +653,21 @@ router.post("/:id/pdf", requireAdmin, rawPdf, async (req, res, next) => {
 // ============================================================
 // Helpers
 // ============================================================
+
+function rowToPartner(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email || "",
+    phone: row.phone || "",
+    state: row.state || "",
+    stateCode: row.state_code || "",
+    gstin: row.gstin || "",
+    address: row.address || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 async function fetchInvoice(id) {
   const { rows } = await pool.query(`SELECT * FROM invoices WHERE id = $1`, [id]);

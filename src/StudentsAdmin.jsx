@@ -1651,10 +1651,11 @@ function RequiredDocsStaff({ studentId, role }) {
   const lors = docs.filter((d) => d.kind === "lor");
   const interns = docs.filter((d) => d.kind === "internship");
   const ngos = docs.filter((d) => d.kind === "ngo");
+  const extracurriculars = docs.filter((d) => d.kind === "extracurricular");
   const sop = docs.find((d) => d.kind === "sop");
 
-  const allLIDone = [...lors, ...interns, ...ngos].every((d) => d.marked_done_at);
-  const anyLIPending = [...lors, ...interns, ...ngos].some((d) => d.marked_done_at && !d.requested_at);
+  const allLIDone = [...lors, ...interns, ...ngos, ...extracurriculars].every((d) => d.marked_done_at);
+  const anyLIPending = [...lors, ...interns, ...ngos, ...extracurriculars].some((d) => d.marked_done_at && !d.requested_at);
 
   const saveDraft = async (id) => {
     setBusy((p) => ({ ...p, [id]: true }));
@@ -1696,7 +1697,7 @@ function RequiredDocsStaff({ studentId, role }) {
   };
 
   const sendBulk = async () => {
-    if (!confirm(`Send all marked-done LOR, Internship & NGO requests to the student? Deadline: 5 business days.`)) return;
+    if (!confirm(`Send all marked-done LOR, Internship, NGO & Extracurricular requests to the student? Deadline: 5 business days.`)) return;
     setBulkBusy(true);
     try {
       await api.sendRequiredDocRequests(studentId);
@@ -1768,6 +1769,21 @@ function RequiredDocsStaff({ studentId, role }) {
         ))}
       </div>
 
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-black">Extracurricular</p>
+        {extracurriculars.map((d) => (
+          <DocStaffCard
+            key={d.id}
+            doc={d}
+            draft={drafts[d.id] ?? ""}
+            onDraftChange={(v) => setDrafts((p) => ({ ...p, [d.id]: v }))}
+            onSave={() => saveDraft(d.id)}
+            onToggleDone={() => toggleDone(d)}
+            busy={!!busy[d.id]}
+          />
+        ))}
+      </div>
+
       <AddRequiredDocCard studentId={studentId} onAdded={refresh} />
 
       {sop && (
@@ -1796,7 +1812,7 @@ function RequiredDocsStaff({ studentId, role }) {
             ? anyLIPending
               ? "All drafts ready. Send when you're set."
               : "All requests already sent."
-            : `Mark every LOR, internship & NGO as done before sending.`}
+            : `Mark every LOR, internship, NGO & extracurricular as done before sending.`}
         </span>
         <button
           type="button"
@@ -1822,6 +1838,8 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
     ? `Internship ${doc.seq} — ${doc.company_name || "(no company)"}`
     : doc.kind === "ngo"
     ? `NGO ${doc.seq} — ${doc.company_name || "(no organisation)"}`
+    : doc.kind === "extracurricular"
+    ? `Extracurricular ${doc.seq} — ${doc.company_name || "(no activity)"}`
     : "SOP";
 
   return (
@@ -1864,10 +1882,10 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
           <span className="font-semibold">Reason:</span> {doc.reason_brief || "—"}
         </p>
       )}
-      {(doc.kind === "internship" || doc.kind === "ngo") && (
+      {(doc.kind === "internship" || doc.kind === "ngo" || doc.kind === "extracurricular") && (
         <p className="mt-2 text-base text-black">
           {doc.company_website ? <><span className="font-semibold">Website:</span> {doc.company_website} — </> : null}
-          <span className="font-semibold">{doc.kind === "ngo" ? "What they did:" : "What they did:"}</span> {doc.activity_brief || "—"}
+          <span className="font-semibold">What they did:</span> {doc.activity_brief || "—"}
         </p>
       )}
 
@@ -1875,7 +1893,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
         rows={5}
         value={draft || ""}
         onChange={(e) => onDraftChange(e.target.value)}
-        placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship / NGO document. The student will print this on the recommender's letterhead."}
+        placeholder={isSop ? "Draft the SOP here. Admin must approve before it shows on the student's dashboard." : "Draft the LOR / internship / NGO / extracurricular document. The student will print this on the recommender's letterhead."}
         className="mt-2 w-full border border-stone-300 bg-[#faf9f5] p-2 font-serif text-sm text-black outline-none focus:border-stone-900"
       />
 
@@ -1935,7 +1953,7 @@ function DocStaffCard({ doc, draft, onDraftChange, onSave, onToggleDone, onToggl
 }
 
 // AddRequiredDocCard — inline form to create an extra required-doc row
-// (LOR, Internship, or NGO) for a student from the admin panel.
+// (LOR, Internship, NGO, or Extracurricular) for a student from the admin panel.
 function AddRequiredDocCard({ studentId, onAdded }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("internship");
@@ -2006,6 +2024,7 @@ function AddRequiredDocCard({ studentId, onAdded }) {
           <option value="lor">LOR (Letter of Recommendation)</option>
           <option value="internship">Internship</option>
           <option value="ngo">NGO</option>
+          <option value="extracurricular">Extracurricular</option>
         </select>
       </label>
 
@@ -2045,12 +2064,12 @@ function AddRequiredDocCard({ studentId, onAdded }) {
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="block">
-            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">{kind === "ngo" ? "Organisation name" : "Company name"}</span>
+            <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">{kind === "ngo" || kind === "extracurricular" ? "Organisation / activity name" : "Company name"}</span>
             <input
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              placeholder={kind === "ngo" ? "e.g. Teach for India" : "e.g. Google"}
+              placeholder={kind === "ngo" ? "e.g. Teach for India" : kind === "extracurricular" ? "e.g. School Robotics Club" : "e.g. Google"}
               className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
             />
           </label>
@@ -2060,7 +2079,7 @@ function AddRequiredDocCard({ studentId, onAdded }) {
               type="text"
               value={companyWebsite}
               onChange={(e) => setCompanyWebsite(e.target.value)}
-              placeholder={kind === "ngo" ? "e.g. teachforindia.org" : "e.g. google.com"}
+              placeholder={kind === "ngo" ? "e.g. teachforindia.org" : kind === "extracurricular" ? "e.g. school.edu/robotics" : "e.g. google.com"}
               className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
             />
           </label>
@@ -2542,6 +2561,7 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
           rd.kind === "lor" ? `LOR ${rd.seq}`
           : rd.kind === "internship" ? `Internship ${rd.seq}`
           : rd.kind === "ngo" ? `NGO ${rd.seq}`
+          : rd.kind === "extracurricular" ? `Extracurricular ${rd.seq}`
           : "SOP";
         const chipKey = `${rd.kind}-${rd.seq}`;
         if (done) {
