@@ -767,8 +767,8 @@ router.post("/:student_id/hard-delete", requireStaff, async (req, res, next) => 
         pool.query(`SELECT id, field_id, row_index, original_name, size, mime_type, storage_path, ai_description, superseded_at, created_at FROM intake_files WHERE student_id = $1 ORDER BY id`, [sid]),
         pool.query(`SELECT id, label, style, domain, status, length_words, length_pages, created_at, updated_at FROM intake_resumes WHERE student_id = $1 ORDER BY id`, [sid]),
         pool.query(`SELECT id, kind, recipient_name, recipient_role, reason_brief, staff_draft, marked_done_at, requested_at, created_at FROM intake_required_docs WHERE student_id = $1 ORDER BY id`, [sid]),
-        pool.query(`SELECT id, school_name, program_name, status, deadline, created_at FROM intake_applications WHERE student_id = $1 ORDER BY id`, [sid]),
-        pool.query(`SELECT id, notes, force_redraft, created_at FROM manual_ai_requests WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, university, program, status, deadline, created_at FROM intake_applications WHERE student_id = $1 ORDER BY id`, [sid]),
+        pool.query(`SELECT id, notes, force_redraft, requested_at FROM manual_ai_requests WHERE student_id = $1 ORDER BY id`, [sid]),
       ]);
 
     if (studentSnap.rows.length === 0) return res.status(404).json({ error: "student not found" });
