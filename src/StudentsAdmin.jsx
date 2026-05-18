@@ -2528,7 +2528,7 @@ function DocChip({ col, docs, onShowPopup }) {
         ✓ {col.label}
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+      <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
         ✗ {col.label}
       </span>
     );
@@ -2543,7 +2543,7 @@ function DocChip({ col, docs, onShowPopup }) {
       ✓ {col.label}
     </button>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+    <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
       ✗ {col.label}
     </span>
   );
@@ -2581,7 +2581,7 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
           );
         }
         return (
-          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
             ✗ {kindLabel}
             {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
           </span>
@@ -2666,7 +2666,7 @@ function StudentDocumentsChecklist({ role }) {
   return (
     <div>
       <p className="mb-5 text-sm text-stone-800">
-        Document status across all active students. Green chips = uploaded — click to see file details. Muted chips = missing or not applicable.
+        Document status across all active students. Green chips = uploaded — click to see file details. Red chips = missing.
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
