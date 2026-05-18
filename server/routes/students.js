@@ -1031,21 +1031,21 @@ router.post("/me/request-ai-fill", requireStudent, express.json(), async (req, r
     const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() || null : null;
     // Return existing pending row rather than inserting a duplicate.
     const existing = await pool.query(
-      `SELECT id, created_at FROM manual_ai_requests
+      `SELECT id, requested_at FROM manual_ai_requests
         WHERE student_id = $1 AND processed_at IS NULL
-        ORDER BY created_at DESC LIMIT 1`,
+        ORDER BY requested_at DESC LIMIT 1`,
       [sid]
     );
     if (existing.rows.length > 0) {
-      return res.json({ ok: true, already_pending: true, request_id: existing.rows[0].id, requested_at: existing.rows[0].created_at });
+      return res.json({ ok: true, already_pending: true, request_id: existing.rows[0].id, requested_at: existing.rows[0].requested_at });
     }
     const ins = await pool.query(
       `INSERT INTO manual_ai_requests (student_id, requested_by_kind, notes)
        VALUES ($1, 'student', $2)
-       RETURNING id, created_at`,
+       RETURNING id, requested_at`,
       [sid, notes]
     );
-    res.json({ ok: true, already_pending: false, request_id: ins.rows[0].id, requested_at: ins.rows[0].created_at });
+    res.json({ ok: true, already_pending: false, request_id: ins.rows[0].id, requested_at: ins.rows[0].requested_at });
   } catch (e) { next(e); }
 });
 
@@ -1056,9 +1056,9 @@ router.get("/me/ai-fill-status", requireStudent, async (req, res, next) => {
     const sid = req.user.studentId;
     const [reqRow, studentRow] = await Promise.all([
       pool.query(
-        `SELECT id, notes, processed_at, created_at FROM manual_ai_requests
+        `SELECT id, notes, processed_at, requested_at FROM manual_ai_requests
           WHERE student_id = $1
-          ORDER BY created_at DESC LIMIT 1`,
+          ORDER BY requested_at DESC LIMIT 1`,
         [sid]
       ),
       pool.query(
@@ -1072,7 +1072,7 @@ router.get("/me/ai-fill-status", requireStudent, async (req, res, next) => {
       has_request: !!req_,
       pending: req_ ? !req_.processed_at : false,
       processed: req_ ? !!req_.processed_at : false,
-      requested_at: req_?.created_at || null,
+      requested_at: req_?.requested_at || null,
       processed_at: req_?.processed_at || null,
       artifacts_ready: artifactsReady,
     });
