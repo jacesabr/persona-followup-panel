@@ -102,7 +102,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
       <div className="mb-5 flex items-end gap-1 border-b border-stone-300">
         <StudentSubTab label="Roster" active={subTab === "roster"} onClick={() => setSubTab("roster")} />
         <StudentSubTab
-          label="Financial Documents"
+          label="Documents"
           active={subTab === "financial"}
           onClick={() => setSubTab("financial")}
         />
@@ -202,7 +202,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
       )}
 
       {subTab === "financial" && (
-        <StudentFinancialChecklist role={role} />
+        <StudentDocumentsChecklist role={role} />
       )}
 
       {credentialsModal && (
@@ -2359,31 +2359,164 @@ function StudentCommsTab({ students, loading, onResetPassword }) {
 }
 
 // ============================================================
-// StudentFinancialChecklist — one row per student, one column per
-// financial section. Green box = at least one file uploaded (or
-// travel trips logged); red box = nothing yet; grey "N/A" = student
-// marked the section as not applicable (loan only).
-// Loads from GET /api/students/financial-summary.
+// StudentDocumentsChecklist — one row per student, one column per
+// intake document slot (ID, Academic, Tests, Profile, Financial).
+// Green = file uploaded; red = nothing yet; grey N/A = not applicable.
+// Clicking a green cell pops up filename / size / date.
+// Loads from GET /api/students/documents-summary.
 // ============================================================
-const FIN_SECTIONS = [
-  { key: "itr", label: "ITR" },
-  { key: "income", label: "Income" },
-  { key: "business", label: "Business" },
-  { key: "kyc", label: "KYC" },
-  { key: "loan", label: "Loan" },
-  { key: "networth", label: "Net Worth" },
-  { key: "affidavit", label: "Affidavit" },
-  { key: "banking", label: "Banking" },
-  { key: "travel", label: "Travel" },
+
+function fmtBytes(n) {
+  if (!n) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const DOC_GROUPS = [
+  {
+    label: "ID",
+    cols: [
+      { key: "aadharFile", label: "Aadhaar" },
+      { key: "photoFile", label: "Photo" },
+      { key: "passportFrontBack", label: "Passport" },
+      { key: "passportFront", label: "Passp. Front" },
+      { key: "passportLast", label: "Passp. Last" },
+    ],
+  },
+  {
+    label: "Academic",
+    cols: [
+      { key: "marks10sheet", label: "10th" },
+      { key: "marks11sheet", label: "11th" },
+      { key: "marks12sheet", label: "12th" },
+      { key: "admitCardFile", label: "Admit Card" },
+      { key: "transcript", label: "Transcript" },
+      { key: "finalDegree", label: "Degree" },
+      { key: "semesterTranscripts", label: "Sem. Trans." },
+    ],
+  },
+  {
+    label: "Tests",
+    cols: [
+      { key: "ielts_result", label: "IELTS" },
+      { key: "toefl_result", label: "TOEFL" },
+      { key: "sat_result", label: "SAT/ACT" },
+    ],
+  },
+  {
+    label: "Profile",
+    cols: [
+      { key: "resumeFile", label: "Resume" },
+      { key: "sop", label: "SOP" },
+      { key: "lor1", label: "LOR 1" },
+      { key: "lor2", label: "LOR 2" },
+      { key: "lor3", label: "LOR 3" },
+      { key: "internship1", label: "Internship 1" },
+      { key: "internship2", label: "Internship 2" },
+    ],
+  },
+  {
+    label: "Financial",
+    cols: [
+      { key: "itr", label: "ITR", fin: true },
+      { key: "income", label: "Income", fin: true },
+      { key: "business", label: "Business", fin: true },
+      { key: "kyc", label: "KYC", fin: true },
+      { key: "loan", label: "Loan", fin: true },
+      { key: "networth", label: "Net Worth", fin: true },
+      { key: "affidavit", label: "Affidavit", fin: true },
+      { key: "banking", label: "Banking", fin: true },
+      { key: "travel", label: "Travel", fin: true },
+    ],
+  },
 ];
 
-function StudentFinancialChecklist({ role }) {
+const ALL_COLS = DOC_GROUPS.flatMap((g) => g.cols);
+
+function FilePopup({ col, file, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-lg border border-stone-300 bg-white p-5 shadow-xl"
+        style={{ minWidth: 280, maxWidth: 360 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="absolute right-3 top-3 text-stone-400 hover:text-stone-700"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-500">{col.label}</p>
+        <p className="mb-1 break-all text-sm font-medium text-black">{file.original_name}</p>
+        <div className="flex gap-4 text-sm text-stone-600">
+          {file.size && <span>{fmtBytes(file.size)}</span>}
+          {file.created_at && <span>{fmtDate(file.created_at)}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocCell({ col, docs }) {
+  const [popup, setPopup] = useState(false);
+  const val = docs[col.key];
+
+  if (col.fin) {
+    if (val === null) {
+      return (
+        <td className="py-2.5 pr-1 text-center">
+          <span className="inline-block rounded border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-500">N/A</span>
+        </td>
+      );
+    }
+    return (
+      <td className="py-2.5 pr-1 text-center">
+        {val ? (
+          <span className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700">✓</span>
+        ) : (
+          <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
+        )}
+      </td>
+    );
+  }
+
+  const file = val;
+  return (
+    <td className="py-2.5 pr-1 text-center">
+      {file ? (
+        <>
+          <button
+            className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+            onClick={() => setPopup(true)}
+          >
+            ✓
+          </button>
+          {popup && <FilePopup col={col} file={file} onClose={() => setPopup(false)} />}
+        </>
+      ) : (
+        <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
+      )}
+    </td>
+  );
+}
+
+function StudentDocumentsChecklist({ role }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.listStudentsFinancialSummary()
+    api.listStudentsDocumentsSummary()
       .then(setRows)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -2408,7 +2541,7 @@ function StudentFinancialChecklist({ role }) {
   return (
     <div>
       <p className="mb-4 text-sm text-stone-800">
-        Financial document status across all active students. Green = at least one file uploaded for that section; red = nothing uploaded yet; grey = not applicable.
+        Document status across all active students. Green = uploaded; red = missing; grey = not applicable. Click a green cell to see file details.
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
@@ -2416,40 +2549,42 @@ function StudentFinancialChecklist({ role }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-300 text-left text-[10px] uppercase tracking-[0.2em] text-stone-600">
+              <tr className="text-left text-[10px] uppercase tracking-[0.2em] text-stone-500">
+                <th className="pb-1 pr-6 font-normal" />
+                {role === "admin" && <th className="pb-1 pr-6 font-normal" />}
+                {DOC_GROUPS.map((g) => (
+                  <th
+                    key={g.label}
+                    colSpan={g.cols.length}
+                    className="pb-1 pr-1 text-center font-semibold tracking-[0.15em] text-stone-700 border-b border-stone-200"
+                  >
+                    {g.label}
+                  </th>
+                ))}
+              </tr>
+              <tr className="border-b border-stone-300 text-left text-[9px] uppercase tracking-[0.15em] text-stone-500">
                 <th className="pb-2 pr-6 font-normal">Student</th>
                 {role === "admin" && <th className="pb-2 pr-6 font-normal">Counsellor</th>}
-                {FIN_SECTIONS.map((s) => (
-                  <th key={s.key} className="pb-2 pr-2 text-center font-normal">{s.label}</th>
+                {ALL_COLS.map((c) => (
+                  <th key={c.key} className="pb-2 pr-1 text-center font-normal whitespace-nowrap">{c.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {rows.map((r) => (
                 <tr key={r.student_id}>
-                  <td className="py-2.5 pr-6">
+                  <td className="py-2.5 pr-6 whitespace-nowrap">
                     <span className="font-medium text-black">{r.display_name || r.username}</span>
                     {r.display_name && (
                       <span className="ml-2 font-mono text-[10px] text-stone-500">{r.username}</span>
                     )}
                   </td>
                   {role === "admin" && (
-                    <td className="py-2.5 pr-6 text-stone-700">{r.counsellor_name || "—"}</td>
+                    <td className="py-2.5 pr-6 text-stone-700 whitespace-nowrap">{r.counsellor_name || "—"}</td>
                   )}
-                  {FIN_SECTIONS.map((s) => {
-                    const val = r.sections[s.key];
-                    return (
-                      <td key={s.key} className="py-2.5 pr-2 text-center">
-                        {val === null ? (
-                          <span className="inline-block rounded border border-stone-300 bg-stone-100 px-2 py-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-500">N/A</span>
-                        ) : val ? (
-                          <span className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700">✓</span>
-                        ) : (
-                          <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
-                        )}
-                      </td>
-                    );
-                  })}
+                  {ALL_COLS.map((col) => (
+                    <DocCell key={col.key} col={col} docs={r.docs} />
+                  ))}
                 </tr>
               ))}
             </tbody>

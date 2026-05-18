@@ -963,6 +963,83 @@ router.get("/financial-summary", requireStaff, async (req, res, next) => {
   }
 });
 
+// GET /api/students/documents-summary — one row per active student with
+// status for every intake document slot. Non-financial slots return the
+// active file's metadata (or null); financial sections return a boolean
+// (or null for N/A). Must stay above /:student_id to avoid route shadowing.
+router.get("/documents-summary", requireStaff, async (req, res, next) => {
+  const NON_FIN_FIELDS = [
+    "aadharFile", "photoFile",
+    "passportFrontBack", "passportFront", "passportLast",
+    "marks10sheet", "marks11sheet", "marks12sheet", "admitCardFile",
+    "transcript", "finalDegree", "semesterTranscripts",
+    "ielts_result", "toefl_result", "sat_result",
+    "resumeFile", "sop", "lor1", "lor2", "lor3",
+    "internship1", "internship2",
+  ];
+  try {
+    const params = [];
+    let scopeClause = "";
+    if (req.user.kind === "counsellor") {
+      params.push(req.user.counsellorId);
+      scopeClause = `AND s.counsellor_id = $${params.length}`;
+    }
+    const fileSubqueries = NON_FIN_FIELDS.map((fid) => {
+      params.push(fid);
+      return `(SELECT json_build_object('original_name', original_name, 'size', size, 'created_at', created_at)
+               FROM intake_files WHERE student_id = s.student_id AND field_id = $${params.length} AND superseded_at IS NULL LIMIT 1) AS ${fid.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+    });
+    const { rows } = await pool.query(`
+      SELECT
+        s.student_id, s.username, s.display_name,
+        c.name AS counsellor_name,
+        d.data AS dossier,
+        ${fileSubqueries.join(",\n        ")},
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_itr\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS itr_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_income\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS income_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_business\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS business_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_kyc\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS kyc_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_loan\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS loan_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_networth\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS networth_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_affidavit\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS affidavit_count,
+        (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_banking\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS banking_count
+      FROM intake_students s
+      LEFT JOIN counsellors c ON c.id = s.counsellor_id
+      LEFT JOIN intake_financial_dossier d ON d.student_id = s.student_id
+      WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
+        AND s.username IS NOT NULL
+        ${scopeClause}
+      ORDER BY s.created_at DESC
+    `, params);
+    res.json(rows.map((r) => {
+      const dossier = r.dossier || {};
+      const trips = Array.isArray(dossier.travelTrips) ? dossier.travelTrips : [];
+      const docs = {};
+      for (const fid of NON_FIN_FIELDS) {
+        docs[fid] = r[fid.toLowerCase().replace(/[^a-z0-9]/g, "_")] || null;
+      }
+      docs.itr = Number(r.itr_count) > 0;
+      docs.income = Number(r.income_count) > 0;
+      docs.business = Number(r.business_count) > 0;
+      docs.kyc = Number(r.kyc_count) > 0;
+      docs.loan = dossier.studentLoanTaken === false ? null : Number(r.loan_count) > 0;
+      docs.networth = Number(r.networth_count) > 0;
+      docs.affidavit = Number(r.affidavit_count) > 0;
+      docs.banking = Number(r.banking_count) > 0;
+      docs.travel = trips.length > 0;
+      return {
+        student_id: r.student_id,
+        username: r.username,
+        display_name: r.display_name,
+        counsellor_name: r.counsellor_name,
+        docs,
+      };
+    }));
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/students/:student_id — full detail. Admin sees any; counsellor
 // sees only their own creations. Returns the intake data + uploaded
 // files + resumes for the admin "students panel" detail view.

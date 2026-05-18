@@ -197,6 +197,7 @@ export const api = {
   listStudents: ({ includeArchived = false } = {}) =>
     request("GET", `/api/students${includeArchived ? "?include_archived=true" : ""}`),
   listStudentsFinancialSummary: () => request("GET", "/api/students/financial-summary"),
+  listStudentsDocumentsSummary: () => request("GET", "/api/students/documents-summary"),
   assignStudentCounsellor: (studentId, counsellorId) =>
     request("PATCH", `/api/students/${studentId}/assign-counsellor`, { counsellor_id: counsellorId }),
   // Detail: full intake data + uploaded files + resumes for one
@@ -381,6 +382,11 @@ export const api = {
   approveInvoice: (id) => request("POST", `/api/admin/invoices/${id}/approve`),
   revertInvoice: (id) => request("POST", `/api/admin/invoices/${id}/revert`),
   deleteInvoice: (id) => request("DELETE", `/api/admin/invoices/${id}`),
+  // Partners — saved B2B businesses for invoice customer pre-fill.
+  listPartners: () => request("GET", "/api/admin/invoices/partners"),
+  createPartner: (data) => request("POST", "/api/admin/invoices/partners", data),
+  updatePartner: (id, data) => request("PUT", `/api/admin/invoices/partners/${id}`, data),
+  deletePartner: (id) => request("DELETE", `/api/admin/invoices/partners/${id}`),
   // PDF backup: client renders an approved invoice via @react-pdf/renderer,
   // POSTs the resulting bytes here so a frozen copy lands in R2 next to
   // the JSON snapshots. Returns { key, size }. Goes through fetch
