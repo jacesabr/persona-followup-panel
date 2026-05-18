@@ -267,13 +267,13 @@ router.post("/student/:student_id/send-requests", requireStaff, async (req, res,
       const rows = allRows.rows;
       if (rows.length === 0) {
         await client.query("ROLLBACK");
-        return res.status(400).json({ error: "no LOR, internship, or NGO rows to send" });
+        return res.status(400).json({ error: "no LOR, internship, NGO, or extracurricular rows to send" });
       }
       const notDone = rows.filter((r) => !r.marked_done_at);
       if (notDone.length > 0) {
         await client.query("ROLLBACK");
         return res.status(409).json({
-          error: "all LOR / internship / NGO rows must be marked done before sending",
+          error: "all LOR / internship / NGO / extracurricular rows must be marked done before sending",
           notDone: notDone.map((r) => `${r.kind}#${r.seq}`),
         });
       }
@@ -694,13 +694,15 @@ export async function seedRequiredDocsForStudent(client, studentId, answers) {
     );
   }
 
-  // NGO — one mandatory slot, always present.
-  await client.query(
-    `INSERT INTO intake_required_docs (student_id, kind, seq)
-     VALUES ($1, 'ngo', 1)
-     ON CONFLICT (student_id, kind, seq) DO NOTHING`,
-    [studentId]
-  );
+  // NGO and Extracurricular — one mandatory slot each, always present.
+  for (const mandatoryKind of ["ngo", "extracurricular"]) {
+    await client.query(
+      `INSERT INTO intake_required_docs (student_id, kind, seq)
+       VALUES ($1, $2, 1)
+       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
+      [studentId, mandatoryKind]
+    );
+  }
 
   // SOP — exactly one row, auto-created. Idempotent via the
   // (student, kind, seq) unique index.

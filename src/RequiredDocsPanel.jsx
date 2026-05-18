@@ -64,8 +64,10 @@ function docStatus(doc) {
 }
 
 function docHeading(doc) {
-  if (doc.kind === "lor")        return `Letter of Recommendation ${doc.seq}`;
-  if (doc.kind === "internship") return `Internship Document ${doc.seq}`;
+  if (doc.kind === "lor")            return `Letter of Recommendation ${doc.seq}`;
+  if (doc.kind === "internship")     return `Internship Document ${doc.seq}`;
+  if (doc.kind === "ngo")            return `NGO Document ${doc.seq}`;
+  if (doc.kind === "extracurricular") return `Extracurricular Document ${doc.seq}`;
   return "Statement of Purpose";
 }
 
@@ -230,10 +232,12 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
         const name = student.display_name || student.username;
         const docs = docsMap[sid];
 
-        const lors    = docs?.filter(d => d.kind === "lor")        ?? [];
-        const interns = docs?.filter(d => d.kind === "internship") ?? [];
-        const allLIDone    = [...lors, ...interns].every(d => d.marked_done_at);
-        const anyLIPending = [...lors, ...interns].some(d => d.marked_done_at && !d.requested_at);
+        const lors    = docs?.filter(d => d.kind === "lor")             ?? [];
+        const interns = docs?.filter(d => d.kind === "internship")      ?? [];
+        const ngos    = docs?.filter(d => d.kind === "ngo")             ?? [];
+        const extras  = docs?.filter(d => d.kind === "extracurricular") ?? [];
+        const allLIDone    = [...lors, ...interns, ...ngos, ...extras].every(d => d.marked_done_at);
+        const anyLIPending = [...lors, ...interns, ...ngos, ...extras].some(d => d.marked_done_at && !d.requested_at);
         const status  = docs ? overallStatus(docs) : "pending";
 
         return (
@@ -271,7 +275,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
 
                 {/* Right: stacked action buttons + send */}
                 <div className="flex flex-col items-end gap-2">
-                  {(lors.length > 0 || interns.length > 0) && (
+                  {(lors.length > 0 || interns.length > 0 || ngos.length > 0 || extras.length > 0) && (
                     <button
                       type="button"
                       onClick={() => sendBulk(sid, name)}
@@ -486,14 +490,16 @@ function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggle
         </div>
       )}
 
-      {/* Student brief — Internship */}
-      {doc.kind === "internship" && (
+      {/* Student brief — Internship / NGO / Extracurricular */}
+      {(doc.kind === "internship" || doc.kind === "ngo" || doc.kind === "extracurricular") && (
         <div>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
             Context from student
           </p>
           <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
-            <span className="text-black">Company</span>
+            <span className="text-black">
+              {doc.kind === "internship" ? "Company" : doc.kind === "ngo" ? "Organisation" : "Activity / Organisation"}
+            </span>
             <span className="text-black">{doc.company_name    || "—"}</span>
             <span className="text-black">Website</span>
             <span className="text-black">{doc.company_website || "—"}</span>
