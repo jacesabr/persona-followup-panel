@@ -968,14 +968,15 @@ router.get("/financial-summary", requireStaff, async (req, res, next) => {
 // active file's metadata (or null); financial sections return a boolean
 // (or null for N/A). Must stay above /:student_id to avoid route shadowing.
 router.get("/documents-summary", requireStaff, async (req, res, next) => {
+  // Only fields that students actually upload to intake_files. LOR/SOP/
+  // internship letters live in the required-docs system, not here.
   const NON_FIN_FIELDS = [
     "aadharFile", "photoFile",
     "passportFrontBack", "passportFront", "passportLast",
-    "marks10sheet", "marks11sheet", "marks12sheet", "admitCardFile",
+    "marks10sheet", "marks11sheet", "marks12sheet", "marks12predictedSheet", "admitCardFile",
     "transcript", "finalDegree", "semesterTranscripts",
     "ielts_result", "toefl_result", "sat_result",
-    "resumeFile", "sop", "lor1", "lor2", "lor3",
-    "internship1", "internship2",
+    "resumeFile",
   ];
   try {
     const params = [];
@@ -995,6 +996,9 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         c.name AS counsellor_name,
         d.data AS dossier,
         ${fileSubqueries.join(",\n        ")},
+        (SELECT json_build_object('original_name', 'Generated Resume', 'size', NULL, 'created_at', created_at)
+         FROM intake_resumes WHERE student_id = s.student_id AND status = 'succeeded'
+         ORDER BY created_at DESC LIMIT 1) AS generated_resume,
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_itr\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS itr_count,
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_income\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS income_count,
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_business\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS business_count,
@@ -1018,6 +1022,8 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
       for (const fid of NON_FIN_FIELDS) {
         docs[fid] = r[fid.toLowerCase().replace(/[^a-z0-9]/g, "_")] || null;
       }
+      // Resume: prefer uploaded file; fall back to generated resume.
+      docs["resumeFile"] = docs["resumeFile"] || r.generated_resume || null;
       docs.itr = Number(r.itr_count) > 0;
       docs.income = Number(r.income_count) > 0;
       docs.business = Number(r.business_count) > 0;

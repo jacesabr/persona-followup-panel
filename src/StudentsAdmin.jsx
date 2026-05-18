@@ -2390,10 +2390,10 @@ function StudentCommsTab({ students, loading, onResetPassword }) {
 }
 
 // ============================================================
-// StudentDocumentsChecklist — one row per student, one column per
-// intake document slot (ID, Academic, Tests, Profile, Financial).
-// Green = file uploaded; red = nothing yet; grey N/A = not applicable.
-// Clicking a green cell pops up filename / size / date.
+// StudentDocumentsChecklist — card per student, groups on separate lines.
+// Green chip = file uploaded (click for name/size/date popup).
+// Muted chip = missing or N/A. Popup lifted to checklist level so it
+// renders outside any scroll container.
 // Loads from GET /api/students/documents-summary.
 // ============================================================
 
@@ -2415,21 +2415,22 @@ const DOC_GROUPS = [
     cols: [
       { key: "aadharFile", label: "Aadhaar" },
       { key: "photoFile", label: "Photo" },
-      { key: "passportFrontBack", label: "Passport" },
-      { key: "passportFront", label: "Passp. Front" },
-      { key: "passportLast", label: "Passp. Last" },
+      { key: "passportFrontBack", label: "Passport (combined)" },
+      { key: "passportFront", label: "Passport front" },
+      { key: "passportLast", label: "Passport last" },
     ],
   },
   {
     label: "Academic",
     cols: [
-      { key: "marks10sheet", label: "10th" },
-      { key: "marks11sheet", label: "11th" },
-      { key: "marks12sheet", label: "12th" },
-      { key: "admitCardFile", label: "Admit Card" },
+      { key: "marks10sheet", label: "10th marksheet" },
+      { key: "marks11sheet", label: "11th marksheet" },
+      { key: "marks12sheet", label: "12th marksheet" },
+      { key: "marks12predictedSheet", label: "12th predicted" },
+      { key: "admitCardFile", label: "Admit card" },
       { key: "transcript", label: "Transcript" },
-      { key: "finalDegree", label: "Degree" },
-      { key: "semesterTranscripts", label: "Sem. Trans." },
+      { key: "finalDegree", label: "Final degree" },
+      { key: "semesterTranscripts", label: "Sem. transcripts" },
     ],
   },
   {
@@ -2437,19 +2438,13 @@ const DOC_GROUPS = [
     cols: [
       { key: "ielts_result", label: "IELTS" },
       { key: "toefl_result", label: "TOEFL" },
-      { key: "sat_result", label: "SAT/ACT" },
+      { key: "sat_result", label: "SAT / ACT" },
     ],
   },
   {
-    label: "Profile",
+    label: "Resume",
     cols: [
       { key: "resumeFile", label: "Resume" },
-      { key: "sop", label: "SOP" },
-      { key: "lor1", label: "LOR 1" },
-      { key: "lor2", label: "LOR 2" },
-      { key: "lor3", label: "LOR 3" },
-      { key: "internship1", label: "Internship 1" },
-      { key: "internship2", label: "Internship 2" },
     ],
   },
   {
@@ -2468,76 +2463,100 @@ const DOC_GROUPS = [
   },
 ];
 
-const ALL_COLS = DOC_GROUPS.flatMap((g) => g.cols);
-
 function FilePopup({ col, file, onClose }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
       onClick={onClose}
     >
       <div
-        className="relative rounded-lg border border-stone-300 bg-white p-5 shadow-xl"
-        style={{ minWidth: 280, maxWidth: 360 }}
+        className="relative rounded-xl border border-stone-200 bg-white p-6 shadow-2xl"
+        style={{ minWidth: 300, maxWidth: 400 }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute right-3 top-3 text-stone-400 hover:text-stone-700"
+          className="absolute right-4 top-4 text-stone-400 hover:text-stone-700"
           onClick={onClose}
         >
           <X className="h-4 w-4" />
         </button>
-        <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-500">{col.label}</p>
-        <p className="mb-1 break-all text-sm font-medium text-black">{file.original_name}</p>
-        <div className="flex gap-4 text-sm text-stone-600">
-          {file.size && <span>{fmtBytes(file.size)}</span>}
-          {file.created_at && <span>{fmtDate(file.created_at)}</span>}
+        <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-stone-400">{col.label}</p>
+        <p className="mb-4 break-all text-sm font-semibold text-black">{file.original_name}</p>
+        <div className="flex gap-6 text-sm text-stone-500">
+          {file.size ? <span>{fmtBytes(file.size)}</span> : null}
+          {file.created_at ? <span>{fmtDate(file.created_at)}</span> : null}
         </div>
       </div>
     </div>
   );
 }
 
-function DocCell({ col, docs }) {
-  const [popup, setPopup] = useState(false);
+function DocChip({ col, docs, onShowPopup }) {
   const val = docs[col.key];
 
   if (col.fin) {
     if (val === null) {
       return (
-        <td className="py-2.5 pr-1 text-center">
-          <span className="inline-block rounded border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-stone-500">N/A</span>
-        </td>
+        <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+          — {col.label}
+        </span>
       );
     }
-    return (
-      <td className="py-2.5 pr-1 text-center">
-        {val ? (
-          <span className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700">✓</span>
-        ) : (
-          <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
-        )}
-      </td>
+    return val ? (
+      <span className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+        ✓ {col.label}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+        ✗ {col.label}
+      </span>
     );
   }
 
   const file = val;
+  return file ? (
+    <button
+      className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+      onClick={() => onShowPopup({ col, file })}
+    >
+      ✓ {col.label}
+    </button>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+      ✗ {col.label}
+    </span>
+  );
+}
+
+function StudentDocCard({ student, role, onShowPopup }) {
   return (
-    <td className="py-2.5 pr-1 text-center">
-      {file ? (
-        <>
-          <button
-            className="inline-block rounded border border-emerald-500/40 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-emerald-700 hover:bg-emerald-100 cursor-pointer"
-            onClick={() => setPopup(true)}
-          >
-            ✓
-          </button>
-          {popup && <FilePopup col={col} file={file} onClose={() => setPopup(false)} />}
-        </>
-      ) : (
-        <span className="inline-block rounded border border-rose-300/60 bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-rose-600">✗</span>
-      )}
-    </td>
+    <div className="rounded-xl border border-stone-200 bg-white p-5">
+      <div className="mb-4 flex items-baseline justify-between border-b border-stone-100 pb-3">
+        <div>
+          <span className="font-semibold text-black">{student.display_name || student.username}</span>
+          {student.display_name && (
+            <span className="ml-2 font-mono text-[10px] text-stone-400">{student.username}</span>
+          )}
+        </div>
+        {role === "admin" && (
+          <span className="text-xs text-stone-500">{student.counsellor_name || "Unassigned"}</span>
+        )}
+      </div>
+      <div className="space-y-3">
+        {DOC_GROUPS.map((group) => (
+          <div key={group.label} className="flex items-start gap-4">
+            <span className="w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-stone-400">
+              {group.label}
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {group.cols.map((col) => (
+                <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={onShowPopup} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2545,6 +2564,7 @@ function StudentDocumentsChecklist({ role }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [popup, setPopup] = useState(null);
 
   useEffect(() => {
     api.listStudentsDocumentsSummary()
@@ -2571,56 +2591,20 @@ function StudentDocumentsChecklist({ role }) {
 
   return (
     <div>
-      <p className="mb-4 text-sm text-stone-800">
-        Document status across all active students. Green = uploaded; red = missing; grey = not applicable. Click a green cell to see file details.
+      <p className="mb-5 text-sm text-stone-800">
+        Document status across all active students. Green chips = uploaded — click to see file details. Muted chips = missing or not applicable.
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[10px] uppercase tracking-[0.2em] text-stone-500">
-                <th className="pb-1 pr-6 font-normal" />
-                {role === "admin" && <th className="pb-1 pr-6 font-normal" />}
-                {DOC_GROUPS.map((g) => (
-                  <th
-                    key={g.label}
-                    colSpan={g.cols.length}
-                    className="pb-1 pr-1 text-center font-semibold tracking-[0.15em] text-stone-700 border-b border-stone-200"
-                  >
-                    {g.label}
-                  </th>
-                ))}
-              </tr>
-              <tr className="border-b border-stone-300 text-left text-[9px] uppercase tracking-[0.15em] text-stone-500">
-                <th className="pb-2 pr-6 font-normal">Student</th>
-                {role === "admin" && <th className="pb-2 pr-6 font-normal">Counsellor</th>}
-                {ALL_COLS.map((c) => (
-                  <th key={c.key} className="pb-2 pr-1 text-center font-normal whitespace-nowrap">{c.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {rows.map((r) => (
-                <tr key={r.student_id}>
-                  <td className="py-2.5 pr-6 whitespace-nowrap">
-                    <span className="font-medium text-black">{r.display_name || r.username}</span>
-                    {r.display_name && (
-                      <span className="ml-2 font-mono text-[10px] text-stone-500">{r.username}</span>
-                    )}
-                  </td>
-                  {role === "admin" && (
-                    <td className="py-2.5 pr-6 text-stone-700 whitespace-nowrap">{r.counsellor_name || "—"}</td>
-                  )}
-                  {ALL_COLS.map((col) => (
-                    <DocCell key={col.key} col={col} docs={r.docs} />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          {rows.map((r) => (
+            <StudentDocCard key={r.student_id} student={r} role={role} onShowPopup={setPopup} />
+          ))}
         </div>
+      )}
+      {popup && (
+        <FilePopup col={popup.col} file={popup.file} onClose={() => setPopup(null)} />
       )}
     </div>
   );
