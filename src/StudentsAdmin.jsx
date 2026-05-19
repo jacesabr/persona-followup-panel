@@ -24,7 +24,7 @@ import StudentDashboard, {
 //      one-time generated password the counsellor copies and sends.
 //   2. Browse the roster + drill into each student's intake data, uploaded
 //      files, and generated resume.
-export default function StudentsAdmin({ role, counsellors = [], autoExpandStudentId = null, onAutoExpandConsumed, onStudentModalClosed }) {
+export default function StudentsAdmin({ role, counsellors = [], autoExpandStudentId = null, onAutoExpandConsumed, onStudentModalClosed, resetKey }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -50,6 +50,12 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
   const [credentialsModal, setCredentialsModal] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
   const [subTab, setSubTab] = useState("roster");
+
+  // When the parent clicks the Students tab (even while already on it),
+  // resetKey increments and we snap back to the Roster sub-tab.
+  useEffect(() => {
+    if (resetKey) setSubTab("roster");
+  }, [resetKey]);
 
   const refresh = useCallback(async () => {
     try {
@@ -2507,44 +2513,214 @@ const ALL_KEYS = FILTER_GROUPS.flatMap(g => g.items.map(i => i.key));
 // Where each document comes from in the intake, and what to tell the student
 // if it's missing. Shown in the popup for all chips (green and red).
 const DOC_SOURCES = {
-  // ── ID ───────────────────────────────────────────────────────────────────
-  aadharFile:            { section: "Intake form → Personal Info → Identity Documents", note: "Student logs into the intake form and uploads under Personal Info → Identity Documents → Aadhaar card (front + back). Direct link: share the intake form URL with them." },
-  photoFile:             { section: "Intake form → Personal Info → Identity Documents", note: "Student uploads a recent passport-size photograph under Personal Info → Identity Documents → Photograph in the intake form." },
-  passportFrontBack:     { section: "Intake form → Personal Info → Passport", note: "Student uploads a single PDF of all passport pages under Personal Info → Passport in the intake form. Accepts combined scans." },
-  passportFront:         { section: "Intake form → Personal Info → Passport", note: "Student uploads the passport bio-data (front/photo) page under Personal Info → Passport → Front page in the intake form." },
-  passportLast:          { section: "Intake form → Personal Info → Passport", note: "Student uploads the passport last/observation page under Personal Info → Passport → Last page in the intake form." },
-  // ── Academic ─────────────────────────────────────────────────────────────
-  marks10sheet:          { section: "Intake form → Academic History → Class 10", note: "Student uploads their Class 10 marksheet under Academic History → Class 10 in the intake form. Must show subject-wise marks." },
-  marks11sheet:          { section: "Intake form → Academic History → Class 11", note: "Student uploads their Class 11 marksheet under Academic History → Class 11 in the intake form." },
-  marks12predictedSheet: { section: "Intake form → Academic History → Class 12 → Predicted", note: "Student uploads their predicted or provisional marksheet under Academic History → Class 12 → Predicted marksheet in the intake form. Applicable before final board results are out." },
-  marks12sheet:          { section: "Intake form → Academic History → Class 12 → Final", note: "Student uploads the final Class 12 board marksheet under Academic History → Class 12 → Final marksheet in the intake form, once results are declared." },
-  admitCardFile:         { section: "Intake form → Academic History → Entrance Exams", note: "Student uploads their entrance exam admit card under Academic History → Entrance Exams in the intake form." },
-  transcript:            { section: "Intake form → Academic History → University / College", note: "Student uploads an official sealed/signed university transcript under Academic History → University / College → Transcript in the intake form." },
-  finalDegree:           { section: "Intake form → Academic History → University / College", note: "Student uploads their degree certificate under Academic History → University / College → Degree certificate in the intake form. Applicable for postgraduate applicants." },
-  semesterTranscripts:   { section: "Intake form → Academic History → University / College", note: "Student uploads individual semester marksheets under Academic History → University / College → Semester transcripts in the intake form. Required for UG applicants." },
-  // ── Tests ────────────────────────────────────────────────────────────────
-  ielts_result:          { section: "Intake form → Test Scores → IELTS", note: "Student uploads the official IELTS Test Report Form (TRF) under Test Scores → IELTS in the intake form. Must be the full TRF, not a screenshot." },
-  toefl_result:          { section: "Intake form → Test Scores → TOEFL", note: "Student uploads their official TOEFL score report under Test Scores → TOEFL in the intake form." },
-  sat_result:            { section: "Intake form → Test Scores → SAT / ACT", note: "Student uploads their SAT or ACT score report under Test Scores → SAT / ACT in the intake form." },
-  // ── Resume ───────────────────────────────────────────────────────────────
-  resumeFile:            { section: "Auto-generated after intake is complete", note: "The resume is generated automatically by the AI pipeline after the student completes the intake form. The student can also upload one directly under the Resume section of the intake form. If missing, check that AI processing has run — go to Automation Runs tab." },
-  // ── Financial ────────────────────────────────────────────────────────────
-  itr:                   { section: "Student Dashboard → Financial Documents → Income Tax Returns", note: "Uploaded by: the student's parent/guardian. They log into the student portal with the student's credentials, open Financial Documents → Income Tax Returns, and upload ITRs for the last 2–3 years. Click 'View student profile' above to open the portal and navigate there directly." },
-  income:                { section: "Student Dashboard → Financial Documents → Income Certificate", note: "Uploaded by: the student's parent/guardian. They log into the student portal, open Financial Documents → Income Certificate, and upload a salary slip or Form 16 from their employer. Click 'View student profile' above to open the portal." },
-  business:              { section: "Student Dashboard → Financial Documents → Business Proof", note: "Uploaded by: the student's parent/guardian (if self-employed or running a business). They log into the student portal, open Financial Documents → Business Proof, and upload registration documents, a balance sheet, or P&L statement. Click 'View student profile' above." },
-  kyc:                   { section: "Student Dashboard → Financial Documents → KYC", note: "Uploaded by: the student or their financial guarantor. They log into the student portal, open Financial Documents → KYC, and upload the PAN card and Aadhaar of all financial guarantors. Click 'View student profile' above to open the portal and navigate there directly." },
-  loan:                  { section: "Student Dashboard → Financial Documents → Education Loan", note: "Uploaded by: the student or parent/guardian (only if a bank loan is being taken). They log into the student portal, open Financial Documents → Education Loan, and upload the bank's sanction letter. Not required if no loan. Click 'View student profile' above." },
-  networth:              { section: "Student Dashboard → Financial Documents → Net Worth Certificate", note: "Uploaded by: the student's parent/guardian. They must first obtain a CA-certified Net Worth Certificate, then log into the student portal, open Financial Documents → Net Worth Certificate, and upload it. Click 'View student profile' above." },
-  affidavit:             { section: "Student Dashboard → Financial Documents → Affidavit", note: "Uploaded by: the student or parent/guardian. They log into the student portal, open Financial Documents → Affidavit, and upload the duly stamped and signed financial affidavit. Click 'View student profile' above to open the portal." },
-  banking:               { section: "Student Dashboard → Financial Documents → Bank Statements", note: "Uploaded by: the student's parent/guardian. They log into the student portal, open Financial Documents → Bank Statements, and upload 6-month bank statements. Click 'View student profile' above to open the portal." },
-  travel:                { section: "Student Dashboard → Financial Documents → Travel History", note: "Uploaded by: the student. They log into their student portal, open Financial Documents → Travel History, and upload copies of previous visas or travel stamps. Click 'View student profile' above to open the portal." },
-  // ── Required Docs (by kind) ──────────────────────────────────────────────
-  lor:                   { section: "Intake form → Required Docs → LOR details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the recommender's name, subject, and a brief reason during the intake form (Required Docs section). 2. Counsellor drafts the LOR in the Required Documents tab. 3. Once marked done and sent, the student receives a request notification. 4. Student collects the signed and stamped letter from the recommender and uploads the final copy via Student Dashboard → Required Documents → upload button on that LOR row." },
-  internship:            { section: "Intake form → Work & Activities → Internship details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the company name, role, and activity brief during the intake form (Work & Activities section). 2. Counsellor drafts the experience certificate in the Required Documents tab. 3. Once sent, student receives the request. 4. Student gets the certificate signed and stamped by the company HR and uploads the final copy via Student Dashboard → Required Documents → upload button on that Internship row." },
-  ngo:                   { section: "Intake form → Work & Activities → NGO details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the NGO/organisation name and volunteering activities during the intake form (Work & Activities section). 2. Counsellor drafts the certificate in the Required Documents tab. 3. Once sent, student receives the request. 4. Student gets the certificate signed by the organisation and uploads the final copy via Student Dashboard → Required Documents → upload button on that NGO row." },
-  extracurricular:       { section: "Intake form → Work & Activities → Extracurricular details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the activity name and institution during the intake form (Work & Activities section). 2. Counsellor drafts the participation letter in the Required Documents tab. 3. Once sent, student receives the request. 4. Student gets it signed by the institution or coach and uploads the final copy via Student Dashboard → Required Documents → upload button on that Extracurricular row." },
-  sop:                   { section: "Drafted by counsellor from intake data — no student upload needed", note: "The SOP is written entirely by the counsellor using the student's academic record, activities, internships, and personal summary from their completed intake form. Admin must approve it in the Required Documents tab before it becomes visible to the student. The student does not upload anything for the SOP." },
-};
+  // ── ID ─────────────────────────────────────────────────────────────────────────
+  aadharFile: {
+    section: "Intake form → Personal Info → Identity Documents",
+    purpose: "Used for identity verification, visa applications, and as a primary KYC document for financial institutions and universities.",
+    optional: false,
+    note: "Student logs into the intake form and uploads under Personal Info → Identity Documents → Aadhaar card (front + back). Once uploaded it is viewable in the student profile under Personal Info. Share the intake form URL with the student if they have not started.",
+  },
+  photoFile: {
+    section: "Intake form → Personal Info → Identity Documents",
+    purpose: "Required for university application forms, visa applications, and the student’s Persona profile.",
+    optional: false,
+    note: "Student uploads a recent passport-size photograph under Personal Info → Identity Documents → Photograph in the intake form. Viewable in the student profile under Personal Info.",
+  },
+  passportFrontBack: {
+    section: "Intake form → Personal Info → Passport",
+    purpose: "Primary travel and identity document required by every overseas university and for visa applications in all countries.",
+    optional: false,
+    note: "Student uploads a single PDF of all passport pages under Personal Info → Passport in the intake form. Accepts combined scans. Viewable in the student profile under Personal Info → Passport.",
+  },
+  passportFront: {
+    section: "Intake form → Personal Info → Passport",
+    purpose: "The bio-data (photo) page confirms the student’s legal name, nationality, and passport number for university and visa applications.",
+    optional: false,
+    note: "Student uploads the passport bio-data page under Personal Info → Passport → Front page in the intake form. Viewable in the student profile under Personal Info → Passport.",
+  },
+  passportLast: {
+    section: "Intake form → Personal Info → Passport",
+    purpose: "Shows previous visa endorsements and observations — required for visa applications in most countries.",
+    optional: false,
+    note: "Student uploads the passport last/observation page under Personal Info → Passport → Last page in the intake form. Viewable in the student profile under Personal Info → Passport.",
+  },
+  // ── Academic ─────────────────────────────────────────────────────────────────────
+  marks10sheet: {
+    section: "Intake form → Academic History → Class 10",
+    purpose: "Proves completion of secondary education; most universities require 10th board results to establish the student’s academic baseline.",
+    optional: false,
+    note: "Student uploads their Class 10 marksheet under Academic History → Class 10 in the intake form. Must show subject-wise marks. Viewable in the student profile under Academic History.",
+  },
+  marks11sheet: {
+    section: "Intake form → Academic History → Class 11",
+    purpose: "Some universities ask for 11th results to assess academic consistency across grades before final board results.",
+    optional: true,
+    optionalNote: "Only needed for universities that explicitly request 11th results. Not all programmes ask for this — check each university’s requirements.",
+    note: "Student uploads their Class 11 marksheet under Academic History → Class 11 in the intake form. Viewable in the student profile under Academic History.",
+  },
+  marks12predictedSheet: {
+    section: "Intake form → Academic History → Class 12 → Predicted",
+    purpose: "Used as an interim grade document while awaiting final board results, allowing universities to issue conditional offers.",
+    optional: true,
+    optionalNote: "Only needed if the student has not yet received their final Class 12 results. Once final results are out, the final marksheet replaces this.",
+    note: "Student uploads their predicted or provisional marksheet under Academic History → Class 12 → Predicted marksheet in the intake form. Viewable in the student profile under Academic History.",
+  },
+  marks12sheet: {
+    section: "Intake form → Academic History → Class 12 → Final",
+    purpose: "The primary academic document for undergraduate applications — used to calculate eligibility percentages and verify subject combinations.",
+    optional: false,
+    note: "Student uploads the final Class 12 board marksheet under Academic History → Class 12 → Final marksheet in the intake form, once results are declared. Viewable in the student profile under Academic History.",
+  },
+  admitCardFile: {
+    section: "Intake form → Academic History → Entrance Exams",
+    purpose: "Proves the student appeared for an entrance exam (JEE, NEET, etc.) and is used alongside the score report.",
+    optional: true,
+    optionalNote: "Only needed if the student appeared for a national or state entrance exam. Skip if no entrance exam was taken.",
+    note: "Student uploads their entrance exam admit card under Academic History → Entrance Exams in the intake form. Viewable in the student profile under Academic History.",
+  },
+  transcript: {
+    section: "Intake form → Academic History → University / College",
+    purpose: "Official academic record from the university, used to verify degree-level coursework, GPA, and subjects for postgraduate applications.",
+    optional: true,
+    optionalNote: "Only needed for students applying to postgraduate (Master’s / PhD) programmes. Undergraduate applicants do not need this.",
+    note: "Student uploads an official sealed/signed university transcript under Academic History → University / College → Transcript in the intake form. Viewable in the student profile under Academic History.",
+  },
+  finalDegree: {
+    section: "Intake form → Academic History → University / College",
+    purpose: "Confirms the student was awarded their undergraduate degree; required by all universities for postgraduate applicants.",
+    optional: true,
+    optionalNote: "Only needed for students applying to postgraduate programmes who have completed their undergraduate degree. Not required for direct UG applicants.",
+    note: "Student uploads their degree certificate under Academic History → University / College → Degree certificate in the intake form. Viewable in the student profile under Academic History.",
+  },
+  semesterTranscripts: {
+    section: "Intake form → Academic History → University / College",
+    purpose: "Detailed semester-by-semester academic records that universities use to assess subject depth and grade trajectory.",
+    optional: true,
+    optionalNote: "Only needed for students currently in or having completed an undergraduate programme (e.g., applying for a Master’s).",
+    note: "Student uploads individual semester marksheets under Academic History → University / College → Semester transcripts in the intake form. Viewable in the student profile under Academic History.",
+  },
+  // ── Tests ────────────────────────────────────────────────────────────────────────
+  ielts_result: {
+    section: "Intake form → Test Scores → IELTS",
+    purpose: "Proves English language proficiency — required by universities in the UK, Canada, Australia, and most other countries outside the US.",
+    optional: true,
+    optionalNote: "Only needed if the student has taken IELTS. TOEFL or PTE may be submitted as an alternative depending on the university.",
+    note: "Student uploads the official IELTS Test Report Form (TRF) under Test Scores → IELTS in the intake form. Must be the full TRF PDF — screenshots are not accepted. Viewable in the student profile under Test Scores.",
+  },
+  toefl_result: {
+    section: "Intake form → Test Scores → TOEFL",
+    purpose: "Proves English language proficiency as an alternative to IELTS; accepted by most US universities and many international programmes.",
+    optional: true,
+    optionalNote: "Only needed if the student has taken TOEFL. IELTS may be submitted as an alternative at most universities.",
+    note: "Student uploads their official TOEFL score report under Test Scores → TOEFL in the intake form. Viewable in the student profile under Test Scores.",
+  },
+  sat_result: {
+    section: "Intake form → Test Scores → SAT / ACT",
+    purpose: "Standardised admissions test score used for undergraduate applications in the US and some other countries.",
+    optional: true,
+    optionalNote: "Only needed if the student has taken the SAT or ACT and is applying to universities that require it. Many universities are now test-optional.",
+    note: "Student uploads their SAT or ACT score report under Test Scores → SAT / ACT in the intake form. Viewable in the student profile under Test Scores.",
+  },
+  // ── Resume ───────────────────────────────────────────────────────────────────────
+  resumeFile: {
+    section: "Auto-generated by AI after intake is complete; also uploadable by the student",
+    purpose: "A polished 1–2 page CV summarising the student’s academics, activities, and experience — submitted with most university applications.",
+    optional: false,
+    note: "The resume is auto-generated by the AI pipeline after the student completes the intake form. The student can also upload one directly under the Resume section of the intake form. If missing, check that AI processing has run — visit the Automation Runs tab. Viewable in the student profile under Resume.",
+  },
+  // ── Financial ─────────────────────────────────────────────────────────────────────
+  itr: {
+    section: "Student Dashboard → Financial Documents → Income Tax Returns",
+    purpose: "Demonstrates the family’s annual income; used by universities and financial institutions to assess scholarship eligibility and funding capacity.",
+    optional: false,
+    note: "Uploaded by: the student’s parent/guardian. They log into the student portal with the student’s credentials, open Financial Documents → Income Tax Returns, and upload ITRs for the last 2–3 years. Click ‘View student profile’ above to open the portal and navigate there directly.",
+  },
+  income: {
+    section: "Student Dashboard → Financial Documents → Income Certificate",
+    purpose: "Proves the guarantor’s income source — required for education loan applications and university financial declarations.",
+    optional: false,
+    note: "Uploaded by: the student’s parent/guardian. They log into the student portal, open Financial Documents → Income Certificate, and upload a salary slip or Form 16 from their employer. Click ‘View student profile’ above to open the portal.",
+  },
+  business: {
+    section: "Student Dashboard → Financial Documents → Business Proof",
+    purpose: "Required for families with business income — proves income source for visa authorities and loan applications when the guarantor is not salaried.",
+    optional: true,
+    optionalNote: "Only needed if the primary financial guarantor is self-employed or runs a business. Salaried guarantors submit an income certificate instead.",
+    note: "Uploaded by: the student’s parent/guardian (if self-employed or running a business). They log into the student portal, open Financial Documents → Business Proof, and upload registration documents, a balance sheet, or a P&L statement. Click ‘View student profile’ above.",
+  },
+  kyc: {
+    section: "Student Dashboard → Financial Documents → KYC",
+    purpose: "Know-Your-Customer documents (PAN + Aadhaar of all financial guarantors) required by banks for education loans and by universities for financial declarations.",
+    optional: false,
+    note: "Uploaded by: the student or their financial guarantor. They log into the student portal, open Financial Documents → KYC, and upload the PAN card and Aadhaar of all financial guarantors. Click ‘View student profile’ above to open the portal.",
+  },
+  loan: {
+    section: "Student Dashboard → Financial Documents → Education Loan",
+    purpose: "The bank’s sanction letter proves a loan has been approved — required by visa authorities and universities when tuition or living costs are funded by a bank loan.",
+    optional: true,
+    optionalNote: "Only needed if the student is taking an education loan. Students funding themselves (savings, family funds) do not need this.",
+    note: "Uploaded by: the student or parent/guardian (only if a bank loan is being taken). They log into the student portal, open Financial Documents → Education Loan, and upload the bank’s sanction letter. Click ‘View student profile’ above.",
+  },
+  networth: {
+    section: "Student Dashboard → Financial Documents → Net Worth Certificate",
+    purpose: "A CA-certified statement of all assets and liabilities — required by most overseas universities and visa authorities to confirm the family’s financial capacity to fund the course.",
+    optional: false,
+    note: "Uploaded by: the student’s parent/guardian. They must first obtain a CA-certified Net Worth Certificate from a chartered accountant, then log into the student portal, open Financial Documents → Net Worth Certificate, and upload it. Click ‘View student profile’ above.",
+  },
+  affidavit: {
+    section: "Student Dashboard → Financial Documents → Affidavit",
+    purpose: "A legally signed and stamped declaration of financial responsibility — required by most visa authorities and some universities to confirm who is funding the student’s overseas stay.",
+    optional: false,
+    note: "Uploaded by: the student or parent/guardian. They log into the student portal, open Financial Documents → Affidavit, and upload the duly stamped and signed financial affidavit. Click ‘View student profile’ above to open the portal.",
+  },
+  banking: {
+    section: "Student Dashboard → Financial Documents → Bank Statements",
+    purpose: "6-month bank statements showing sufficient liquid funds — a mandatory requirement for visa applications in virtually every country.",
+    optional: false,
+    note: "Uploaded by: the student’s parent/guardian. They log into the student portal, open Financial Documents → Bank Statements, and upload 6 months of statements. Click ‘View student profile’ above to open the portal.",
+  },
+  travel: {
+    section: "Student Dashboard → Financial Documents → Travel History",
+    purpose: "Previous visa stamps and travel history help visa authorities assess the applicant’s international travel record — often reviewed during visa interviews.",
+    optional: true,
+    optionalNote: "Only needed if the student has previously travelled internationally. Provide copies of all past visas and entry stamps in their passport.",
+    note: "Uploaded by: the student. They log into their student portal, open Financial Documents → Travel History, and upload copies of previous visas or travel stamps. Click ‘View student profile’ above to open the portal.",
+  },
+  // ── Required Docs (by kind) ─────────────────────────────────────────────────────────────────
+  lor: {
+    section: "Intake form → Required Docs → LOR details; final letter uploaded via Student Dashboard → Required Documents",
+    purpose: "A formal letter from a teacher or professor attesting to the student’s character, academic ability, and suitability for overseas study — required by virtually all overseas universities.",
+    optional: false,
+    note: "1. Student fills in the recommender’s name, subject, and a brief note during the intake form (Required Docs section). 2. Counsellor drafts the LOR in the Required Documents tab. 3. Once marked done and sent, the student receives a notification. 4. Student collects the signed and stamped letter from the recommender and uploads the final copy via Student Dashboard → Required Documents → upload button on that LOR row.",
+  },
+  internship: {
+    section: "Intake form → Work & Activities → Internship details; final certificate uploaded via Student Dashboard → Required Documents",
+    purpose: "A certificate from the employer confirming the internship role and dates — adds credibility to the student’s work experience claims in applications and SOPs.",
+    optional: true,
+    optionalNote: "Only needed if the student has completed an internship or professional work experience that will be mentioned in their applications.",
+    note: "1. Student fills in the company name, role, and activity brief during the intake form (Work & Activities section). 2. Counsellor drafts the experience certificate in the Required Documents tab. 3. Once sent, the student receives the request. 4. Student gets the certificate signed and stamped by company HR and uploads the final copy via Student Dashboard → Required Documents → upload button on that Internship row.",
+  },
+  ngo: {
+    section: "Intake form → Work & Activities → NGO / Volunteering details; final certificate uploaded via Student Dashboard → Required Documents",
+    purpose: "A certificate from the NGO or volunteering organisation confirming the student’s contribution — used to substantiate community service claims in applications and SOPs.",
+    optional: true,
+    optionalNote: "Only needed if the student has volunteered with an NGO or community organisation and wants to include this in their applications.",
+    note: "1. Student fills in the NGO/organisation name and volunteering activities during the intake form (Work & Activities section). 2. Counsellor drafts the certificate in the Required Documents tab. 3. Once sent, the student receives the request. 4. Student gets the certificate signed by the organisation and uploads the final copy via Student Dashboard → Required Documents → upload button on that NGO row.",
+  },
+  extracurricular: {
+    section: "Intake form → Work & Activities → Extracurricular details; final letter uploaded via Student Dashboard → Required Documents",
+    purpose: "A participation certificate or letter from the institution or coach confirming involvement in sports, arts, or other activities — supports extracurricular claims in applications.",
+    optional: true,
+    optionalNote: "Only needed if the student has a notable extracurricular activity (sport, music, debate, etc.) they want to highlight in their university applications.",
+    note: "1. Student fills in the activity name and institution during the intake form (Work & Activities section). 2. Counsellor drafts the participation letter in the Required Documents tab. 3. Once sent, the student receives the request. 4. Student gets it signed by the institution or coach and uploads the final copy via Student Dashboard → Required Documents → upload button on that Extracurricular row.",
+  },
+  sop: {
+    section: "Drafted entirely by the counsellor using intake data — no student upload required",
+    purpose: "The Statement of Purpose is the central essay of any overseas university application — it explains the student’s academic journey, goals, and reasons for choosing the programme and institution.",
+    optional: false,
+    note: "The SOP is written entirely by the counsellor using the student’s academic record, activities, internships, and personal summary from their completed intake form. Admin must review and approve it in the Required Documents tab before it becomes visible to the student. The student does not upload anything for the SOP.",
+  },
+}
 
 // ── filter dropdown ──────────────────────────────────────────────────────────
 
@@ -2640,17 +2816,17 @@ function FilePopup({ col, file, studentId, onClose, onOpenStudent }) {
     >
       <div
         className="relative flex w-full max-w-2xl flex-col rounded-xl border border-stone-200 bg-white shadow-2xl"
-        style={{ maxHeight: "88vh" }}
+        style={{ maxHeight: "92vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`flex items-start justify-between border-b px-6 py-4 ${hasFile ? "border-stone-100" : "border-red-100 bg-red-50"}`}>
-          <div>
-            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">{col.label}</p>
+        <div className={`flex items-start justify-between border-b px-6 py-5 ${hasFile ? "border-stone-100" : "border-red-100 bg-red-50"}`}>
+          <div className="flex-1 min-w-0">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">{col.label}</p>
             {hasFile ? (
               <>
-                <p className="break-all text-base font-semibold text-black">{file.original_name}</p>
-                <div className="mt-1 flex gap-4 text-xs text-stone-500">
+                <p className="break-all text-lg font-semibold text-black">{file.original_name}</p>
+                <div className="mt-1.5 flex flex-wrap gap-4 text-sm text-stone-500">
                   {file.size       ? <span>{fmtBytes(file.size)}</span>       : null}
                   {file.created_at ? <span>{fmtDate(file.created_at)}</span>  : null}
                   {fileUrl && (
@@ -2662,63 +2838,85 @@ function FilePopup({ col, file, studentId, onClose, onOpenStudent }) {
                 </div>
               </>
             ) : (
-              <p className="text-base font-semibold text-red-700">Not yet uploaded</p>
+              <p className="text-xl font-bold text-red-700">Not yet uploaded</p>
             )}
           </div>
           <div className="ml-4 flex shrink-0 flex-col items-end gap-2">
             {onOpenStudent && (
               <button
                 onClick={onOpenStudent}
-                className="text-xs font-semibold text-[#cc785c] hover:underline whitespace-nowrap"
+                className="text-sm font-semibold text-[#cc785c] hover:underline whitespace-nowrap"
               >
                 View student profile →
               </button>
             )}
             <button className="text-stone-400 hover:text-stone-700" onClick={onClose}>
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
 
         {/* Scrollable body */}
-        <div className="overflow-y-auto px-6 py-4 space-y-5">
+        <div className="overflow-y-auto px-6 py-5 space-y-6">
 
-          {/* File preview */}
+          {/* ── Document preview — shown first so you see it immediately ── */}
           {fileUrl && isImage && (
             <img src={fileUrl} alt={file.original_name}
               className="w-full rounded border border-stone-200 object-contain"
-              style={{ maxHeight: 340 }} />
+              style={{ maxHeight: 420 }} />
           )}
           {fileUrl && isPdf && (
             <iframe src={fileUrl} title={file.original_name}
               className="w-full rounded border border-stone-200"
-              style={{ height: 340 }} />
+              style={{ height: 420 }} />
           )}
           {fileUrl && !isImage && !isPdf && (
             <a href={fileUrl} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-medium text-black hover:bg-stone-100">
-              Download file
+              className="inline-flex items-center gap-2 rounded border border-stone-300 bg-stone-50 px-4 py-3 text-sm font-semibold text-black hover:bg-stone-100">
+              Download / open file ↗
             </a>
+          )}
+
+          {/* Missing-file status: required vs optional */}
+          {!hasFile && src && (
+            <div className={`rounded border px-5 py-4 ${src.optional ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
+              <p className={`text-base font-bold ${src.optional ? "text-amber-800" : "text-red-800"}`}>
+                {src.optional ? "Optional — not required for every applicant" : "Required — the student must provide this"}
+              </p>
+              <p className={`mt-1.5 text-sm leading-relaxed ${src.optional ? "text-amber-700" : "text-red-700"}`}>
+                {src.optional && src.optionalNote
+                  ? src.optionalNote
+                  : "This document is required for all applicants. Follow the steps in the section below to collect it."}
+              </p>
+            </div>
+          )}
+
+          {/* What this document is for */}
+          {src?.purpose && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">What this document is used for</p>
+              <p className="text-base leading-relaxed text-black">{src.purpose}</p>
+            </div>
           )}
 
           {/* AI description */}
           {hasFile && file.ai_description && (
             <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">AI Analysis</p>
-              <p className="text-sm leading-relaxed text-black">{file.ai_description}</p>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">AI Analysis</p>
+              <p className="text-base leading-relaxed text-black">{file.ai_description}</p>
             </div>
           )}
 
           {/* AI extracted fields */}
           {extracted.length > 0 && (
             <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Extracted Fields</p>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Extracted Fields</p>
               <div className="rounded border border-stone-200 bg-stone-50">
                 {extracted.map(([k, v], i) => (
                   <div key={k}
-                    className={`grid gap-x-4 px-4 py-2 text-sm ${i !== extracted.length - 1 ? "border-b border-stone-100" : ""}`}
-                    style={{ gridTemplateColumns: "180px 1fr" }}>
-                    <span className="font-medium text-stone-500">{k}</span>
+                    className={`grid gap-x-4 px-4 py-3 text-sm ${i !== extracted.length - 1 ? "border-b border-stone-100" : ""}`}
+                    style={{ gridTemplateColumns: "200px 1fr" }}>
+                    <span className="font-semibold text-stone-600">{k}</span>
                     <span className="text-black">{String(v)}</span>
                   </div>
                 ))}
@@ -2726,12 +2924,12 @@ function FilePopup({ col, file, studentId, onClose, onOpenStudent }) {
             </div>
           )}
 
-          {/* Source / where this comes from */}
+          {/* How to collect / where this comes from */}
           {src && (
-            <div className="rounded border border-stone-200 bg-stone-50 px-4 py-3 space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Where this comes from</p>
-              <p className="text-xs font-semibold text-stone-700">{src.section}</p>
-              <p className="text-xs leading-relaxed text-stone-600">{src.note}</p>
+            <div className="rounded border border-stone-200 bg-stone-50 px-5 py-4 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">How to collect this document</p>
+              <p className="text-sm font-bold text-stone-700">{src.section}</p>
+              <p className="text-sm leading-relaxed text-stone-700">{src.note}</p>
             </div>
           )}
         </div>

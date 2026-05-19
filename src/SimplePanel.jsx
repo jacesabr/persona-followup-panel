@@ -60,6 +60,9 @@ export default function SimplePanel({
   adminMirrors = [],
 }) {
   const [tab, setTab] = useState(() => loadTab(role));
+  // Incremented each time the user clicks the Students tab — even when it's
+  // already active. StudentsAdmin watches this and resets to the Roster sub-tab.
+  const [studentsResetKey, setStudentsResetKey] = useState(0);
   // Counsellor-session roster: self + any counsellors this user supervises.
   // Fetched once on mount so we know whether to show a team tab.
   // Admin passes its own roster down via the counsellors prop; this state is
@@ -122,7 +125,7 @@ export default function SimplePanel({
           <FolderTab
             label="Students"
             active={tab === "students"}
-            onClick={() => setTab("students")}
+            onClick={() => { setTab("students"); setStudentsResetKey((k) => k + 1); }}
           />
           <FolderTab
             label="IELTS"
@@ -200,6 +203,7 @@ export default function SimplePanel({
           counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
           autoExpandStudentId={pendingStudentId}
           onAutoExpandConsumed={() => setPendingStudentId(null)}
+          resetKey={studentsResetKey}
           onStudentModalClosed={() => {
             if (prevTab && prevTab !== "students") {
               setTab(prevTab);
