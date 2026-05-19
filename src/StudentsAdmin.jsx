@@ -24,7 +24,7 @@ import StudentDashboard, {
 //      one-time generated password the counsellor copies and sends.
 //   2. Browse the roster + drill into each student's intake data, uploaded
 //      files, and generated resume.
-export default function StudentsAdmin({ role, counsellors = [], autoExpandStudentId = null, onAutoExpandConsumed }) {
+export default function StudentsAdmin({ role, counsellors = [], autoExpandStudentId = null, onAutoExpandConsumed, onStudentModalClosed }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -202,7 +202,7 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
       )}
 
       {subTab === "financial" && (
-        <StudentDocumentsChecklist role={role} />
+        <StudentDocumentsChecklist role={role} onOpenStudent={setModalStudentId} />
       )}
 
       {credentialsModal && (
@@ -216,8 +216,8 @@ export default function StudentsAdmin({ role, counsellors = [], autoExpandStuden
         <StudentDetailModal
           studentId={modalStudentId}
           role={role}
-          onClose={() => { setModalStudentId(null); refresh(); }}
-          onActionDone={() => { setModalStudentId(null); refresh(); }}
+          onClose={() => { setModalStudentId(null); refresh(); onStudentModalClosed?.(); }}
+          onActionDone={() => { setModalStudentId(null); refresh(); onStudentModalClosed?.(); }}
         />
       )}
     </div>
@@ -2529,15 +2529,15 @@ const DOC_SOURCES = {
   // ── Resume ───────────────────────────────────────────────────────────────
   resumeFile:            { section: "Auto-generated after intake is complete", note: "The resume is generated automatically by the AI pipeline after the student completes the intake form. The student can also upload one directly under the Resume section of the intake form. If missing, check that AI processing has run — go to Automation Runs tab." },
   // ── Financial ────────────────────────────────────────────────────────────
-  itr:                   { section: "Student Dashboard → Financial Documents → Income Tax Returns", note: "After intake, the student or their parent/guardian logs into their dashboard and uploads ITR documents under Financial Documents → Income Tax Returns. Ask for the last 2–3 years of ITR." },
-  income:                { section: "Student Dashboard → Financial Documents → Income Certificate", note: "Uploaded via Student Dashboard → Financial Documents → Income Certificate. Ask for a salary slip or Form 16 from the parent/guardian's employer." },
-  business:              { section: "Student Dashboard → Financial Documents → Business Proof", note: "Uploaded via Student Dashboard → Financial Documents → Business Proof. Ask for business registration, balance sheet, or P&L statement if the parent runs a business." },
-  kyc:                   { section: "Student Dashboard → Financial Documents → KYC", note: "Uploaded via Student Dashboard → Financial Documents → KYC. Ask the student or financial guarantor to upload their PAN card and Aadhaar." },
-  loan:                  { section: "Student Dashboard → Financial Documents → Education Loan", note: "Uploaded via Student Dashboard → Financial Documents → Education Loan. Ask for the bank's loan sanction letter. Not required if no loan is being taken." },
-  networth:              { section: "Student Dashboard → Financial Documents → Net Worth Certificate", note: "Uploaded via Student Dashboard → Financial Documents → Net Worth Certificate. Ask for a CA-certified Net Worth Certificate of the parent/guardian." },
-  affidavit:             { section: "Student Dashboard → Financial Documents → Affidavit", note: "Uploaded via Student Dashboard → Financial Documents → Affidavit. Ask for the duly stamped and signed financial affidavit." },
-  banking:               { section: "Student Dashboard → Financial Documents → Bank Statements", note: "Uploaded via Student Dashboard → Financial Documents → Bank Statements. Ask the parent/guardian to upload 6-month bank statements." },
-  travel:                { section: "Student Dashboard → Financial Documents → Travel History", note: "Uploaded via Student Dashboard → Financial Documents → Travel History. Ask the student to upload copies of previous visas or travel documents." },
+  itr:                   { section: "Student Dashboard → Financial Documents → Income Tax Returns", note: "Uploaded by: the student's parent/guardian. They log into the student portal with the student's credentials, open Financial Documents → Income Tax Returns, and upload ITRs for the last 2–3 years. Click 'View student profile' above to open the portal and navigate there directly." },
+  income:                { section: "Student Dashboard → Financial Documents → Income Certificate", note: "Uploaded by: the student's parent/guardian. They log into the student portal, open Financial Documents → Income Certificate, and upload a salary slip or Form 16 from their employer. Click 'View student profile' above to open the portal." },
+  business:              { section: "Student Dashboard → Financial Documents → Business Proof", note: "Uploaded by: the student's parent/guardian (if self-employed or running a business). They log into the student portal, open Financial Documents → Business Proof, and upload registration documents, a balance sheet, or P&L statement. Click 'View student profile' above." },
+  kyc:                   { section: "Student Dashboard → Financial Documents → KYC", note: "Uploaded by: the student or their financial guarantor. They log into the student portal, open Financial Documents → KYC, and upload the PAN card and Aadhaar of all financial guarantors. Click 'View student profile' above to open the portal and navigate there directly." },
+  loan:                  { section: "Student Dashboard → Financial Documents → Education Loan", note: "Uploaded by: the student or parent/guardian (only if a bank loan is being taken). They log into the student portal, open Financial Documents → Education Loan, and upload the bank's sanction letter. Not required if no loan. Click 'View student profile' above." },
+  networth:              { section: "Student Dashboard → Financial Documents → Net Worth Certificate", note: "Uploaded by: the student's parent/guardian. They must first obtain a CA-certified Net Worth Certificate, then log into the student portal, open Financial Documents → Net Worth Certificate, and upload it. Click 'View student profile' above." },
+  affidavit:             { section: "Student Dashboard → Financial Documents → Affidavit", note: "Uploaded by: the student or parent/guardian. They log into the student portal, open Financial Documents → Affidavit, and upload the duly stamped and signed financial affidavit. Click 'View student profile' above to open the portal." },
+  banking:               { section: "Student Dashboard → Financial Documents → Bank Statements", note: "Uploaded by: the student's parent/guardian. They log into the student portal, open Financial Documents → Bank Statements, and upload 6-month bank statements. Click 'View student profile' above to open the portal." },
+  travel:                { section: "Student Dashboard → Financial Documents → Travel History", note: "Uploaded by: the student. They log into their student portal, open Financial Documents → Travel History, and upload copies of previous visas or travel stamps. Click 'View student profile' above to open the portal." },
   // ── Required Docs (by kind) ──────────────────────────────────────────────
   lor:                   { section: "Intake form → Required Docs → LOR details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the recommender's name, subject, and a brief reason during the intake form (Required Docs section). 2. Counsellor drafts the LOR in the Required Documents tab. 3. Once marked done and sent, the student receives a request notification. 4. Student collects the signed and stamped letter from the recommender and uploads the final copy via Student Dashboard → Required Documents → upload button on that LOR row." },
   internship:            { section: "Intake form → Work & Activities → Internship details; final upload via Student Dashboard → Required Documents", note: "1. Student fills in the company name, role, and activity brief during the intake form (Work & Activities section). 2. Counsellor drafts the experience certificate in the Required Documents tab. 3. Once sent, student receives the request. 4. Student gets the certificate signed and stamped by the company HR and uploads the final copy via Student Dashboard → Required Documents → upload button on that Internship row." },
@@ -2621,7 +2621,7 @@ function DocFilterDropdown({ visible, onChange }) {
   );
 }
 
-function FilePopup({ col, file, studentId, onClose }) {
+function FilePopup({ col, file, studentId, onClose, onOpenStudent }) {
   const hasFile = !!file;
   const fileUrl = hasFile && file.id && studentId
     ? `/api/students/${studentId}/files/${file.id}`
@@ -2665,9 +2665,19 @@ function FilePopup({ col, file, studentId, onClose }) {
               <p className="text-base font-semibold text-red-700">Not yet uploaded</p>
             )}
           </div>
-          <button className="ml-4 shrink-0 text-stone-400 hover:text-stone-700" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </button>
+          <div className="ml-4 flex shrink-0 flex-col items-end gap-2">
+            {onOpenStudent && (
+              <button
+                onClick={onOpenStudent}
+                className="text-xs font-semibold text-[#cc785c] hover:underline whitespace-nowrap"
+              >
+                View student profile →
+              </button>
+            )}
+            <button className="text-stone-400 hover:text-stone-700" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable body */}
@@ -2850,7 +2860,7 @@ function ReqDocsGroup({ reqdocs, visibleKinds, onShowPopup, onRemoveKind }) {
   );
 }
 
-function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol }) {
+function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, onOpenStudent }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
 
@@ -2858,7 +2868,16 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol }
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="mb-4 flex items-baseline justify-between border-b border-stone-100 pb-3">
         <div>
-          <span className="font-semibold text-black">{student.display_name || student.username}</span>
+          {onOpenStudent ? (
+            <button
+              onClick={() => onOpenStudent(student.student_id)}
+              className="font-semibold text-black hover:text-[#cc785c] hover:underline"
+            >
+              {student.display_name || student.username}
+            </button>
+          ) : (
+            <span className="font-semibold text-black">{student.display_name || student.username}</span>
+          )}
           {student.display_name && (
             <span className="ml-2 font-mono text-[10px] text-stone-400">{student.username}</span>
           )}
@@ -2917,7 +2936,7 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol }
   );
 }
 
-function StudentDocumentsChecklist({ role }) {
+function StudentDocumentsChecklist({ role, onOpenStudent }) {
   const [rows,       setRows]       = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
@@ -2970,12 +2989,19 @@ function StudentDocumentsChecklist({ role }) {
               visibleCols={visibleCols}
               onShowPopup={setPopup}
               onRemoveCol={removeCol}
+              onOpenStudent={onOpenStudent}
             />
           ))}
         </div>
       )}
       {popup && (
-        <FilePopup col={popup.col} file={popup.file} studentId={popup.studentId} onClose={() => setPopup(null)} />
+        <FilePopup
+          col={popup.col}
+          file={popup.file}
+          studentId={popup.studentId}
+          onClose={() => setPopup(null)}
+          onOpenStudent={onOpenStudent ? () => { setPopup(null); onOpenStudent(popup.studentId); } : null}
+        />
       )}
     </div>
   );

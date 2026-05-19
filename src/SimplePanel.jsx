@@ -82,6 +82,13 @@ export default function SimplePanel({
   // Students tab knows which row to auto-expand on mount. Cleared once
   // the Students tab has consumed it.
   const [pendingStudentId, setPendingStudentId] = useState(null);
+  // Remember which tab we came from so closing the student modal returns there.
+  const [prevTab, setPrevTab] = useState(null);
+  const navigateToStudent = (id) => {
+    setPrevTab(tab);
+    setPendingStudentId(id);
+    setTab("students");
+  };
   // Cross-tab navigation for tasks: the Documents tab passes the
   // student's name when staff clicks "View tasks related to this
   // student" so the Tasks tab can filter to that student. Stays set
@@ -193,22 +200,25 @@ export default function SimplePanel({
           counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
           autoExpandStudentId={pendingStudentId}
           onAutoExpandConsumed={() => setPendingStudentId(null)}
+          onStudentModalClosed={() => {
+            if (prevTab && prevTab !== "students") {
+              setTab(prevTab);
+              setPrevTab(null);
+            }
+          }}
         />
       )}
       {tab === "ielts" && (
         <IeltsPanel
           role={role}
-          onViewStudent={(id) => {
-            setPendingStudentId(id);
-            setTab("students");
-          }}
+          onViewStudent={navigateToStudent}
         />
       )}
       {tab === "applications" && (
         <ApplicationsPanel
           role={role}
           counsellors={role === "admin" ? (counsellors || []) : counsellorsForCounsellor}
-          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewStudent={navigateToStudent}
           onViewTasks={(_id, name) => { setTaskScopeStudent(name || null); setTab("tasks"); }}
         />
       )}
@@ -216,19 +226,19 @@ export default function SimplePanel({
         <RequiredDocsPanel
           role={role}
           counsellors={counsellors || []}
-          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewStudent={navigateToStudent}
           onViewTasks={(_id, name) => { setTaskScopeStudent(name || null); setTab("tasks"); }}
         />
       )}
       {tab === "marksheets" && (
         <OutstandingMarksheetsPanel
           role={role}
-          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewStudent={navigateToStudent}
         />
       )}
       {tab === "ai-queue" && role === "admin" && (
         <AiQueuePanel
-          onViewStudent={(id) => { setPendingStudentId(id); setTab("students"); }}
+          onViewStudent={navigateToStudent}
         />
       )}
       {tab === "counsellors" && role === "admin" && (
