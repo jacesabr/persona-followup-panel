@@ -791,32 +791,47 @@ counsellor or admissions reader will see together.
 
 #### LOR drafts
 
-**BEFORE WRITING ANY SENTENCE — read the LOR corpus.** Same gate as
-the SOP step. The runbook agent MUST read these files in order, every
-dispatch run, before composing the first LOR sentence:
+**The recommended-docs popup drives LOR generation.** Each LOR row in
+`intake_required_docs` (kind='lor') carries three counsellor-set inputs
+that the runbook MUST respect:
 
-1. `automation/lor_corpus/lor-guideline.md` — the operator's
-   hand-written 8-point structure (introduce self + association →
-   academic characteristics → classroom participation → class project
-   → research paper → academic activity → leadership → round-off).
-   Every LOR hits these eight beats. Order can flex (see *Narrative
-   arc* below) but every beat must land.
-2. `automation/lor_corpus/examples/*.md` — 14 real teacher LORs
-   spanning Physics, Maths, Business Studies, Economics, Political
-   Science, Psychology, Geography, Marketing, IP, Interior, ISH
-   hospitality. The cross-subject coverage exists so the agent can
-   match register to recommender role — physics-teacher voice is not
-   marketing-teacher voice. Skim every example; use them as voice +
-   density anchors. **Never copy a sentence.**
+- **`subject`** — the school subject the recommender teaches (e.g.
+  "Mathematics", "Physics", "English"). When set, the LOR focuses on the
+  student's work in THAT subject.
+- **`instructions`** — counsellor's free-text brief. Anything the
+  counsellor wrote (tone, things to emphasise, specific anecdotes to
+  use) overrides defaults in this section.
+- **`target_words`** — the requested word count. Hit it within ±10%.
+  Default 600 when null.
 
-The corpus is the canonical spec. The rules below sit *underneath* it
-— apply them inside the structure the corpus dictates.
+**Grounding rule (changed 2026-05-19):** LOR generation no longer reads
+the `automation/lor_corpus/examples/` directory. The 14 example LORs
+are retained in-repo as a reference for the operator only, NOT as
+many-shot grounding for the model. Generation grounds on:
 
-For every `kind='lor'` row in `required_docs` whose `staff_draft` is
-NULL — student-typed AND every LOR suggestion you propose below —
-generate a **500–700 word** recommendation letter and write it to
-`staff_draft` (suggestions: via the `draft` field on the suggestion
-object; existing rows: by setting their `staff_draft`).
+1. `automation/lor_corpus/lor-guideline.md` — the 8-beat structure
+   (introduce self + association → academic characteristics → classroom
+   participation → class project → research paper → academic activity
+   → leadership → round-off). Read this for structure ONLY.
+2. The row's `subject` + `instructions` + `target_words`.
+3. The student's intake answers + file extractions, **filtered to
+   school activities related to `subject`**.
+
+**Hard subject constraint.** If `subject` is set, the LOR must focus on
+the student's work in that subject. Any activity, project, or anecdote
+mentioned must be:
+- A school activity (no external programmes, online courses, workshops,
+  certificates), AND
+- Related to the subject.
+
+Example: for a Mathematics LOR with `subject='Mathematics'`, allowed
+evidence is: classroom participation in Maths class, school Maths
+project, school Maths olympiad, peer tutoring in Maths during school
+hours. Disallowed: weekend coding bootcamp, NGO volunteering, external
+internship — even if the student did them.
+
+For every `kind='lor'` row whose `staff_draft` needs (re)generation,
+write `target_words` ±10% to `staff_draft`.
 
 **Core principle — admissions read these side by side.** A student
 typically gets 2–4 LORs for the same application. If two letters share
@@ -947,8 +962,10 @@ personally witnessed most.
 - Salutation: `To Whom It May Concern,` — or, if `targetCountry` plus
   a program / university is known, `To the Admissions Committee,
   <program>,`
-- Body, 500–700 words. **Vary length across sibling LORs by ≥80 words;
-  never hit the same word count twice for the same student.**
+- Body, hits the row's `target_words` value ±10% (default 600 when
+  null). When generating multiple sibling LORs in one dispatch, vary
+  length by ≥80 words across siblings — never hit the same word count
+  twice for the same student.
 - Sign-off block:
   ```
   Sincerely,

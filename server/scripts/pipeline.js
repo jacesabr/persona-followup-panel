@@ -230,18 +230,20 @@ student's artefacts.
 
 1. Open Claude Code in the repo root.
 2. Open and follow \`automation/instructions_autofill_plus_generate.md\`
-   top to bottom. Read the corpora (\`automation/sop_corpus/\`,
-   \`automation/lor_corpus/\`, \`automation/resume_corpus/\`) and the
-   intake + files in this workdir.
+   top to bottom. Read the SOP + resume corpora
+   (\`automation/sop_corpus/\`, \`automation/resume_corpus/\`) and the
+   intake + files in this workdir. The LOR corpus's \`examples/\`
+   directory is no longer many-shot grounding — only read
+   \`lor-guideline.md\` for the 8-beat structure.
 3. Author each artefact in \`drafts.json\`:
    - \`file_descriptions[]\` — one entry per file in \`files/\`
    - \`autofill_answers\` — keys per Section C of the runbook
    - \`resume_json\` — payload per \`automation/resume_schema_v2.md\`
    - \`sop_draft\` — 400–500 words, 6–8 beats from
      \`automation/sop_corpus/construction-guidelines.md\`
-   - \`lor_drafts\` — 500–700 words each, 8 beats from
-     \`automation/lor_corpus/lor-guideline.md\`, cross-LOR divergence
-     per the runbook
+   - \`lor_drafts\` — target_words ±10% each (default 600), 8 beats
+     from \`automation/lor_corpus/lor-guideline.md\`, subject-focused
+     per each row's \`subject\` + \`instructions\` columns
 4. Set \`force: true\` if you are overwriting an existing draft.
 5. Dispatch:
 
