@@ -1027,7 +1027,6 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         FROM intake_required_docs r
         LEFT JOIN intake_files f ON f.id = r.final_file_id
         WHERE r.student_id = s.student_id
-          AND (r.kind != 'lor' OR r.student_accepted_at IS NOT NULL)
         ) AS req_docs
       FROM intake_students s
       LEFT JOIN counsellors c ON c.id = s.counsellor_id
