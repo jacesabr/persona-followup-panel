@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, UserPlus, Copy, Check, ChevronDown, ChevronRight, AlertCircle, KeyRound, X, MessageCircle, Mail, Link2, Search, Download, Send, Clock, ArrowLeft, ArrowRight, Archive, ArchiveRestore, Trash2, Eye, Plus, CheckCircle2 } from "lucide-react";
 import { api } from "./api.js";
 import { progressFor, TONE_CLASSES } from "./intakeProgress.js";
@@ -2470,6 +2470,7 @@ const DOC_GROUPS = [
   { label: "Required Docs", special: true, dynamic: true },
   {
     label: "Financial",
+
     cols: [
       { key: "itr", label: "ITR", fin: true },
       { key: "income", label: "Income", fin: true },
@@ -2483,6 +2484,114 @@ const DOC_GROUPS = [
     ],
   },
 ];
+
+// Flat list of all toggleable keys, organised by group, for the filter dropdown.
+const FILTER_GROUPS = [
+  ...DOC_GROUPS.filter(g => !g.dynamic).map(g => ({
+    label: g.label,
+    items: g.cols.map(c => ({ key: c.key, label: c.label })),
+  })),
+  {
+    label: "Required Docs",
+    items: [
+      { key: "lor",             label: "LOR" },
+      { key: "internship",      label: "Internship" },
+      { key: "ngo",             label: "NGO" },
+      { key: "extracurricular", label: "Extracurricular" },
+      { key: "sop",             label: "SOP" },
+    ],
+  },
+];
+const ALL_KEYS = FILTER_GROUPS.flatMap(g => g.items.map(i => i.key));
+
+// ── filter dropdown ──────────────────────────────────────────────────────────
+
+function DocFilterDropdown({ visible, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  const toggle = (key) => {
+    const next = new Set(visible);
+    next.has(key) ? next.delete(key) : next.add(key);
+    onChange(next);
+  };
+
+  const toggleGroup = (items) => {
+    const keys = items.map(i => i.key);
+    const allOn = keys.every(k => visible.has(k));
+    const next = new Set(visible);
+    keys.forEach(k => allOn ? next.delete(k) : next.add(k));
+    onChange(next);
+  };
+
+  const allSelected = ALL_KEYS.every(k => visible.has(k));
+  const noneSelected = visible.size === 0;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(p => !p)}
+        className="inline-flex items-center gap-2 border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-black transition hover:border-stone-500"
+      >
+        <span>{allSelected ? "All documents shown" : `${visible.size} of ${ALL_KEYS.length} shown`}</span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-64 border border-stone-200 bg-white shadow-xl">
+          {/* Select all / none row */}
+          <div className="flex items-center justify-between border-b border-stone-100 px-4 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-stone-500">Columns</span>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => onChange(new Set(ALL_KEYS))}
+                className="text-[11px] font-medium text-[#cc785c] hover:underline">All</button>
+              <button type="button" onClick={() => onChange(new Set())}
+                className="text-[11px] font-medium text-stone-400 hover:underline">None</button>
+            </div>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto">
+            {FILTER_GROUPS.map(group => (
+              <div key={group.label}>
+                {/* Group header — click toggles entire group */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.items)}
+                  className="flex w-full items-center justify-between bg-stone-50 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500 hover:bg-stone-100"
+                >
+                  <span>{group.label}</span>
+                  <span className="text-[10px] font-normal normal-case tracking-normal text-stone-400">
+                    {group.items.filter(i => visible.has(i.key)).length}/{group.items.length}
+                  </span>
+                </button>
+                {group.items.map(item => (
+                  <label key={item.key}
+                    className="flex cursor-pointer items-center gap-3 px-4 py-2 text-sm text-black hover:bg-stone-50">
+                    <input
+                      type="checkbox"
+                      checked={visible.has(item.key)}
+                      onChange={() => toggle(item.key)}
+                      className="h-3.5 w-3.5 accent-[#cc785c]"
+                    />
+                    {item.label}
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FilePopup({ col, file, studentId, onClose }) {
   const fileUrl = file.id && studentId
@@ -2585,24 +2694,41 @@ function FilePopup({ col, file, studentId, onClose }) {
   );
 }
 
-function DocChip({ col, docs, onShowPopup }) {
+function ChipX({ onRemove }) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+      className="ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-current leading-none cursor-pointer"
+      aria-label="Hide column"
+    >
+      ×
+    </span>
+  );
+}
+
+function DocChip({ col, docs, onShowPopup, onRemove }) {
   const val = docs[col.key];
 
   if (col.fin) {
     if (val === null) {
       return (
-        <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
+        <span className="group inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
           — {col.label}
+          <ChipX onRemove={onRemove} />
         </span>
       );
     }
     return val ? (
-      <span className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+      <span className="group inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
         ✓ {col.label}
+        <ChipX onRemove={onRemove} />
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
+      <span className="group inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
         ✗ {col.label}
+        <ChipX onRemove={onRemove} />
       </span>
     );
   }
@@ -2610,25 +2736,29 @@ function DocChip({ col, docs, onShowPopup }) {
   const file = val;
   return file ? (
     <button
-      className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+      className="group inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
       onClick={() => onShowPopup({ col, file })}
     >
       ✓ {col.label}
+      <ChipX onRemove={onRemove} />
     </button>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
+    <span className="group inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
       ✗ {col.label}
+      <ChipX onRemove={onRemove} />
     </span>
   );
 }
 
-function ReqDocsGroup({ reqdocs, onShowPopup }) {
+function ReqDocsGroup({ reqdocs, visibleKinds, onShowPopup, onRemoveKind }) {
+  const visible = (reqdocs || []).filter(rd => visibleKinds.has(rd.kind));
   if (!reqdocs || reqdocs.length === 0) {
-    return <span className="text-[11px] text-stone-400">None set up yet.</span>;
+    return <span className="text-xs text-stone-400">None set up yet.</span>;
   }
+  if (visible.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {reqdocs.map((rd) => {
+      {visible.map((rd) => {
         const done = rd.kind === "sop" ? !!rd.approved_by_admin_at : !!rd.final_file;
         const kindLabel =
           rd.kind === "lor" ? `LOR ${rd.seq}`
@@ -2645,18 +2775,20 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
           return (
             <button
               key={chipKey}
-              className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+              className="group inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
               onClick={() => onShowPopup({ col: { label: kindLabel }, file: popupFile })}
             >
               ✓ {kindLabel}
               {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+              <ChipX onRemove={() => onRemoveKind(rd.kind)} />
             </button>
           );
         }
         return (
-          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
+          <span key={chipKey} className="group inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
             ✗ {kindLabel}
             {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+            <ChipX onRemove={() => onRemoveKind(rd.kind)} />
           </span>
         );
       })}
@@ -2664,9 +2796,10 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
   );
 }
 
-function StudentDocCard({ student, role, onShowPopup }) {
+function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
+
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="mb-4 flex items-baseline justify-between border-b border-stone-100 pb-3">
@@ -2681,39 +2814,61 @@ function StudentDocCard({ student, role, onShowPopup }) {
         )}
       </div>
       <div className="space-y-3">
-        {DOC_GROUPS.map((group) => (
-          <div
-            key={group.label}
-            className={`flex items-start gap-4${group.special ? " mt-1 border-t border-stone-100 pt-3" : ""}`}
-          >
-            <span
-              className={`w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em]${
-                group.special ? " text-indigo-500" : " text-stone-400"
-              }`}
+        {DOC_GROUPS.map((group) => {
+          if (group.dynamic) {
+            const visibleKinds = new Set(
+              ["lor", "internship", "ngo", "extracurricular", "sop"].filter(k => visibleCols.has(k))
+            );
+            if (visibleKinds.size === 0) return null;
+            return (
+              <div key={group.label} className="mt-1 flex items-start gap-4 border-t border-stone-100 pt-3">
+                <span className="w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-indigo-500">
+                  {group.label}
+                </span>
+                <ReqDocsGroup
+                  reqdocs={student.req_docs}
+                  visibleKinds={visibleKinds}
+                  onShowPopup={handleShowPopup}
+                  onRemoveKind={onRemoveCol}
+                />
+              </div>
+            );
+          }
+          const visibleGroupCols = group.cols.filter(c => visibleCols.has(c.key));
+          if (visibleGroupCols.length === 0) return null;
+          return (
+            <div
+              key={group.label}
+              className={`flex items-start gap-4${group.special ? " mt-1 border-t border-stone-100 pt-3" : ""}`}
             >
-              {group.label}
-            </span>
-            {group.dynamic ? (
-              <ReqDocsGroup reqdocs={student.req_docs} onShowPopup={handleShowPopup} />
-            ) : (
+              <span className={`w-20 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-[0.15em]${group.special ? " text-indigo-500" : " text-stone-400"}`}>
+                {group.label}
+              </span>
               <div className="flex flex-wrap gap-1.5">
-                {group.cols.map((col) => (
-                  <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={handleShowPopup} />
+                {visibleGroupCols.map((col) => (
+                  <DocChip
+                    key={col.key}
+                    col={col}
+                    docs={student.docs}
+                    onShowPopup={handleShowPopup}
+                    onRemove={() => onRemoveCol(col.key)}
+                  />
                 ))}
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 function StudentDocumentsChecklist({ role }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [popup, setPopup] = useState(null);
+  const [rows,       setRows]       = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [popup,      setPopup]      = useState(null);
+  const [visibleCols, setVisibleCols] = useState(() => new Set(ALL_KEYS));
 
   useEffect(() => {
     api.listStudentsDocumentsSummary()
@@ -2721,6 +2876,9 @@ function StudentDocumentsChecklist({ role }) {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const removeCol = (key) =>
+    setVisibleCols(prev => { const n = new Set(prev); n.delete(key); return n; });
 
   if (loading) {
     return (
@@ -2740,15 +2898,25 @@ function StudentDocumentsChecklist({ role }) {
 
   return (
     <div>
-      <p className="mb-5 text-sm text-stone-800">
-        Document status across all active students. Green chips = uploaded — click to see file details. Red chips = missing.
-      </p>
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <p className="text-sm text-stone-800">
+          Green chips = uploaded — click to see file details. Red chips = missing.
+        </p>
+        <DocFilterDropdown visible={visibleCols} onChange={setVisibleCols} />
+      </div>
       {rows.length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
       ) : (
         <div className="space-y-4">
           {rows.map((r) => (
-            <StudentDocCard key={r.student_id} student={r} role={role} onShowPopup={setPopup} />
+            <StudentDocCard
+              key={r.student_id}
+              student={r}
+              role={role}
+              visibleCols={visibleCols}
+              onShowPopup={setPopup}
+              onRemoveCol={removeCol}
+            />
           ))}
         </div>
       )}
