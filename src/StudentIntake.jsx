@@ -1504,7 +1504,7 @@ function StudentAutomationBanner({ onContinue }) {
         </p>
         <AutomationStatusBar pending={true} complete={false} />
         <p className="mt-4 text-sm text-stone-800">
-          Our team has received your documents and will manually generate your resume, SOP, and LOR suggestions. This usually takes a few hours. You'll see them appear in the Resume and Required documents tabs when ready.
+          Our team has received your documents and will manually generate your resume when ready. You'll see it appear in the Resume tab, and your counsellor will draft LORs, NGO letters, internship certificates, and your SOP in the Recommended documents tab.
         </p>
         <div className="mt-4">
           <ContinueButton />
@@ -1610,7 +1610,7 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
     { id: "financial", label: "Financial documents" },
-    { id: "required-docs", label: "Recommendation documents" },
+    { id: "required-docs", label: "Recommended documents" },
     { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
     ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),

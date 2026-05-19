@@ -262,7 +262,7 @@ export default function StudentDashboard({
 
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length > 0 && (
           <section className={section ? "" : "mt-10"}>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommended documents</h2>
             <p className="mt-1 text-sm text-stone-800">
               Letters of recommendation, internship certificates, NGO documents, extracurricular letters, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
             </p>
@@ -294,7 +294,7 @@ export default function StudentDashboard({
 
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && section === "required-docs" && (
           <section>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommendation documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommended documents</h2>
             <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
               Nothing's been requested yet — your counsellor will populate this list once they review your intake.
             </p>
