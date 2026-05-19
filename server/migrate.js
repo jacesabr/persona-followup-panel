@@ -930,6 +930,17 @@ SELECT t.id, t.assignee_kind,
 ALTER TABLE intake_required_docs DROP CONSTRAINT IF EXISTS intake_required_docs_kind_check;
 ALTER TABLE intake_required_docs ADD CONSTRAINT intake_required_docs_kind_check
   CHECK (kind IN ('lor', 'internship', 'sop', 'ngo', 'extracurricular'));
+
+-- Backfill: seed one NGO and one Extracurricular slot for every student
+-- who completed intake before these kinds were added to seedRequiredDocsForStudent.
+-- ON CONFLICT DO NOTHING makes this idempotent across re-deploys.
+INSERT INTO intake_required_docs (student_id, kind, seq)
+SELECT s.student_id, k.kind, 1
+  FROM intake_students s
+  CROSS JOIN (VALUES ('ngo'), ('extracurricular')) AS k(kind)
+ WHERE s.intake_complete = TRUE
+    OR s.ai_eligible_via_pre_upload = TRUE
+ON CONFLICT (student_id, kind, seq) DO NOTHING;
 `;
 
 export async function migrate() {
