@@ -987,7 +987,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
     }
     const fileSubqueries = NON_FIN_FIELDS.map((fid) => {
       params.push(fid);
-      return `(SELECT json_build_object('original_name', original_name, 'size', size, 'created_at', created_at)
+      return `(SELECT json_build_object('id', id, 'original_name', original_name, 'size', size, 'mime_type', mime_type, 'ai_description', ai_description, 'ai_extracted', ai_extracted, 'created_at', created_at)
                FROM intake_files WHERE student_id = s.student_id AND field_id = $${params.length} AND superseded_at IS NULL LIMIT 1) AS ${fid.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
     });
     const { rows } = await pool.query(`
@@ -1018,7 +1018,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
                        ELSE NULL END,
             'approved_by_admin_at', r.approved_by_admin_at,
             'final_file', CASE WHEN f.id IS NOT NULL THEN
-              json_build_object('original_name', f.original_name, 'size', f.size, 'created_at', f.created_at)
+              json_build_object('id', f.id, 'original_name', f.original_name, 'size', f.size, 'mime_type', f.mime_type, 'ai_description', f.ai_description, 'created_at', f.created_at)
               ELSE NULL END
           ) ORDER BY
             CASE r.kind WHEN 'lor' THEN 1 WHEN 'internship' THEN 2 WHEN 'ngo' THEN 3 WHEN 'extracurricular' THEN 4 WHEN 'sop' THEN 5 ELSE 6 END,

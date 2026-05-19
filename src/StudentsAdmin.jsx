@@ -2484,28 +2484,101 @@ const DOC_GROUPS = [
   },
 ];
 
-function FilePopup({ col, file, onClose }) {
+function FilePopup({ col, file, studentId, onClose }) {
+  const fileUrl = file.id && studentId
+    ? `/api/students/${studentId}/files/${file.id}`
+    : null;
+  const isImage = file.mime_type?.startsWith("image/");
+  const isPdf   = file.mime_type === "application/pdf";
+
+  const extracted = file.ai_extracted
+    ? Object.entries(file.ai_extracted).filter(([, v]) => v != null && v !== "")
+    : [];
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
-        className="relative rounded-xl border border-stone-200 bg-white p-6 shadow-2xl"
-        style={{ minWidth: 300, maxWidth: 400 }}
+        className="relative flex w-full max-w-2xl flex-col rounded-xl border border-stone-200 bg-white shadow-2xl"
+        style={{ maxHeight: "88vh" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          className="absolute right-4 top-4 text-stone-400 hover:text-stone-700"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-stone-400">{col.label}</p>
-        <p className="mb-4 break-all text-sm font-semibold text-black">{file.original_name}</p>
-        <div className="flex gap-6 text-sm text-stone-500">
-          {file.size ? <span>{fmtBytes(file.size)}</span> : null}
-          {file.created_at ? <span>{fmtDate(file.created_at)}</span> : null}
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-stone-100 px-6 py-4">
+          <div>
+            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">{col.label}</p>
+            <p className="break-all text-base font-semibold text-black">{file.original_name}</p>
+            <div className="mt-1 flex gap-4 text-xs text-stone-500">
+              {file.size     ? <span>{fmtBytes(file.size)}</span>     : null}
+              {file.created_at ? <span>{fmtDate(file.created_at)}</span> : null}
+              {fileUrl && (
+                <a href={fileUrl} target="_blank" rel="noreferrer"
+                  className="font-medium text-[#cc785c] hover:underline">
+                  Open in new tab ↗
+                </a>
+              )}
+            </div>
+          </div>
+          <button className="ml-4 shrink-0 text-stone-400 hover:text-stone-700" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto px-6 py-4 space-y-5">
+
+          {/* Preview */}
+          {fileUrl && isImage && (
+            <img src={fileUrl} alt={file.original_name}
+              className="w-full rounded border border-stone-200 object-contain"
+              style={{ maxHeight: 340 }} />
+          )}
+          {fileUrl && isPdf && (
+            <iframe src={fileUrl} title={file.original_name}
+              className="w-full rounded border border-stone-200"
+              style={{ height: 340 }} />
+          )}
+          {fileUrl && !isImage && !isPdf && (
+            <a href={fileUrl} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-medium text-black hover:bg-stone-100">
+              Download file
+            </a>
+          )}
+
+          {/* AI description */}
+          {file.ai_description && (
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+                AI Analysis
+              </p>
+              <p className="text-sm leading-relaxed text-black">{file.ai_description}</p>
+            </div>
+          )}
+
+          {/* AI extracted fields */}
+          {extracted.length > 0 && (
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+                Extracted Fields
+              </p>
+              <div className="rounded border border-stone-200 bg-stone-50">
+                {extracted.map(([k, v], i) => (
+                  <div key={k}
+                    className={`grid gap-x-4 px-4 py-2 text-sm ${i !== extracted.length - 1 ? "border-b border-stone-100" : ""}`}
+                    style={{ gridTemplateColumns: "180px 1fr" }}>
+                    <span className="font-medium text-stone-500">{k}</span>
+                    <span className="text-black">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!file.ai_description && extracted.length === 0 && !fileUrl && (
+            <p className="text-sm text-stone-400">No additional details available.</p>
+          )}
         </div>
       </div>
     </div>
@@ -2518,17 +2591,17 @@ function DocChip({ col, docs, onShowPopup }) {
   if (col.fin) {
     if (val === null) {
       return (
-        <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] text-stone-400">
+        <span className="inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
           — {col.label}
         </span>
       );
     }
     return val ? (
-      <span className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+      <span className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
         ✓ {col.label}
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
+      <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
         ✗ {col.label}
       </span>
     );
@@ -2537,13 +2610,13 @@ function DocChip({ col, docs, onShowPopup }) {
   const file = val;
   return file ? (
     <button
-      className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+      className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
       onClick={() => onShowPopup({ col, file })}
     >
       ✓ {col.label}
     </button>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
+    <span className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
       ✗ {col.label}
     </span>
   );
@@ -2572,7 +2645,7 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
           return (
             <button
               key={chipKey}
-              className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+              className="inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
               onClick={() => onShowPopup({ col: { label: kindLabel }, file: popupFile })}
             >
               ✓ {kindLabel}
@@ -2581,7 +2654,7 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
           );
         }
         return (
-          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600">
+          <span key={chipKey} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600">
             ✗ {kindLabel}
             {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
           </span>
@@ -2592,6 +2665,8 @@ function ReqDocsGroup({ reqdocs, onShowPopup }) {
 }
 
 function StudentDocCard({ student, role, onShowPopup }) {
+  const handleShowPopup = ({ col, file }) =>
+    onShowPopup({ col, file, studentId: student.student_id });
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="mb-4 flex items-baseline justify-between border-b border-stone-100 pb-3">
@@ -2619,11 +2694,11 @@ function StudentDocCard({ student, role, onShowPopup }) {
               {group.label}
             </span>
             {group.dynamic ? (
-              <ReqDocsGroup reqdocs={student.req_docs} onShowPopup={onShowPopup} />
+              <ReqDocsGroup reqdocs={student.req_docs} onShowPopup={handleShowPopup} />
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {group.cols.map((col) => (
-                  <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={onShowPopup} />
+                  <DocChip key={col.key} col={col} docs={student.docs} onShowPopup={handleShowPopup} />
                 ))}
               </div>
             )}
@@ -2678,7 +2753,7 @@ function StudentDocumentsChecklist({ role }) {
         </div>
       )}
       {popup && (
-        <FilePopup col={popup.col} file={popup.file} onClose={() => setPopup(null)} />
+        <FilePopup col={popup.col} file={popup.file} studentId={popup.studentId} onClose={() => setPopup(null)} />
       )}
     </div>
   );
