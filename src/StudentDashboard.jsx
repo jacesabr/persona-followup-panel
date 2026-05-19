@@ -1372,14 +1372,6 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           Open in new tab
         </a>
       </div>
-      {file.ai_description && !isPhotoOnlyField(file.field_id) && (
-        <div className="border-b border-stone-200 bg-white px-4 py-4">
-          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
-            AI extraction
-          </p>
-          <AiDescriptionRenderer markdown={file.ai_description} />
-        </div>
-      )}
       <div className="bg-stone-50">
         {isImg && (
           <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
@@ -1405,6 +1397,14 @@ export function DocumentPreview({ file, fieldIndex, studentId }) {
           </div>
         )}
       </div>
+      {file.ai_description && !isPhotoOnlyField(file.field_id) && (
+        <div className="border-t border-stone-200 bg-white px-4 py-4">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-stone-700">
+            AI extraction
+          </p>
+          <AiDescriptionRenderer markdown={file.ai_description} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1632,19 +1632,8 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
             Open in new tab
           </a>
       </div>
-      {!photoOnly && (
-        <div className="px-4 py-5">
-          {hasExtraction ? (
-            <AiDescriptionRenderer markdown={file.ai_description} />
-          ) : (
-            <p className="text-sm text-stone-800">
-              No AI analysis yet for this file. Run the automation pipeline to populate it.
-            </p>
-          )}
-        </div>
-      )}
       {isImg && (
-        <div className="border-t border-stone-200 bg-stone-50 p-4">
+        <div className="bg-stone-50 p-4">
           <PhotoProvider maskOpacity={0.85} bannerVisible={false}>
             <PhotoView src={href}>
               <img src={href} alt={title} loading="lazy" decoding="async"
@@ -1656,8 +1645,19 @@ export function ExtractionStep({ file, fieldIndex, studentId }) {
         </div>
       )}
       {isPdf && (
-        <div className="border-t border-stone-200">
+        <div>
           <InlinePdf url={href} fileName={file.original_name} maxHeight={500} />
+        </div>
+      )}
+      {!photoOnly && (
+        <div className="border-t border-stone-200 px-4 py-5">
+          {hasExtraction ? (
+            <AiDescriptionRenderer markdown={file.ai_description} />
+          ) : (
+            <p className="text-sm text-stone-800">
+              No AI analysis yet for this file. Run the automation pipeline to populate it.
+            </p>
+          )}
         </div>
       )}
     </div>
