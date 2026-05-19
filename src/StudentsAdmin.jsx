@@ -3058,14 +3058,61 @@ function ReqDocsGroup({ reqdocs, visibleKinds, onShowPopup, onRemoveKind }) {
   );
 }
 
-function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, onOpenStudent }) {
+// ── Profile selector helpers ─────────────────────────────────────────────────
+const LOCATIONS = [
+  { value: "in_india",      label: "In India" },
+  { value: "outside_india", label: "Outside India" },
+];
+const LEVELS = [
+  { value: "undergrad", label: "Undergrad" },
+  { value: "postgrad",  label: "Postgrad" },
+];
+function configKey(location, level) {
+  return `${location}_${level}`;
+}
+
+function ProfileToggle({ value, options, onChange, disabled }) {
+  return (
+    <div className="flex">
+      {options.map((opt, i) => (
+        <button
+          key={opt.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(opt.value)}
+          className={`px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition
+            ${i === 0 ? "rounded-l border-t border-b border-l" : "rounded-r border"}
+            ${value === opt.value
+              ? "border-stone-700 bg-stone-700 text-white"
+              : "border-stone-300 text-stone-500 hover:border-stone-500 hover:text-black"
+            }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StudentDocCard({ student, role, configs, onShowPopup, onRemoveFromConfig, onUpdateProfile, onOpenStudent }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
 
+  const loc   = student.doc_location;
+  const lvl   = student.doc_level;
+  const key   = loc && lvl ? configKey(loc, lvl) : null;
+  const visibleCols = key && configs[key] ? configs[key] : new Set(ALL_KEYS);
+
+  const handleRemove = (docKey) => {
+    if (!loc || !lvl) return;
+    onRemoveFromConfig(loc, lvl, docKey);
+  };
+
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-5">
-      <div className="mb-4 flex items-baseline justify-between border-b border-stone-100 pb-3">
-        <div>
+      {/* Card header */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {onOpenStudent ? (
             <button
               onClick={() => onOpenStudent(student.student_id)}
@@ -3077,13 +3124,31 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, 
             <span className="font-semibold text-black">{student.display_name || student.username}</span>
           )}
           {student.display_name && (
-            <span className="ml-2 font-mono text-[10px] text-stone-400">{student.username}</span>
+            <span className="font-mono text-[10px] text-stone-400">{student.username}</span>
           )}
+          {/* Inline profile picker */}
+          <div className="flex items-center gap-1.5">
+            <ProfileToggle
+              value={loc}
+              options={LOCATIONS}
+              onChange={(v) => onUpdateProfile(student.student_id, v, lvl)}
+            />
+            <ProfileToggle
+              value={lvl}
+              options={LEVELS}
+              onChange={(v) => onUpdateProfile(student.student_id, loc, v)}
+            />
+            {!loc || !lvl ? (
+              <span className="text-[10px] text-amber-600 font-medium">— set profile to enable per-config visibility</span>
+            ) : null}
+          </div>
         </div>
         {role === "admin" && (
           <span className="text-xs text-stone-500">{student.counsellor_name || "Unassigned"}</span>
         )}
       </div>
+
+      {/* Doc chips */}
       <div className="space-y-3">
         {DOC_GROUPS.map((group) => {
           if (group.dynamic) {
@@ -3100,7 +3165,7 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, 
                   reqdocs={student.req_docs}
                   visibleKinds={visibleKinds}
                   onShowPopup={handleShowPopup}
-                  onRemoveKind={onRemoveCol}
+                  onRemoveKind={handleRemove}
                 />
               </div>
             );
@@ -3122,7 +3187,7 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, 
                     col={col}
                     docs={student.docs}
                     onShowPopup={handleShowPopup}
-                    onRemove={() => onRemoveCol(col.key)}
+                    onRemove={() => handleRemove(col.key)}
                   />
                 ))}
               </div>
@@ -3134,22 +3199,104 @@ function StudentDocCard({ student, role, visibleCols, onShowPopup, onRemoveCol, 
   );
 }
 
+// ── Document-config 2×2 grid ─────────────────────────────────────────────────
+function DocConfigGrid({ configs, onUpdateConfig }) {
+  return (
+    <div className="mb-6 rounded-xl border border-stone-200 bg-white p-5">
+      <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-400">
+        Document requirements by student profile — changes apply to all students in that profile
+      </p>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "auto 1fr 1fr" }}>
+        {/* Column headers */}
+        <div />
+        <div className="text-center text-[11px] font-bold uppercase tracking-[0.15em] text-stone-600">In India</div>
+        <div className="text-center text-[11px] font-bold uppercase tracking-[0.15em] text-stone-600">Outside India</div>
+        {/* Undergrad row */}
+        <div className="flex items-center text-[11px] font-bold uppercase tracking-[0.15em] text-stone-600 pr-3">Undergrad</div>
+        <div className="flex justify-center">
+          <DocFilterDropdown
+            visible={configs.in_india_undergrad || new Set(ALL_KEYS)}
+            onChange={(s) => onUpdateConfig("in_india", "undergrad", s)}
+          />
+        </div>
+        <div className="flex justify-center">
+          <DocFilterDropdown
+            visible={configs.outside_india_undergrad || new Set(ALL_KEYS)}
+            onChange={(s) => onUpdateConfig("outside_india", "undergrad", s)}
+          />
+        </div>
+        {/* Postgrad row */}
+        <div className="flex items-center text-[11px] font-bold uppercase tracking-[0.15em] text-stone-600 pr-3">Postgrad</div>
+        <div className="flex justify-center">
+          <DocFilterDropdown
+            visible={configs.in_india_postgrad || new Set(ALL_KEYS)}
+            onChange={(s) => onUpdateConfig("in_india", "postgrad", s)}
+          />
+        </div>
+        <div className="flex justify-center">
+          <DocFilterDropdown
+            visible={configs.outside_india_postgrad || new Set(ALL_KEYS)}
+            onChange={(s) => onUpdateConfig("outside_india", "postgrad", s)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StudentDocumentsChecklist({ role, onOpenStudent }) {
-  const [rows,       setRows]       = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [popup,      setPopup]      = useState(null);
-  const [visibleCols, setVisibleCols] = useState(() => new Set(ALL_KEYS));
+  const [rows,    setRows]    = useState([]);
+  const [configs, setConfigs] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [popup,   setPopup]   = useState(null);
 
   useEffect(() => {
-    api.listStudentsDocumentsSummary()
-      .then(setRows)
-      .catch((e) => setError(e.message))
+    Promise.all([
+      api.listStudentsDocumentsSummary(),
+      api.getDocConfigs(),
+    ]).then(([students, cfgRows]) => {
+      setRows(students);
+      const map = {};
+      for (const row of cfgRows) {
+        map[configKey(row.location, row.level)] = new Set(row.visible_keys);
+      }
+      setConfigs(map);
+    }).catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  const removeCol = (key) =>
-    setVisibleCols(prev => { const n = new Set(prev); n.delete(key); return n; });
+  const handleUpdateConfig = useCallback(async (location, level, newSet) => {
+    const key = configKey(location, level);
+    setConfigs(prev => ({ ...prev, [key]: newSet }));
+    try {
+      await api.updateDocConfig(location, level, Array.from(newSet));
+    } catch {
+      // Revert is intentionally skipped — stale UI is preferable to thrashing
+    }
+  }, []);
+
+  const handleRemoveFromConfig = useCallback((location, level, docKey) => {
+    const key = configKey(location, level);
+    setConfigs(prev => {
+      const cur = prev[key] || new Set(ALL_KEYS);
+      const next = new Set(cur);
+      next.delete(docKey);
+      api.updateDocConfig(location, level, Array.from(next)).catch(() => {});
+      return { ...prev, [key]: next };
+    });
+  }, []);
+
+  const handleUpdateProfile = useCallback(async (studentId, location, level) => {
+    setRows(prev => prev.map(r =>
+      r.student_id === studentId ? { ...r, doc_location: location || null, doc_level: level || null } : r
+    ));
+    try {
+      await api.updateStudentDocProfile(studentId, location, level);
+    } catch {
+      // leave optimistic update in place
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -3169,12 +3316,11 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <p className="text-sm text-stone-800">
-          Green chips = uploaded — click to see file details. Red chips = missing.
-        </p>
-        <DocFilterDropdown visible={visibleCols} onChange={setVisibleCols} />
-      </div>
+      <DocConfigGrid configs={configs} onUpdateConfig={handleUpdateConfig} />
+      <p className="mb-4 text-sm text-stone-800">
+        Green chips = uploaded. Red chips = missing. Click any chip for details.
+        Use the toggles on each card to assign a student to a profile.
+      </p>
       {rows.length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
       ) : (
@@ -3184,9 +3330,10 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
               key={r.student_id}
               student={r}
               role={role}
-              visibleCols={visibleCols}
+              configs={configs}
               onShowPopup={setPopup}
-              onRemoveCol={removeCol}
+              onRemoveFromConfig={handleRemoveFromConfig}
+              onUpdateProfile={handleUpdateProfile}
               onOpenStudent={onOpenStudent}
             />
           ))}

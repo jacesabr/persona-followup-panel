@@ -941,6 +941,31 @@ SELECT s.student_id, k.kind, 1
  WHERE s.intake_complete = TRUE
     OR s.ai_eligible_via_pre_upload = TRUE
 ON CONFLICT (student_id, kind, seq) DO NOTHING;
+
+-- Per-student document profile: location (in_india / outside_india) and
+-- level (undergrad / postgrad) determine which document columns are shown.
+ALTER TABLE intake_students
+  ADD COLUMN IF NOT EXISTS doc_location VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS doc_level    VARCHAR(20);
+
+-- Global document-visibility config: one row per (location, level) pair.
+-- visible_keys is a JSONB array of the doc-column keys shown for students
+-- in that category. ON CONFLICT DO NOTHING: re-running migrate never
+-- clobbers admin customisations made after the initial seed.
+CREATE TABLE IF NOT EXISTS doc_config_visibility (
+  location     VARCHAR(20) NOT NULL,
+  level        VARCHAR(20) NOT NULL,
+  visible_keys JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (location, level)
+);
+
+INSERT INTO doc_config_visibility (location, level, visible_keys) VALUES
+  ('in_india',      'undergrad', '["aadharFile","photoFile","passportFrontBack","passportFront","passportLast","marks10sheet","marks11sheet","marks12predictedSheet","marks12sheet","admitCardFile","transcript","finalDegree","semesterTranscripts","ielts_result","toefl_result","sat_result","resumeFile","itr","income","business","kyc","loan","networth","affidavit","banking","travel","lor","internship","ngo","extracurricular","sop"]'::jsonb),
+  ('in_india',      'postgrad',  '["aadharFile","photoFile","passportFrontBack","passportFront","passportLast","marks10sheet","marks11sheet","marks12predictedSheet","marks12sheet","admitCardFile","transcript","finalDegree","semesterTranscripts","ielts_result","toefl_result","sat_result","resumeFile","itr","income","business","kyc","loan","networth","affidavit","banking","travel","lor","internship","ngo","extracurricular","sop"]'::jsonb),
+  ('outside_india', 'undergrad', '["aadharFile","photoFile","passportFrontBack","passportFront","passportLast","marks10sheet","marks11sheet","marks12predictedSheet","marks12sheet","admitCardFile","transcript","finalDegree","semesterTranscripts","ielts_result","toefl_result","sat_result","resumeFile","itr","income","business","kyc","loan","networth","affidavit","banking","travel","lor","internship","ngo","extracurricular","sop"]'::jsonb),
+  ('outside_india', 'postgrad',  '["aadharFile","photoFile","passportFrontBack","passportFront","passportLast","marks10sheet","marks11sheet","marks12predictedSheet","marks12sheet","admitCardFile","transcript","finalDegree","semesterTranscripts","ielts_result","toefl_result","sat_result","resumeFile","itr","income","business","kyc","loan","networth","affidavit","banking","travel","lor","internship","ngo","extracurricular","sop"]'::jsonb)
+ON CONFLICT (location, level) DO NOTHING;
 `;
 
 export async function migrate() {

@@ -963,6 +963,51 @@ router.get("/financial-summary", requireStaff, async (req, res, next) => {
   }
 });
 
+// GET /api/students/doc-configs — all 4 per-profile document-visibility configs
+router.get("/doc-configs", requireStaff, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT location, level, visible_keys FROM doc_config_visibility ORDER BY location, level"
+    );
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /api/students/doc-configs/:location/:level — update visible_keys for one profile
+router.put("/doc-configs/:location/:level", requireStaff, async (req, res, next) => {
+  const { location, level } = req.params;
+  const { visible_keys } = req.body;
+  if (!["in_india", "outside_india"].includes(location) || !["undergrad", "postgrad"].includes(level)) {
+    return res.status(400).json({ error: "Invalid location or level" });
+  }
+  try {
+    await pool.query(
+      "UPDATE doc_config_visibility SET visible_keys = $1, updated_at = NOW() WHERE location = $2 AND level = $3",
+      [JSON.stringify(visible_keys), location, level]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PATCH /api/students/:student_id/doc-profile — assign location + level to a student
+router.patch("/:student_id/doc-profile", requireStaff, async (req, res, next) => {
+  const { student_id } = req.params;
+  const { location, level } = req.body;
+  try {
+    await pool.query(
+      "UPDATE intake_students SET doc_location = $1, doc_level = $2 WHERE student_id = $3",
+      [location ?? null, level ?? null, student_id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/students/documents-summary — one row per active student with
 // status for every intake document slot. Non-financial slots return the
 // active file's metadata (or null); financial sections return a boolean
@@ -993,6 +1038,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
     const { rows } = await pool.query(`
       SELECT
         s.student_id, s.username, s.display_name,
+        s.doc_location, s.doc_level,
         c.name AS counsellor_name,
         d.data AS dossier,
         ${fileSubqueries.join(",\n        ")},
@@ -1059,6 +1105,8 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         username: r.username,
         display_name: r.display_name,
         counsellor_name: r.counsellor_name,
+        doc_location: r.doc_location || null,
+        doc_level: r.doc_level || null,
         docs,
         req_docs: r.req_docs || [],
       };

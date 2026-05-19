@@ -198,6 +198,11 @@ export const api = {
     request("GET", `/api/students${includeArchived ? "?include_archived=true" : ""}`),
   listStudentsFinancialSummary: () => request("GET", "/api/students/financial-summary"),
   listStudentsDocumentsSummary: () => request("GET", "/api/students/documents-summary"),
+  getDocConfigs: () => request("GET", "/api/students/doc-configs"),
+  updateDocConfig: (location, level, visibleKeys) =>
+    request("PUT", `/api/students/doc-configs/${location}/${level}`, { visible_keys: visibleKeys }),
+  updateStudentDocProfile: (studentId, location, level) =>
+    request("PATCH", `/api/students/${studentId}/doc-profile`, { location, level }),
   assignStudentCounsellor: (studentId, counsellorId) =>
     request("PATCH", `/api/students/${studentId}/assign-counsellor`, { counsellor_id: counsellorId }),
   // Detail: full intake data + uploaded files + resumes for one
