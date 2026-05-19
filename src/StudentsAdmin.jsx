@@ -8,6 +8,7 @@ import useAutoRefresh from "./useAutoRefresh.js";
 import RequestManualFillBanner from "./RequestManualFillBanner.jsx";
 import { PANEL_CHAPTERS, CHAPTERS } from "../lib/intakeSchema.js";
 import FinancialDocuments from "./FinancialDocuments.jsx";
+import RecommendedDocPopup from "./RecommendedDocPopup.jsx";
 import StudentDashboard, {
   extractAnswers,
   groupAnswersBySchema,
@@ -2360,50 +2361,65 @@ function DocChip({ col, docs, onShowPopup, onRemove }) {
   );
 }
 
-function ReqDocsGroup({ reqdocs, visibleKinds, onShowPopup, onRemoveKind }) {
+// Recommended-docs chip grid. Routes chip clicks to the
+// RecommendedDocPopup (NOT the FilePopup) and exposes "+" buttons per
+// kind so the counsellor can add LOR4 / Internship3 / NGO2 / SOP2 etc.
+// Default state on every student is LOR 1/2/3 + Internship 1/2 + NGO 1
+// + SOP 1 (server-side seed); chips render whatever rows the API returns.
+function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKind }) {
   const visible = (reqdocs || []).filter(rd => visibleKinds.has(rd.kind));
-  if (!reqdocs || reqdocs.length === 0) {
-    return <span className="text-xs text-stone-400">None set up yet.</span>;
+  const kindOrder = ["lor", "internship", "ngo", "extracurricular", "sop"];
+  const groupedByKind = new Map();
+  for (const rd of visible) {
+    if (!groupedByKind.has(rd.kind)) groupedByKind.set(rd.kind, []);
+    groupedByKind.get(rd.kind).push(rd);
   }
-  if (visible.length === 0) return null;
+  const kindLabel = (kind) =>
+    kind === "lor" ? "LOR"
+    : kind === "internship" ? "Internship"
+    : kind === "ngo" ? "NGO"
+    : kind === "extracurricular" ? "Extracurricular"
+    : "SOP";
   return (
     <div className="flex flex-wrap gap-1.5">
-      {visible.map((rd) => {
-        const done = rd.kind === "sop" ? !!rd.approved_by_admin_at : !!rd.final_file;
-        const kindLabel =
-          rd.kind === "lor" ? `LOR ${rd.seq}`
-          : rd.kind === "internship" ? `Internship ${rd.seq}`
-          : rd.kind === "ngo" ? `NGO ${rd.seq}`
-          : rd.kind === "extracurricular" ? `Extracurricular ${rd.seq}`
-          : "SOP";
-        const chipKey = `${rd.kind}-${rd.seq}`;
-        if (done) {
-          const popupFile =
-            rd.kind === "sop"
-              ? { original_name: "Statement of Purpose", size: null, created_at: rd.approved_by_admin_at }
-              : rd.final_file;
-          return (
-            <button
-              key={chipKey}
-              className="group inline-flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
-              onClick={() => onShowPopup({ col: { label: kindLabel, sourceKey: rd.kind }, file: popupFile })}
-            >
-              ✓ {kindLabel}
-              {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
-              <ChipX onRemove={() => onRemoveKind(rd.kind)} />
-            </button>
-          );
-        }
+      {kindOrder.filter(k => visibleKinds.has(k)).map((kind) => {
+        const rows = (groupedByKind.get(kind) || []).slice().sort((a, b) => a.seq - b.seq);
         return (
-          <button
-            key={chipKey}
-            className="group inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
-            onClick={() => onShowPopup({ col: { label: kindLabel, sourceKey: rd.kind }, file: null })}
-          >
-            ✗ {kindLabel}
-            {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
-            <ChipX onRemove={() => onRemoveKind(rd.kind)} />
-          </button>
+          <div key={kind} className="flex flex-wrap items-center gap-1.5">
+            {rows.map((rd) => {
+              const approved = !!rd.approved_by_admin_at;
+              const slotLabel = rd.kind === "sop" ? "SOP" : `${kindLabel(rd.kind)} ${rd.seq}`;
+              return (
+                <button
+                  key={`${rd.kind}-${rd.seq}-${rd.id}`}
+                  className={`inline-flex items-center gap-1 rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    approved
+                      ? "border-emerald-400/50 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      : rd.staff_draft
+                        ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                        : "border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+                  }`}
+                  onClick={() => onShowReqDoc(rd)}
+                  title={
+                    approved ? "Approved" :
+                    rd.staff_draft ? "Draft ready — click to review" :
+                    "No draft yet — click to set up and generate"
+                  }
+                >
+                  {approved ? "✓" : rd.staff_draft ? "✎" : "○"} {slotLabel}
+                  {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => onAddKind(kind)}
+              className="inline-flex items-center gap-1 rounded border border-dashed border-stone-400 bg-white px-2 py-1.5 text-xs font-semibold text-stone-600 transition-colors hover:border-[#cc785c] hover:text-[#cc785c]"
+              title={`Add another ${kindLabel(kind)}`}
+            >
+              + {kindLabel(kind)}
+            </button>
+          </div>
         );
       })}
     </div>
@@ -2446,9 +2462,13 @@ function ProfileToggle({ value, options, onChange, disabled }) {
   );
 }
 
-function StudentDocCard({ student, role, configs, onShowPopup, onRemoveFromConfig, onUpdateProfile, onOpenStudent }) {
+function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onAddReqDoc, onRemoveFromConfig, onUpdateProfile, onOpenStudent }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
+  const handleShowReqDoc = (rd) =>
+    onShowReqDoc(rd, student.student_id);
+  const handleAddReqDoc = (kind) =>
+    onAddReqDoc(kind, student.student_id);
 
   const loc   = student.doc_location;
   const lvl   = student.doc_level;
@@ -2516,8 +2536,9 @@ function StudentDocCard({ student, role, configs, onShowPopup, onRemoveFromConfi
                 <ReqDocsGroup
                   reqdocs={student.req_docs}
                   visibleKinds={visibleKinds}
-                  onShowPopup={handleShowPopup}
-                  onRemoveKind={handleRemove}
+                  studentId={student.student_id}
+                  onShowReqDoc={handleShowReqDoc}
+                  onAddKind={handleAddReqDoc}
                 />
               </div>
             );
@@ -2597,11 +2618,30 @@ function DocConfigGrid({ configs, onUpdateConfig }) {
 }
 
 function StudentDocumentsChecklist({ role, onOpenStudent }) {
-  const [rows,    setRows]    = useState([]);
-  const [configs, setConfigs] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [popup,   setPopup]   = useState(null);
+  const [rows,         setRows]         = useState([]);
+  const [configs,      setConfigs]      = useState({});
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [popup,        setPopup]        = useState(null);
+  const [reqDocPopup,  setReqDocPopup]  = useState(null); // { doc, studentId }
+
+  const refresh = useCallback(async () => {
+    try {
+      const students = await api.listStudentsDocumentsSummary();
+      setRows(students);
+      // If the popup is currently open, re-fetch its row so the in-popup
+      // state (draft, approved, etc.) reflects whatever just changed.
+      setReqDocPopup((prev) => {
+        if (!prev) return null;
+        const stu = students.find((s) => s.student_id === prev.studentId);
+        if (!stu) return null;
+        const fresh = (stu.req_docs || []).find((rd) => String(rd.id) === String(prev.doc.id));
+        return fresh ? { doc: fresh, studentId: prev.studentId } : prev;
+      });
+    } catch (e) {
+      setError(e.message);
+    }
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -2617,6 +2657,20 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
     }).catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleShowReqDoc = useCallback((doc, studentId) => {
+    setReqDocPopup({ doc, studentId });
+  }, []);
+
+  const handleAddReqDoc = useCallback(async (kind, studentId) => {
+    try {
+      await api.createRequiredDocForStudent(studentId, { kind });
+      await refresh();
+    } catch (e) {
+      // eslint-disable-next-line no-alert
+      window.alert(e.message || "Couldn't add row.");
+    }
+  }, [refresh]);
 
   const handleUpdateConfig = useCallback(async (location, level, newSet) => {
     const key = configKey(location, level);
@@ -2684,6 +2738,8 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
               role={role}
               configs={configs}
               onShowPopup={setPopup}
+              onShowReqDoc={handleShowReqDoc}
+              onAddReqDoc={handleAddReqDoc}
               onRemoveFromConfig={handleRemoveFromConfig}
               onUpdateProfile={handleUpdateProfile}
               onOpenStudent={onOpenStudent}
@@ -2698,6 +2754,15 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
           studentId={popup.studentId}
           onClose={() => setPopup(null)}
           onOpenStudent={onOpenStudent ? () => { setPopup(null); onOpenStudent(popup.studentId); } : null}
+        />
+      )}
+      {reqDocPopup && (
+        <RecommendedDocPopup
+          doc={reqDocPopup.doc}
+          studentId={reqDocPopup.studentId}
+          role={role}
+          onClose={() => setReqDocPopup(null)}
+          onRefresh={refresh}
         />
       )}
     </div>

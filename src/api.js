@@ -263,10 +263,23 @@ export const api = {
   // explicitly added it.
   createLorSelf: ({ recipient_name, recipient_role, reason_brief }) =>
     request("POST", "/api/required-docs/me", { recipient_name, recipient_role, reason_brief }),
-  // Staff: create a new required-doc row (any kind except sop) for a
-  // student. Used by the "Add document" button in the admin panel.
+  // Staff: create a new required-doc row (any kind) for a student. Used
+  // by the recommended-docs "+" buttons (Add LOR / Internship / NGO / SOP).
   createRequiredDocForStudent: (studentId, data) =>
     request("POST", `/api/required-docs/student/${encodeURIComponent(studentId)}`, data),
+  // Staff: delete a recommended-doc row (only allowed if not sent + no final).
+  // Powers the Delete button on the RecommendedDocPopup.
+  deleteRequiredDoc: (id) =>
+    request("DELETE", `/api/required-docs/${id}`),
+  // Staff: queue an AI-generation request for one specific recommended-doc
+  // row. Inserts a manual_ai_requests row tagged with the doc id so the
+  // pipeline picks it up on next run — does NOT inline-generate.
+  generateRequiredDoc: (id) =>
+    request("POST", `/api/required-docs/${id}/generate`),
+  // Staff: approve any recommended-doc draft (LOR / Internship / NGO / SOP).
+  // Admin-only on the server. Body { undo: true } un-approves.
+  approveRequiredDoc: (id, undo = false) =>
+    request("POST", `/api/required-docs/${id}/approve`, { undo }),
 
   // ----------------------------------------------------------------
   // Applications. Per-(student × school) tracking. Replaces the

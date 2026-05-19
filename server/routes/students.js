@@ -1055,6 +1055,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
         (SELECT COUNT(*) FROM intake_files WHERE student_id = s.student_id AND field_id LIKE 'fin\\_banking\\_%' ESCAPE '\\' AND superseded_at IS NULL) AS banking_count,
         (SELECT json_agg(
           json_build_object(
+            'id', r.id,
             'kind', r.kind, 'seq', r.seq,
             'label', CASE r.kind
                        WHEN 'lor' THEN r.recipient_name
@@ -1062,6 +1063,17 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
                        WHEN 'ngo' THEN r.company_name
                        WHEN 'extracurricular' THEN r.company_name
                        ELSE NULL END,
+            'subject', r.subject,
+            'instructions', r.instructions,
+            'target_words', r.target_words,
+            'staff_draft', r.staff_draft,
+            'recipient_name', r.recipient_name,
+            'recipient_role', r.recipient_role,
+            'reason_brief', r.reason_brief,
+            'company_name', r.company_name,
+            'company_website', r.company_website,
+            'activity_brief', r.activity_brief,
+            'requested_at', r.requested_at,
             'approved_by_admin_at', r.approved_by_admin_at,
             'final_file', CASE WHEN f.id IS NOT NULL THEN
               json_build_object('id', f.id, 'original_name', f.original_name, 'size', f.size, 'mime_type', f.mime_type, 'ai_description', f.ai_description, 'created_at', f.created_at)

@@ -122,6 +122,11 @@ router.patch("/:id", requireStaff, express.json(), async (req, res, next) => {
       "staff_draft",
       "recipient_name", "recipient_role", "reason_brief",
       "company_name", "company_website", "activity_brief",
+      // Recommended-docs popup inputs. Subject = the LOR teacher's
+      // school subject (or the internship/NGO role). Instructions =
+      // counsellor's free-text brief for the AI generator. Target_words
+      // = requested word count (caps validated client-side).
+      "subject", "instructions", "target_words",
     ];
     const sets = [];
     const params = [];
@@ -198,21 +203,22 @@ router.post("/:id/mark-done", requireStaff, express.json(), async (req, res, nex
   }
 });
 
-// POST /api/required-docs/:id/approve — admin approves an SOP draft.
-// Counsellor cannot self-approve their own SOP draft (operator's
-// "admin must approve" rule); admin can approve any. body { undo: true }
-// clears the approval.
+// POST /api/required-docs/:id/approve — admin approves a draft (any
+// kind). The original implementation restricted this to SOP only because
+// the legacy LOR/Internship flow used marked_done_at + final-file
+// uploads instead of admin sign-off. With the recommended-docs popup,
+// the counsellor's Confirm button calls this endpoint to mark the
+// AI-generated draft accepted — the row becomes the final artifact
+// (no separate file upload needed for LOR/Internship/NGO/SOP).
+// body { undo: true } clears the approval.
 router.post("/:id/approve", requireStaff, express.json(), async (req, res, next) => {
   try {
     if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
     if (req.user.kind !== "admin") {
-      return res.status(403).json({ error: "only admin can approve SOP" });
+      return res.status(403).json({ error: "only admin can approve" });
     }
     const own = await loadOwnership(pool, Number(req.params.id));
     if (!own) return res.status(404).json({ error: "not found" });
-    if (own.kind !== "sop") {
-      return res.status(400).json({ error: "approve is for SOP only" });
-    }
     const undo = req.body?.undo === true;
     await pool.query(
       `UPDATE intake_required_docs
@@ -223,9 +229,95 @@ router.post("/:id/approve", requireStaff, express.json(), async (req, res, next)
     audit(req, {
       table: "intake_required_docs",
       id: req.params.id,
-      action: undo ? "approve_sop_undo" : "approve_sop",
+      action: undo ? "approve_undo" : "approve",
+      diff: { kind: own.kind, seq: own.seq },
     });
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// DELETE /api/required-docs/:id — staff removes a recommended-doc row.
+// Used by the popup's Delete button. Refuses to delete rows that have
+// already been sent to the student (requested_at IS NOT NULL) or have
+// an uploaded final, so audit trail isn't destroyed mid-flow. Use the
+// existing un-request flow if you need to roll back a sent doc first.
+router.delete("/:id", requireStaff, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) return res.status(404).json({ error: "not found" });
+    if (
+      req.user.kind === "counsellor" &&
+      own.counsellor_id !== req.user.counsellorId
+    ) {
+      return res.status(404).json({ error: "not found" });
+    }
+    if (own.requested_at) {
+      return res.status(400).json({ error: "cannot delete a row that has already been sent to the student" });
+    }
+    if (own.final_file_id) {
+      return res.status(400).json({ error: "cannot delete a row that has a final file uploaded" });
+    }
+    await pool.query(`DELETE FROM intake_required_docs WHERE id = $1`, [Number(req.params.id)]);
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "delete",
+      diff: { kind: own.kind, seq: own.seq },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/required-docs/:id/generate — counsellor requests AI fill for
+// this specific recommended-doc row. Doesn't generate inline — inserts
+// a manual_ai_requests row scoped to this doc id so the AI pipeline
+// picks it up on the next run. notes encodes the target row + the
+// user-provided subject/instructions/target_words; force_redraft is
+// always TRUE because the popup is the explicit "regenerate" path.
+router.post("/:id/generate", requireStaff, express.json(), async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) return res.status(404).json({ error: "not found" });
+    if (
+      req.user.kind === "counsellor" &&
+      own.counsellor_id !== req.user.counsellorId
+    ) {
+      return res.status(404).json({ error: "not found" });
+    }
+    const notes = JSON.stringify({
+      target_doc_id: String(own.id),
+      kind: own.kind,
+      seq: own.seq,
+      subject: own.subject || null,
+      instructions: own.instructions || null,
+      target_words: own.target_words || null,
+    });
+    const { rows } = await pool.query(
+      `INSERT INTO manual_ai_requests
+         (student_id, requested_by_kind, requested_by_id, requested_by_admin_username, notes, force_redraft)
+       VALUES ($1, $2, $3, $4, $5, TRUE)
+       RETURNING id, requested_at`,
+      [
+        own.student_id,
+        req.user.kind,
+        req.user.kind === "counsellor" ? req.user.counsellorId : null,
+        req.user.kind === "admin" ? req.user.adminUsername : null,
+        notes,
+      ]
+    );
+    audit(req, {
+      table: "manual_ai_requests",
+      id: String(rows[0].id),
+      action: "request_generate",
+      diff: { target_doc_id: String(own.id), kind: own.kind, seq: own.seq },
+    });
+    res.json({ ok: true, request_id: String(rows[0].id), requested_at: rows[0].requested_at });
   } catch (e) {
     next(e);
   }
@@ -335,8 +427,8 @@ router.post("/student/:student_id", requireStaff, express.json(), async (req, re
     }
     const body = req.body || {};
     const kind = isString(body.kind) ? body.kind.trim() : "";
-    if (!KINDS.has(kind) || kind === "sop") {
-      return res.status(400).json({ error: "kind must be lor, internship, ngo, or extracurricular" });
+    if (!KINDS.has(kind)) {
+      return res.status(400).json({ error: "kind must be lor, internship, ngo, extracurricular, or sop" });
     }
     const recipient_name  = isString(body.recipient_name)  ? body.recipient_name.trim()  : "";
     const recipient_role  = isString(body.recipient_role)  ? body.recipient_role.trim()  : "";
@@ -681,6 +773,19 @@ export async function seedRequiredDocsForStudent(client, studentId, answers) {
          AND seq > $2 AND requested_at IS NULL`,
     [studentId, liveInternCount]
   );
+
+  // Mandatory LOR slots: always ensure seq 1, 2, 3 exist even if the
+  // student's intake had fewer recommenders. The recommended-docs UI
+  // renders three LOR chips by default. ON CONFLICT DO NOTHING preserves
+  // the recipient_name / role / reason populated by the loop above.
+  for (const mandatorySeq of [1, 2, 3]) {
+    await client.query(
+      `INSERT INTO intake_required_docs (student_id, kind, seq)
+       VALUES ($1, 'lor', $2)
+       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
+      [studentId, mandatorySeq]
+    );
+  }
 
   // Mandatory internship slots: always ensure seq 1 and 2 exist even if
   // the student's intake had fewer entries. ON CONFLICT DO NOTHING

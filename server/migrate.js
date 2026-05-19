@@ -942,6 +942,30 @@ SELECT s.student_id, k.kind, 1
     OR s.ai_eligible_via_pre_upload = TRUE
 ON CONFLICT (student_id, kind, seq) DO NOTHING;
 
+-- Recommended-docs popup: per-row "generate AI" inputs. Subject is the
+-- school subject a LOR teacher teaches (or the role for internship/NGO).
+-- Instructions is the counsellor's free-text brief that grounds the AI
+-- draft. Target_words is the requested word count (default 600 for LOR
+-- per the LOR generation spec). All three are nullable — rows existed
+-- before this migration with neither set, and the popup is the only
+-- writer.
+ALTER TABLE intake_required_docs
+  ADD COLUMN IF NOT EXISTS subject       TEXT,
+  ADD COLUMN IF NOT EXISTS instructions  TEXT,
+  ADD COLUMN IF NOT EXISTS target_words  INT;
+
+-- Backfill the three LOR default slots (seq 1, 2, 3) for every existing
+-- student. The recommended-docs UI always renders three LOR chips; the
+-- backfill guarantees rows exist so chip clicks have an id to PATCH.
+-- ON CONFLICT DO NOTHING preserves any existing LOR rows the student
+-- typed into the intake form's lors_list.
+INSERT INTO intake_required_docs (student_id, kind, seq)
+SELECT s.student_id, 'lor', g.seq
+  FROM intake_students s
+  CROSS JOIN (VALUES (1), (2), (3)) AS g(seq)
+ WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
+ON CONFLICT (student_id, kind, seq) DO NOTHING;
+
 -- Per-student document profile: location (in_india / outside_india) and
 -- level (undergrad / postgrad) determine which document columns are shown.
 ALTER TABLE intake_students
