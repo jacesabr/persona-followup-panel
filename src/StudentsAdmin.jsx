@@ -2736,7 +2736,7 @@ function ChipX({ onRemove }) {
       role="button"
       tabIndex={0}
       onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-      className="ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-current leading-none cursor-pointer"
+      className="ml-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-stone-400 text-[10px] font-bold text-white hover:bg-stone-600 cursor-pointer leading-none"
       aria-label="Hide column"
     >
       ×
@@ -2750,12 +2750,15 @@ function DocChip({ col, docs, onShowPopup, onRemove }) {
 
   if (col.fin) {
     if (val === null) {
-      // N/A — not applicable for this student, no click needed
+      // N/A — not applicable for this student
       return (
-        <span className="group inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400">
+        <button
+          className="group inline-flex items-center gap-1 rounded border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-400 transition-colors hover:bg-stone-100"
+          onClick={() => onShowPopup({ col: colWithSource, file: null })}
+        >
           — {col.label}
           <ChipX onRemove={onRemove} />
-        </span>
+        </button>
       );
     }
     return val ? (
