@@ -2736,7 +2736,7 @@ function ChipX({ onRemove }) {
       role="button"
       tabIndex={0}
       onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-      className="ml-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-stone-400 text-[10px] font-bold text-white hover:bg-stone-600 cursor-pointer leading-none"
+      className="ml-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white hover:bg-stone-700 cursor-pointer leading-none"
       aria-label="Hide column"
     >
       ×
