@@ -884,124 +884,19 @@ export default router;
 // only delete rows that haven't been sent to the student yet
 // (requested_at IS NULL); once a request is out the door, the row
 // is operationally meaningful and deleting it would lose audit trail.
-export async function seedRequiredDocsForStudent(client, studentId, answers) {
-  const lors = Array.isArray(answers?.lors_list) ? answers.lors_list : [];
-  const interns = Array.isArray(answers?.internships_list) ? answers.internships_list : [];
-
-  // Count of valid (non-blank) entries in the new lists, used as the
-  // upper-bound seq to keep. Mirrors the per-row "skip if blank" rule
-  // below so we don't accidentally delete a real row.
-  const liveLorCount = lors.filter((r) => {
-    if (!r || typeof r !== "object") return false;
-    const name = (r.recipient_name || "").trim();
-    const role = (r.recipient_role || "").trim();
-    const reason = (r.reason_brief || "").trim();
-    return !!(name || role || reason);
-  }).length;
-  const liveInternCount = interns.filter((r) => {
-    if (!r || typeof r !== "object") return false;
-    const company = (r.company_name || "").trim();
-    const website = (r.company_website || "").trim();
-    const activity = (r.activity_brief || "").trim();
-    return !!(company || website || activity);
-  }).length;
-
-  let seq = 0;
-  for (const r of lors) {
-    if (!r || typeof r !== "object") continue;
-    const name = (r.recipient_name || "").trim();
-    const role = (r.recipient_role || "").trim();
-    const reason = (r.reason_brief || "").trim();
-    if (!name && !role && !reason) continue;
-    seq++;
-    await client.query(
-      `INSERT INTO intake_required_docs
-         (student_id, kind, seq, recipient_name, recipient_role, reason_brief)
-       VALUES ($1, 'lor', $2, $3, $4, $5)
-       ON CONFLICT (student_id, kind, seq) DO UPDATE
-          SET recipient_name = EXCLUDED.recipient_name,
-              recipient_role = EXCLUDED.recipient_role,
-              reason_brief = EXCLUDED.reason_brief,
-              updated_at = NOW()`,
-      [studentId, seq, name || null, role || null, reason || null]
-    );
-  }
-  // Drop tail rows the student removed (only if not already requested).
-  await client.query(
-    `DELETE FROM intake_required_docs
-       WHERE student_id = $1 AND kind = 'lor'
-         AND seq > $2 AND requested_at IS NULL`,
-    [studentId, liveLorCount]
-  );
-
-  seq = 0;
-  for (const r of interns) {
-    if (!r || typeof r !== "object") continue;
-    const company = (r.company_name || "").trim();
-    const website = (r.company_website || "").trim();
-    const activity = (r.activity_brief || "").trim();
-    if (!company && !website && !activity) continue;
-    seq++;
-    await client.query(
-      `INSERT INTO intake_required_docs
-         (student_id, kind, seq, company_name, company_website, activity_brief)
-       VALUES ($1, 'internship', $2, $3, $4, $5)
-       ON CONFLICT (student_id, kind, seq) DO UPDATE
-          SET company_name = EXCLUDED.company_name,
-              company_website = EXCLUDED.company_website,
-              activity_brief = EXCLUDED.activity_brief,
-              updated_at = NOW()`,
-      [studentId, seq, company || null, website || null, activity || null]
-    );
-  }
-  await client.query(
-    `DELETE FROM intake_required_docs
-       WHERE student_id = $1 AND kind = 'internship'
-         AND seq > $2 AND requested_at IS NULL`,
-    [studentId, liveInternCount]
-  );
-
-  // Mandatory LOR slots: always ensure seq 1, 2, 3 exist even if the
-  // student's intake had fewer recommenders. The recommended-docs UI
-  // renders three LOR chips by default. ON CONFLICT DO NOTHING preserves
-  // the recipient_name / role / reason populated by the loop above.
-  for (const mandatorySeq of [1, 2, 3]) {
-    await client.query(
-      `INSERT INTO intake_required_docs (student_id, kind, seq)
-       VALUES ($1, 'lor', $2)
-       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
-      [studentId, mandatorySeq]
-    );
-  }
-
-  // Mandatory internship slots: always ensure seq 1 and 2 exist even if
-  // the student's intake had fewer entries. ON CONFLICT DO NOTHING
-  // preserves any existing data (name/website/etc.) already seeded above.
-  for (const mandatorySeq of [1, 2]) {
-    await client.query(
-      `INSERT INTO intake_required_docs (student_id, kind, seq)
-       VALUES ($1, 'internship', $2)
-       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
-      [studentId, mandatorySeq]
-    );
-  }
-
-  // NGO and Extracurricular — one mandatory slot each, always present.
-  for (const mandatoryKind of ["ngo", "extracurricular"]) {
-    await client.query(
-      `INSERT INTO intake_required_docs (student_id, kind, seq)
-       VALUES ($1, $2, 1)
-       ON CONFLICT (student_id, kind, seq) DO NOTHING`,
-      [studentId, mandatoryKind]
-    );
-  }
-
-  // SOP — exactly one row, auto-created. Idempotent via the
-  // (student, kind, seq) unique index.
-  await client.query(
-    `INSERT INTO intake_required_docs (student_id, kind, seq)
-     VALUES ($1, 'sop', 1)
-     ON CONFLICT (student_id, kind, seq) DO NOTHING`,
-    [studentId]
-  );
+// Auto-seeding removed: LOR / Internship / NGO / Extracurricular / SOP
+// rows are now custom-created by the counsellor / admin from the staff
+// UI (the "+ Add" buttons on the per-student page and on the Required
+// Documents tab). The function stays exported as a no-op so existing
+// callers (intake /me/submit, staff "create student with docs", the
+// bump-finished-students script) don't break — they just stop seeding
+// the row set after intake completes. Backfilled empty slots have been
+// retired alongside this change.
+//
+// _unusedClient / _unusedStudentId / _unusedAnswers prefixes silence
+// the linter without renaming the signature, since callers still pass
+// the full triple.
+// eslint-disable-next-line no-unused-vars
+export async function seedRequiredDocsForStudent(_unusedClient, _unusedStudentId, _unusedAnswers) {
+  return;
 }

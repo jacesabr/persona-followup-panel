@@ -931,16 +931,10 @@ ALTER TABLE intake_required_docs DROP CONSTRAINT IF EXISTS intake_required_docs_
 ALTER TABLE intake_required_docs ADD CONSTRAINT intake_required_docs_kind_check
   CHECK (kind IN ('lor', 'internship', 'sop', 'ngo', 'extracurricular'));
 
--- Backfill: seed one NGO and one Extracurricular slot for every student
--- who completed intake before these kinds were added to seedRequiredDocsForStudent.
--- ON CONFLICT DO NOTHING makes this idempotent across re-deploys.
-INSERT INTO intake_required_docs (student_id, kind, seq)
-SELECT s.student_id, k.kind, 1
-  FROM intake_students s
-  CROSS JOIN (VALUES ('ngo'), ('extracurricular')) AS k(kind)
- WHERE s.intake_complete = TRUE
-    OR s.ai_eligible_via_pre_upload = TRUE
-ON CONFLICT (student_id, kind, seq) DO NOTHING;
+-- NGO / Extracurricular backfill removed: those slots are now custom-
+-- created by the counsellor / admin from the staff UI, mirroring LOR /
+-- Internship / SOP. Leaving the old INSERT in place would re-seed empty
+-- rows on every deploy after they've been deliberately wiped.
 
 -- Recommended-docs popup: per-row "generate AI" inputs. Subject is the
 -- school subject a LOR teacher teaches (or the role for internship/NGO).
@@ -954,17 +948,22 @@ ALTER TABLE intake_required_docs
   ADD COLUMN IF NOT EXISTS instructions  TEXT,
   ADD COLUMN IF NOT EXISTS target_words  INT;
 
--- Backfill the three LOR default slots (seq 1, 2, 3) for every existing
--- student. The recommended-docs UI always renders three LOR chips; the
--- backfill guarantees rows exist so chip clicks have an id to PATCH.
--- ON CONFLICT DO NOTHING preserves any existing LOR rows the student
--- typed into the intake form's lors_list.
-INSERT INTO intake_required_docs (student_id, kind, seq)
-SELECT s.student_id, 'lor', g.seq
-  FROM intake_students s
-  CROSS JOIN (VALUES (1), (2), (3)) AS g(seq)
- WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
-ON CONFLICT (student_id, kind, seq) DO NOTHING;
+-- Mandatory LOR backfill removed (same rationale as the NGO/Extracurricular
+-- backfill above): LOR rows are now custom-created by the counsellor /
+-- admin. Leaving the INSERT here would re-seed three empty LOR slots
+-- for every student on every deploy and undo any wipe script run.
+
+-- One-time wipe for Pratham's stale auto-seeded required-doc rows. These
+-- pre-date the move to "admin/counsellor custom-creates every slot" and
+-- were carrying AI-generated LOR / SOP drafts that no longer reflect
+-- the current flow. Backed up in backups/required-docs-pratham-2026-05-20.json
+-- (committed) before delete. Idempotent: re-runs delete 0 rows because
+-- the WHERE clause matches nothing once cleared. Scoped to Pratham only
+-- to avoid touching other students' work; broader sweep is opt-in via
+-- server/scripts/wipe-required-docs.js.
+DELETE FROM intake_required_docs
+ WHERE student_id = 's_moy17coj_7ab6d5bb6e39'
+   AND final_file_id IS NULL;
 
 -- Per-student document profile: location (in_india / outside_india) and
 -- level (undergrad / postgrad) determine which document columns are shown.
