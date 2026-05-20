@@ -2525,16 +2525,19 @@ function DocChip({ col, docs, onShowPopup, onRemove }) {
 // Recommended-docs chip grid. Each kind (LOR, Internship, NGO,
 // Extracurricular, SOP) is always represented in the row — even when
 // the student has zero slots of that kind — so the counsellor can see
-// at a glance what's still missing instead of an unlabeled "+".
+// at a glance what's still missing.
+//
+// Chip is purely informational. Click opens an explainer popup with
+// "what is this document" + lifecycle status. No upload, no add, no
+// approve from here — those live in the Required Documents tab (admin
+// Word-draft upload + approve) and on the student dashboard (signed
+// copy upload).
 //
 // Chip states:
-//   green ✓  = signed copy uploaded for that slot
-//   red   ✗  = slot exists but no signed copy yet
-//   red   +  = placeholder for a kind with no slots (click adds one)
-// Click any chip → opens the RecommendedDocPopup so staff can add /
-// upload / approve. The trailing dashed "+ another" button after a
-// kind's existing slots still adds a second / third row.
-function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKind }) {
+//   red   "LOR · Not initiated"  — no slot exists for this kind yet
+//   red   "✗ LOR 1"              — slot exists, no signed copy yet
+//   green "✓ LOR 1"              — signed copy uploaded (or admin-approved)
+function ReqDocsGroup({ reqdocs, visibleKinds, onShowDocInfo }) {
   const visible = (reqdocs || []).filter(rd => visibleKinds.has(rd.kind));
   const kindOrder = ["lor", "internship", "ngo", "extracurricular", "sop"];
   const groupedByKind = new Map();
@@ -2552,18 +2555,19 @@ function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKin
     <div className="flex flex-wrap gap-1">
       {kindOrder.filter(k => visibleKinds.has(k)).map((kind) => {
         const rows = (groupedByKind.get(kind) || []).slice().sort((a, b) => a.seq - b.seq);
-        // Empty-kind placeholder: one red labeled chip that, on click,
-        // creates a row of this kind. Replaces the prior unlabeled "+".
         if (rows.length === 0) {
+          // "Not initiated" — a missing required document. Red so it
+          // reads at a glance, but purely informational; click opens
+          // the explainer (no upload/add affordance here).
           return (
             <button
               key={`${kind}-placeholder`}
               type="button"
-              onClick={() => onAddKind(kind)}
+              onClick={() => onShowDocInfo({ kind, doc: null })}
               className="inline-flex items-center gap-1 rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-100"
-              title={`No ${kindLabel(kind)} uploaded yet — click to add a slot`}
+              title={`No ${kindLabel(kind)} initiated yet — click for details`}
             >
-              + {kindLabel(kind)}
+              {kindLabel(kind)} · Not initiated
             </button>
           );
         }
@@ -2573,11 +2577,6 @@ function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKin
               const approved = !!rd.approved_by_admin_at;
               const hasFile  = !!rd.final_file;
               const slotLabel = rd.kind === "sop" ? "SOP" : `${kindLabel(rd.kind)} ${rd.seq}`;
-              // Approved → green ✓ ; uploaded → green ✓ ; missing → red ✗.
-              // The previous "draft uploaded but not signed yet" white-chip
-              // state has been collapsed into red because the user wants a
-              // single signal — "is the signed copy in?" — and a neutral
-              // white chip read as "done" at a glance.
               const tone = approved || hasFile
                 ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                 : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100";
@@ -2586,22 +2585,124 @@ function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKin
                 <button
                   key={`${rd.kind}-${rd.seq}-${rd.id}`}
                   className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${tone}`}
-                  onClick={() => onShowReqDoc(rd)}
-                  title={approved ? "Approved by admin" : hasFile ? "Signed copy uploaded — click to view" : "No signed copy yet — click to upload"}
+                  onClick={() => onShowDocInfo({ kind, doc: rd })}
+                  title={approved ? "Approved by admin" : hasFile ? "Signed copy uploaded" : "Awaiting signed copy from student"}
                 >
                   {icon} {slotLabel}
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => onAddKind(kind)}
-              className="inline-flex items-center rounded border border-dashed border-stone-300 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-stone-500 transition-colors hover:border-[#cc785c] hover:text-[#cc785c]"
-              title={`Add another ${kindLabel(kind)}`}
-            >+</button>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Read-only explainer for a required-doc chip in the Documents tab.
+// Shows what the document is + where it is in the lifecycle. No
+// upload, no add, no approve buttons — those live in the Required
+// Documents tab (staff) and on the student dashboard (signed copy).
+const KIND_EXPLAINER = {
+  lor: {
+    title: "Letter of Recommendation",
+    body: "A teacher or principal's testimonial about the student's academic conduct, character, and trajectory. The counsellor writes the Word draft; the student prints it on official school letterhead, gets it signed and stamped by the recommender, then uploads the signed copy from their dashboard.",
+  },
+  internship: {
+    title: "Internship certificate",
+    body: "A signed letter from the host company confirming the internship dates, role, and what the student did. The counsellor drafts the Word version; the student gets it signed by the company representative and uploads the signed copy from their dashboard.",
+  },
+  ngo: {
+    title: "NGO letter",
+    body: "A signed letter from the partner NGO confirming the student's volunteering / community work. Counsellor drafts, student collects the signature on letterhead and uploads the signed copy.",
+  },
+  extracurricular: {
+    title: "Extracurricular letter",
+    body: "A signed letter from the school / club / coach confirming the student's extracurricular involvement. Counsellor drafts, student collects the signature and uploads the signed copy.",
+  },
+  sop: {
+    title: "Statement of Purpose",
+    body: "The student's own statement, drafted by the counsellor and approved by admin. There is no signed copy — admin approval is the final state. The student sees the approved SOP on their dashboard.",
+  },
+};
+
+function fmtTs(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch { return iso; }
+}
+
+function statusFor(kind, doc) {
+  if (!doc) return { label: "Not initiated", tone: "bg-red-50 text-red-800 border-red-300" };
+  if (kind === "sop") {
+    if (doc.approved_by_admin_at) return { label: "Approved by admin", tone: "bg-emerald-50 text-emerald-800 border-emerald-300" };
+    if (doc.staff_draft || doc.final_file_id) return { label: "Draft in progress", tone: "bg-amber-50 text-amber-800 border-amber-300" };
+    return { label: "Not initiated", tone: "bg-red-50 text-red-800 border-red-300" };
+  }
+  if (doc.approved_by_admin_at) return { label: "Approved by admin", tone: "bg-emerald-50 text-emerald-800 border-emerald-300" };
+  if (doc.final_file && doc.requested_at) return { label: "Signed copy received", tone: "bg-emerald-50 text-emerald-800 border-emerald-300" };
+  if (doc.final_file) return { label: "Word draft uploaded — not sent to student yet", tone: "bg-amber-50 text-amber-800 border-amber-300" };
+  if (doc.requested_at) return { label: "Sent to student — awaiting signed copy", tone: "bg-amber-50 text-amber-800 border-amber-300" };
+  if (doc.staff_draft) return { label: "Draft in progress", tone: "bg-amber-50 text-amber-800 border-amber-300" };
+  return { label: "Slot created — no draft yet", tone: "bg-stone-100 text-stone-700 border-stone-300" };
+}
+
+function DocInfoPopup({ kind, doc, onClose }) {
+  const explainer = KIND_EXPLAINER[kind] || { title: "Document", body: "" };
+  const status = statusFor(kind, doc);
+  const slotLabel = doc
+    ? (kind === "sop" ? "SOP" : `${explainer.title} ${doc.seq}`)
+    : explainer.title;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="relative flex w-full max-w-lg flex-col rounded-xl border border-stone-200 bg-white shadow-2xl"
+        style={{ maxHeight: "92vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-stone-100 px-6 py-5">
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-stone-400">{slotLabel}</p>
+            <p className="text-lg font-semibold text-black">{explainer.title}</p>
+          </div>
+          <button className="text-stone-400 hover:text-stone-700" onClick={onClose} aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-5 overflow-y-auto px-6 py-5">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-stone-600">What this document is</p>
+            <p className="text-sm leading-relaxed text-stone-800">{explainer.body}</p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-stone-600">Current status</p>
+            <span className={`inline-flex items-center border px-3 py-1 text-sm font-semibold ${status.tone}`}>
+              {status.label}
+            </span>
+          </div>
+
+          {doc && (
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-stone-600">Lifecycle</p>
+              <ul className="space-y-1 text-sm text-stone-800">
+                <li>Row created: <span className="tabular-nums text-stone-700">{fmtTs(doc.created_at) || "—"}</span></li>
+                {doc.final_file_id && <li>Draft / file uploaded: <span className="tabular-nums text-stone-700">{fmtTs(doc.updated_at) || "—"}</span></li>}
+                {doc.requested_at && <li>Sent to student: <span className="tabular-nums text-stone-700">{fmtTs(doc.requested_at)}</span></li>}
+                {doc.approved_by_admin_at && <li>Approved by admin: <span className="tabular-nums text-stone-700">{fmtTs(doc.approved_by_admin_at)}</span></li>}
+              </ul>
+            </div>
+          )}
+
+          <p className="border-t border-stone-100 pt-4 text-xs text-stone-600">
+            To upload the Word draft or approve a document, use the <strong>Required Documents</strong> tab.
+            Students upload signed copies from their own dashboard.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2642,13 +2743,13 @@ function ProfileToggle({ value, options, onChange, disabled }) {
   );
 }
 
-function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onAddReqDoc, onRemoveFromConfig, onUpdateProfile, onOpenStudent, embedded = false }) {
+function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onRemoveFromConfig, onUpdateProfile, onOpenStudent, embedded = false }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
-  const handleShowReqDoc = (rd) =>
-    onShowReqDoc(rd, student.student_id);
-  const handleAddReqDoc = (kind) =>
-    onAddReqDoc(kind, student.student_id);
+  // ReqDocsGroup emits { kind, doc } — forward to the parent with the
+  // student id so the popup can be opened against the right context.
+  const handleShowDocInfo = ({ kind, doc }) =>
+    onShowReqDoc({ kind, doc }, student.student_id);
 
   const loc   = student.doc_location;
   const lvl   = student.doc_level;
@@ -2748,9 +2849,7 @@ function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onA
                 <ReqDocsGroup
                   reqdocs={student.req_docs}
                   visibleKinds={visibleKinds}
-                  studentId={student.student_id}
-                  onShowReqDoc={handleShowReqDoc}
-                  onAddKind={handleAddReqDoc}
+                  onShowDocInfo={handleShowDocInfo}
                 />
               </div>
             );
@@ -2877,11 +2976,14 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
     try {
       const row = await api.getStudentDocumentsSummary(studentId);
       setDetail((prev) => ({ ...prev, [studentId]: { state: "loaded", data: row, error: null } }));
-      // If the popup is open on this student, refresh its row reference too.
+      // If the info popup is open on this student and pointing at a real
+      // row (doc != null), refresh that row reference so timestamps stay
+      // current. The "Not initiated" placeholder (doc === null) doesn't
+      // need refreshing — it shows kind-level copy only.
       setReqDocPopup((prev) => {
-        if (!prev || prev.studentId !== studentId) return prev;
+        if (!prev || prev.studentId !== studentId || !prev.doc) return prev;
         const fresh = (row?.req_docs || []).find((rd) => String(rd.id) === String(prev.doc.id));
-        return fresh ? { doc: fresh, studentId } : prev;
+        return fresh ? { ...prev, doc: fresh } : prev;
       });
       return row;
     } catch (e) {
@@ -2910,19 +3012,14 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
     });
   }, [fetchStudent]);
 
-  const handleShowReqDoc = useCallback((doc, studentId) => {
-    setReqDocPopup({ doc, studentId });
+  // Chip click in the Documents tab → opens the read-only DocInfoPopup
+  // (explains what the doc is + lifecycle status). Upload / add / approve
+  // affordances live in the Required Documents tab + on the student
+  // dashboard, not in this view. The arg shape matches what ReqDocsGroup
+  // emits: { kind, doc } — doc is null for the "Not initiated" placeholder.
+  const handleShowReqDoc = useCallback(({ kind, doc }, studentId) => {
+    setReqDocPopup({ kind, doc, studentId });
   }, []);
-
-  const handleAddReqDoc = useCallback(async (kind, studentId) => {
-    try {
-      await api.createRequiredDocForStudent(studentId, { kind });
-      await fetchStudent(studentId);
-    } catch (e) {
-      // eslint-disable-next-line no-alert
-      window.alert(e.message || "Couldn't add row.");
-    }
-  }, [fetchStudent]);
 
   const handleUpdateConfig = useCallback(async (location, level, newSet) => {
     const key = configKey(location, level);
@@ -3044,7 +3141,6 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
                         configs={configs}
                         onShowPopup={setPopup}
                         onShowReqDoc={handleShowReqDoc}
-                        onAddReqDoc={handleAddReqDoc}
                         onRemoveFromConfig={handleRemoveFromConfig}
                         onUpdateProfile={handleUpdateProfile}
                         onOpenStudent={onOpenStudent}
@@ -3070,12 +3166,10 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
         />
       )}
       {reqDocPopup && (
-        <RecommendedDocPopup
+        <DocInfoPopup
+          kind={reqDocPopup.kind}
           doc={reqDocPopup.doc}
-          studentId={reqDocPopup.studentId}
-          role={role}
           onClose={() => setReqDocPopup(null)}
-          onRefresh={() => fetchStudent(reqDocPopup.studentId).catch(() => {})}
         />
       )}
     </div>
