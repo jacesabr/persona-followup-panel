@@ -18,11 +18,90 @@
 // the resulting file_id on the matching required_doc row.
 
 import express from "express";
+import multer from "multer";
+import path from "path";
+import os from "os";
+import crypto from "crypto";
+import fs from "fs";
 import pool from "../db.js";
 import { requireStaff, requireStudent } from "../middleware/auth.js";
 import { audit } from "../audit.js";
+import { getStorage } from "../storage.js";
 
 const router = express.Router();
+
+// Multer config mirrors server/routes/students.js → /me/upload but
+// scoped to recommended-doc final-file uploads. 25 MB cap matches the
+// rest of the stack; tmp dir is the OS tmp so Render's ephemeral disk
+// stays clean. We don't need the EXIF/resize pipeline here — these are
+// signed LOR/SOP scans, not phone-shot marksheets.
+const MAX_FILE_MB = 25;
+const tmpRoot = path.join(os.tmpdir(), "persona-recdoc-uploads");
+try { fs.mkdirSync(tmpRoot, { recursive: true }); } catch {}
+const multerStorage = multer.diskStorage({
+  destination: (_r, _f, cb) => cb(null, tmpRoot),
+  filename:    (_r, file, cb) => cb(null, crypto.randomBytes(12).toString("hex") + (path.extname(file.originalname) || "")),
+});
+const upload = multer({ storage: multerStorage, limits: { fileSize: MAX_FILE_MB * 1024 * 1024 } });
+function uploadOne(req, res, next) {
+  upload.single("file")(req, res, (err) => {
+    if (err && err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: `file exceeds ${MAX_FILE_MB} MB limit` });
+    if (err) return next(err);
+    next();
+  });
+}
+function allowedMime(m) {
+  return m === "application/pdf" || m === "image/jpeg" || m === "image/png";
+}
+
+// Common upload pipeline shared by staff + student endpoints. Saves
+// the uploaded multer tmp file to the configured storage backend,
+// inserts an intake_files row tagged with field_id =
+// "recdoc_${kind}_${seq}" (so an inspection of intake_files makes the
+// origin obvious), and atomically sets final_file_id on the
+// recommended-doc row. Returns the new file id + url.
+async function ingestRecDocFile({ studentId, docRow, multerFile }) {
+  if (!allowedMime(multerFile.mimetype)) {
+    throw Object.assign(new Error("only PDF / JPG / PNG allowed"), { http: 400 });
+  }
+  const fieldId = `recdoc_${docRow.kind}_${docRow.seq}`;
+  const store = await getStorage();
+  const saved = await store.save({
+    tmpPath: multerFile.path,
+    scope: studentId,
+    originalName: multerFile.originalname,
+    mimeType: multerFile.mimetype,
+  });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE intake_files SET superseded_at = NOW()
+        WHERE student_id = $1 AND field_id = $2 AND superseded_at IS NULL`,
+      [studentId, fieldId]
+    );
+    const ins = await client.query(
+      `INSERT INTO intake_files (student_id, field_id, original_name, storage_path, size, mime_type)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, created_at, mime_type, original_name, size`,
+      [studentId, fieldId, multerFile.originalname, saved.key, saved.size, multerFile.mimetype]
+    );
+    await client.query(
+      `UPDATE intake_required_docs
+          SET final_file_id = $1, updated_at = NOW()
+        WHERE id = $2`,
+      [ins.rows[0].id, docRow.id]
+    );
+    await client.query("COMMIT");
+    return ins.rows[0];
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    await store.deleteIfExists(saved.key).catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 const isPositiveInt = (s) => /^[1-9][0-9]*$/.test(String(s));
 const isString = (v) => typeof v === "string";
 
@@ -266,6 +345,106 @@ router.delete("/:id", requireStaff, async (req, res, next) => {
       id: req.params.id,
       action: "delete",
       diff: { kind: own.kind, seq: own.seq },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/required-docs/:id/upload — staff uploads the final
+// recommendation document on behalf of the student. Multipart file
+// field is "file". Replaces any previously uploaded final.
+router.post("/:id/upload", requireStaff, uploadOne, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "no file uploaded" });
+    if (!isPositiveInt(req.params.id)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(404).json({ error: "not found" });
+    }
+    if (req.user.kind === "counsellor" && own.counsellor_id !== req.user.counsellorId) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(404).json({ error: "not found" });
+    }
+    const inserted = await ingestRecDocFile({ studentId: own.student_id, docRow: own, multerFile: req.file });
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "upload_final",
+      diff: { kind: own.kind, seq: own.seq, file_id: String(inserted.id) },
+    });
+    res.json({ ok: true, file_id: String(inserted.id), original_name: inserted.original_name, size: inserted.size, mime_type: inserted.mime_type });
+  } catch (e) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch {} }
+    if (e.http) return res.status(e.http).json({ error: e.message });
+    next(e);
+  }
+});
+
+// POST /api/required-docs/me/:id/upload — student-side equivalent.
+// Same one-shot flow as the staff endpoint but auth via requireStudent.
+router.post("/me/:id/upload", requireStudent, uploadOne, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "no file uploaded" });
+    if (!isPositiveInt(req.params.id)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { rows } = await pool.query(
+      `SELECT * FROM intake_required_docs WHERE id = $1 AND student_id = $2`,
+      [Number(req.params.id), req.user.studentId]
+    );
+    if (rows.length === 0) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(404).json({ error: "not found" });
+    }
+    const inserted = await ingestRecDocFile({ studentId: req.user.studentId, docRow: rows[0], multerFile: req.file });
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "upload_final_student",
+      diff: { kind: rows[0].kind, seq: rows[0].seq, file_id: String(inserted.id) },
+    });
+    res.json({ ok: true, file_id: String(inserted.id), original_name: inserted.original_name, size: inserted.size, mime_type: inserted.mime_type });
+  } catch (e) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch {} }
+    if (e.http) return res.status(e.http).json({ error: e.message });
+    next(e);
+  }
+});
+
+// DELETE /api/required-docs/:id/final-file — staff clears the linked
+// final file without deleting the row. Used by the popup's "Replace"
+// flow when the counsellor wants to remove the existing upload before
+// adding a new one.
+router.delete("/:id/final-file", requireStaff, async (req, res, next) => {
+  try {
+    if (!isPositiveInt(req.params.id)) return res.status(400).json({ error: "invalid id" });
+    const own = await loadOwnership(pool, Number(req.params.id));
+    if (!own) return res.status(404).json({ error: "not found" });
+    if (req.user.kind === "counsellor" && own.counsellor_id !== req.user.counsellorId) {
+      return res.status(404).json({ error: "not found" });
+    }
+    await pool.query(
+      `UPDATE intake_required_docs SET final_file_id = NULL, updated_at = NOW() WHERE id = $1`,
+      [Number(req.params.id)]
+    );
+    if (own.final_file_id) {
+      await pool.query(
+        `UPDATE intake_files SET superseded_at = NOW() WHERE id = $1 AND superseded_at IS NULL`,
+        [own.final_file_id]
+      );
+    }
+    audit(req, {
+      table: "intake_required_docs",
+      id: req.params.id,
+      action: "clear_final_file",
+      diff: { kind: own.kind, seq: own.seq, prev_file_id: own.final_file_id ? String(own.final_file_id) : null },
     });
     res.json({ ok: true });
   } catch (e) {

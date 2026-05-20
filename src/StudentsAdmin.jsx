@@ -1214,6 +1214,7 @@ function StudentDetail({ detail, role, onRefresh }) {
       out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
+    out.push({ kind: "recommended-docs", eyebrow: "Recommended documents", title: "LOR · Internship · NGO · SOP" });
     return out;
   }, [grouped, resumes?.length, files, docNameFor]);
 
@@ -1336,6 +1337,124 @@ function StudentDetail({ detail, role, onRefresh }) {
         <ResumesStep
           resumes={resumes}
           student={student}
+        />
+      )}
+      {step?.kind === "recommended-docs" && (
+        <RecommendedDocsStep studentId={student.student_id} role={role} />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// RecommendedDocsStep — slide that lists every LOR / Internship / NGO
+// / Extracurricular / SOP row for one student. Each row is a card
+// with: slot label, current upload status, "Upload" / "Replace" button,
+// and a click-through to the RecommendedDocPopup for preview + delete +
+// admin Confirm. "+" buttons per kind add another slot. Matches the
+// Documents-tab chip layout but as an inline form on the slide.
+// ============================================================
+function RecommendedDocsStep({ studentId, role }) {
+  const [docs, setDocs] = useState(null);
+  const [err,  setErr]  = useState(null);
+  const [popup,setPopup]= useState(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api.listRequiredDocsForStudent(studentId);
+      setDocs(list);
+      setPopup((prev) => {
+        if (!prev) return null;
+        const fresh = list.find((d) => String(d.id) === String(prev.id));
+        return fresh || null;
+      });
+    } catch (e) {
+      setErr(e.message);
+    }
+  }, [studentId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (err) return <p className="text-sm text-red-700">{err}</p>;
+  if (docs === null) return <p className="text-sm text-stone-700">Loading…</p>;
+
+  const KINDS = [
+    { kind: "lor",        label: "Letters of Recommendation" },
+    { kind: "internship", label: "Internship certificates" },
+    { kind: "ngo",        label: "NGO letters" },
+    { kind: "extracurricular", label: "Extracurricular letters" },
+    { kind: "sop",        label: "Statement of Purpose" },
+  ];
+
+  const addRow = async (kind) => {
+    try {
+      await api.createRequiredDocForStudent(studentId, { kind });
+      await refresh();
+    } catch (e) {
+      window.alert(e.message || "Couldn't add row");
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <p className="text-sm text-stone-800">
+        Upload the signed final letter (PDF / JPG / PNG) for each slot. No drafting happens here —
+        these are the artefacts the student or counsellor collects after the application is sent.
+      </p>
+      {KINDS.map((group) => {
+        const rows = docs.filter((d) => d.kind === group.kind).sort((a, b) => a.seq - b.seq);
+        if (rows.length === 0 && group.kind === "extracurricular") return null;
+        return (
+          <section key={group.kind}>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-600">{group.label}</h3>
+              <button
+                type="button"
+                onClick={() => addRow(group.kind)}
+                className="inline-flex items-center gap-1 rounded border border-dashed border-stone-400 px-2.5 py-1 text-xs font-semibold text-stone-700 hover:border-[#cc785c] hover:text-[#cc785c]"
+              >+ Add {group.kind === "sop" ? "SOP" : group.label.replace(/s$/, "")}</button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {rows.map((rd) => {
+                const slotLabel = rd.kind === "sop" ? "SOP" : `${rd.kind.charAt(0).toUpperCase() + rd.kind.slice(1)} ${rd.seq}`;
+                const hasFile = !!rd.final_file;
+                const approved = !!rd.approved_by_admin_at;
+                return (
+                  <button
+                    key={rd.id}
+                    onClick={() => setPopup(rd)}
+                    className={`rounded border px-4 py-3 text-left transition ${
+                      approved ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                      : hasFile ? "border-stone-300 bg-white hover:bg-stone-50"
+                      : "border-dashed border-stone-300 bg-stone-50 hover:border-[#cc785c] hover:bg-white"
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-semibold text-black">{slotLabel}</span>
+                      <span className="text-[10px] uppercase tracking-[0.15em] text-stone-500">
+                        {approved ? "Approved ✓" : hasFile ? "Uploaded" : "No file"}
+                      </span>
+                    </div>
+                    {hasFile && (
+                      <p className="mt-1 break-all text-xs text-stone-700">{rd.final_file.original_name}</p>
+                    )}
+                    {!hasFile && (
+                      <p className="mt-1 text-xs text-stone-600">Click to upload signed PDF or image.</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+      {popup && (
+        <RecommendedDocPopup
+          doc={popup}
+          studentId={studentId}
+          role={role}
+          onClose={() => setPopup(null)}
+          onRefresh={refresh}
         />
       )}
     </div>

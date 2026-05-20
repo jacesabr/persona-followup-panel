@@ -276,6 +276,28 @@ export const api = {
   // pipeline picks it up on next run — does NOT inline-generate.
   generateRequiredDoc: (id) =>
     request("POST", `/api/required-docs/${id}/generate`),
+  // Staff: upload the final recommendation file (PDF / JPG / PNG) for
+  // a given required-doc row. Multipart; bypasses the JSON request
+  // helper. Replaces any previous upload on the same row.
+  uploadRequiredDocFile: async (id, file) => {
+    const body = new FormData();
+    body.append("file", file);
+    const r = await fetch(`/api/required-docs/${id}/upload`, { method: "POST", credentials: "include", body });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    return r.json();
+  },
+  // Student: same one-shot upload + link for their own recommended doc.
+  uploadMyRequiredDocFile: async (id, file) => {
+    const body = new FormData();
+    body.append("file", file);
+    const r = await fetch(`/api/required-docs/me/${id}/upload`, { method: "POST", credentials: "include", body });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    return r.json();
+  },
+  // Staff: clear final_file_id on a recommended-doc row without
+  // deleting the row itself. Used to swap in a replacement file.
+  clearRequiredDocFinal: (id) =>
+    request("DELETE", `/api/required-docs/${id}/final-file`),
   // Staff: approve any recommended-doc draft (LOR / Internship / NGO / SOP).
   // Admin-only on the server. Body { undo: true } un-approves.
   approveRequiredDoc: (id, undo = false) =>
