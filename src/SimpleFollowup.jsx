@@ -704,7 +704,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
               key={lead.id}
               className={`grid items-start gap-3 border-b px-3 py-2.5 text-[15px] text-black last:border-b-0 ${
                 urgent
-                  ? "border-red-200 bg-red-50 hover:bg-red-100"
+                  ? "border-red-300 bg-red-100 hover:bg-red-200"
                   : "border-stone-200 bg-white hover:bg-stone-50"
               }`}
               style={{ gridTemplateColumns: gridCols }}
