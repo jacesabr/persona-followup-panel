@@ -347,7 +347,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
     );
   }
 
-  // 10 cols: select · date created · contact · purpose · appointment date · next followup · history · make notes · counsellor · archive
+  // 10 cols: select · date created · contact · purpose · appointment date · Next followup · history · make notes · counsellor · archive
   const gridCols = "1.75rem 7.5rem 1.5fr 1.2fr 10rem 8rem 4.5rem 5.5rem 7rem 3rem";
 
   // Counsellor scoping: hide leads not belonging to this counsellor.
@@ -436,6 +436,26 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
       return ad.localeCompare(bd);
     });
   }
+
+  // Urgent followups float to the top regardless of sortMode. "Urgent"
+  // = followup_date in IST is today or earlier. Within urgent, oldest
+  // first (so the longest-overdue is the first thing the counsellor
+  // sees). The rest keeps whatever order the chosen sortMode produced.
+  const todayYmd = todayIstYmd();
+  const isUrgentFollowup = (lead) => {
+    if (!lead.followup_date) return false;
+    const ymd = utcIsoToIstInput(lead.followup_date).slice(0, 10);
+    return ymd <= todayYmd;
+  };
+  const urgent = sortedLeads
+    .filter(isUrgentFollowup)
+    .sort((a, b) => {
+      const ay = utcIsoToIstInput(a.followup_date).slice(0, 10);
+      const by = utcIsoToIstInput(b.followup_date).slice(0, 10);
+      return ay.localeCompare(by); // oldest first
+    });
+  const nonUrgent = sortedLeads.filter((l) => !isUrgentFollowup(l));
+  const finalLeads = [...urgent, ...nonUrgent];
 
   return (
     <>
@@ -528,7 +548,7 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           <span className="whitespace-nowrap">Name / Ph / Class</span>
           <span className="whitespace-nowrap">Purpose</span>
           <span className="whitespace-nowrap">Appointment Date</span>
-          <span className="whitespace-nowrap">Follow-up</span>
+          <span className="whitespace-nowrap">Next followup</span>
           <span className="whitespace-nowrap">History</span>
           <span className="whitespace-nowrap">Make Notes</span>
           <span className="whitespace-nowrap">Counsellor</span>
@@ -673,15 +693,20 @@ export default function SimpleFollowup({ role = "admin", scopedCounsellorId = nu
           </div>
         )}
 
-        {sortedLeads.map((lead) => {
+        {finalLeads.map((lead) => {
           const isSelected = selectedIds.has(lead.id);
-          // Past/future row tinting was removed by request — the calendar
-          // popup still color-codes individual days. Keeping the sheet
-          // monochrome reads cleaner with only a handful of leads.
+          // Urgent rows (followup_date today or earlier in IST) carry a
+          // red tint so the counsellor can spot them at a glance.
+          // Non-urgent rows stay monochrome — request from 2026-05-19.
+          const urgent = isUrgentFollowup(lead);
           return (
             <div
               key={lead.id}
-              className="grid items-start gap-3 border-b border-stone-200 bg-white px-3 py-2.5 text-[15px] text-black last:border-b-0 hover:bg-stone-50"
+              className={`grid items-start gap-3 border-b px-3 py-2.5 text-[15px] text-black last:border-b-0 ${
+                urgent
+                  ? "border-red-200 bg-red-50 hover:bg-red-100"
+                  : "border-stone-200 bg-white hover:bg-stone-50"
+              }`}
               style={{ gridTemplateColumns: gridCols }}
             >
               <span className="pt-1">
