@@ -1504,7 +1504,7 @@ function StudentAutomationBanner({ onContinue }) {
         </p>
         <AutomationStatusBar pending={true} complete={false} />
         <p className="mt-4 text-sm text-stone-800">
-          Our team has received your documents and will manually generate your resume when ready. You'll see it appear in the Resume tab, and your counsellor will draft LORs, NGO letters, internship certificates, and your SOP in the Recommended documents tab.
+          Our team has received your documents and will manually generate your resume when ready. You'll see it appear in the Resume tab, and your counsellor will draft your LORs, NGO letters, internship certificates, and your SOP — you'll upload the signed copies in the Required signed documents tab.
         </p>
         <div className="mt-4">
           <ContinueButton />
@@ -1610,16 +1610,28 @@ function PanelTabs({ studentName, onExit, answers, onChange, onBlur, saveState }
     { id: "overview", label: "Overview" },
     { id: "documents", label: "Your documents" },
     { id: "financial", label: "Financial documents" },
-    { id: "required-docs", label: "Recommended documents" },
+    { id: "required-docs", label: "Required signed documents" },
+    // Read-only lifecycle view: one row per LOR / Internship / NGO /
+    // Extracurricular / SOP slot, showing whether each is uninitiated,
+    // in progress with the counsellor, awaiting the signed copy, or
+    // received. Separate from "Required signed documents" (which is
+    // the upload surface) so the student can scan status at a glance.
+    { id: "doc-status", label: "Document status" },
     { id: "resume", label: "Your resume" },
     { id: "status", label: "Application status" },
-    ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),
+    // profile_docs (the LOR / Internship / SOP brief workflow) is hidden
+    // from the student panel — those documents are now custom-created by
+    // the counsellor / admin and approved by admin, so there's nothing
+    // for the student to brief here. They still see the signed-copies
+    // upload surface above via the "Required signed documents" tab.
+    ...PANEL_CHAPTERS.filter((c) => c.id !== "destination" && c.id !== "profile_docs").map((c) => ({ id: c.id, label: c.title })),
   ];
   const destinationChapter = CHAPTERS.find((c) => c.id === "destination") || null;
   const activeChapter = PANEL_CHAPTERS.find((c) => c.id === activeTab) || null;
   const dashboardSection = activeTab === "overview" ? "summary"
     : activeTab === "documents" ? "documents"
     : activeTab === "required-docs" ? "required-docs"
+    : activeTab === "doc-status" ? "doc-status"
     : activeTab === "resume" ? "resume"
     : null;
 

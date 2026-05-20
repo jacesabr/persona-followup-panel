@@ -17,6 +17,7 @@ import StudentDashboard, {
   ExtractionStep,
   buildFieldIndex,
   filesForPage,
+  DocStatusBlock,
 } from "./StudentDashboard.jsx";
 
 // Students tab — visible to admin (full roster) and counsellor (own only).
@@ -1214,7 +1215,12 @@ function StudentDetail({ detail, role, onRefresh }) {
       out.push({ kind: "empty", eyebrow: "Intake", title: "Form data" });
     }
     out.push({ kind: "resumes", eyebrow: "AI-generated resumes", title: `${resumes?.length || 0} on file` });
-    out.push({ kind: "recommended-docs", eyebrow: "Recommended documents", title: "LOR · Internship · NGO · SOP" });
+    out.push({ kind: "recommended-docs", eyebrow: "Required signed documents", title: "LOR · Internship · NGO · SOP" });
+    // Section 19 — read-only lifecycle view (Uninitiated / In progress /
+    // Signed) per slot. Mirrors what the student sees in their
+    // "Document status" dashboard tab so the counsellor reviews the
+    // exact same picture without bouncing between surfaces.
+    out.push({ kind: "doc-status", eyebrow: "Document status", title: "Signed-copy lifecycle per slot" });
     return out;
   }, [grouped, resumes?.length, files, docNameFor]);
 
@@ -1342,6 +1348,42 @@ function StudentDetail({ detail, role, onRefresh }) {
       {step?.kind === "recommended-docs" && (
         <RecommendedDocsStep studentId={student.student_id} role={role} />
       )}
+      {step?.kind === "doc-status" && (
+        <DocStatusStep studentId={student.student_id} />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// DocStatusStep — slide variant of the student-facing DocStatusBlock.
+// Pulls the same required-doc rows for one student and renders the
+// read-only "Uninitiated / In progress / Signed" lifecycle so the
+// counsellor sees exactly what the student sees on their dashboard.
+// ============================================================
+function DocStatusStep({ studentId }) {
+  const [docs, setDocs] = useState(null);
+  const [err,  setErr]  = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listRequiredDocsForStudent(studentId)
+      .then((list) => { if (!cancelled) setDocs(list); })
+      .catch((e) => { if (!cancelled) setErr(e.message); });
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  if (err) return <p className="text-sm text-red-700">{err}</p>;
+  if (docs === null) {
+    return <p className="inline-flex items-center gap-2 text-sm text-stone-700"><Loader2 className="h-4 w-4 animate-spin" /> Loading status…</p>;
+  }
+
+  return (
+    <div>
+      <p className="mb-4 text-sm text-stone-800">
+        Read-only lifecycle for each LOR / Internship / NGO / Extracurricular / SOP slot — the same view the student sees under their "Document status" tab.
+      </p>
+      <DocStatusBlock docs={docs} />
     </div>
   );
 }
@@ -1398,8 +1440,8 @@ function RecommendedDocsStep({ studentId, role }) {
   return (
     <div className="space-y-8">
       <p className="text-sm text-stone-800">
-        Upload the signed final letter (PDF / JPG / PNG) for each slot. No drafting happens here —
-        these are the artefacts the student or counsellor collects after the application is sent.
+        Upload a Word document for each slot — rather than a signed PDF or image.
+        The student gets it printed on letterhead and signed, then uploads the stamped copy from their dashboard.
       </p>
       {KINDS.map((group) => {
         const rows = docs.filter((d) => d.kind === group.kind).sort((a, b) => a.seq - b.seq);
@@ -1439,7 +1481,7 @@ function RecommendedDocsStep({ studentId, role }) {
                       <p className="mt-1 break-all text-xs text-stone-700">{rd.final_file.original_name}</p>
                     )}
                     {!hasFile && (
-                      <p className="mt-1 text-xs text-stone-600">Click to upload signed PDF or image.</p>
+                      <p className="mt-1 text-xs text-stone-600">Click to upload a Word document.</p>
                     )}
                   </button>
                 );
@@ -1611,7 +1653,7 @@ function AdminStudentView({ studentId, studentName, previewData, answers }) {
     { id: "overview",      label: "Overview" },
     { id: "documents",     label: "Your documents" },
     { id: "financial",     label: "Financial documents" },
-    { id: "required-docs", label: "Recommended documents" },
+    { id: "required-docs", label: "Required signed documents" },
     { id: "resume",        label: "Your resume" },
     { id: "status",        label: "Application status" },
     ...PANEL_CHAPTERS.filter((c) => c.id !== "destination").map((c) => ({ id: c.id, label: c.title })),
@@ -2578,7 +2620,7 @@ function ProfileToggle({ value, options, onChange, disabled }) {
   );
 }
 
-function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onAddReqDoc, onRemoveFromConfig, onUpdateProfile, onOpenStudent }) {
+function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onAddReqDoc, onRemoveFromConfig, onUpdateProfile, onOpenStudent, embedded = false }) {
   const handleShowPopup = ({ col, file }) =>
     onShowPopup({ col, file, studentId: student.student_id });
   const handleShowReqDoc = (rd) =>
@@ -2596,45 +2638,77 @@ function StudentDocCard({ student, role, configs, onShowPopup, onShowReqDoc, onA
     onRemoveFromConfig(loc, lvl, docKey);
   };
 
+  // `embedded` drops the outer border/padding/name header — the parent
+  // dropdown row already provides them, and showing the name twice was
+  // duplicate noise once we moved to lazy-load.
+  const outerCls = embedded ? "" : "rounded-xl border border-stone-200 bg-white p-5";
+
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
-      {/* Card header */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          {onOpenStudent ? (
+    <div className={outerCls}>
+      {/* Card header — hidden when embedded (the dropdown header above
+          already shows the name + counsellor). We still need the
+          profile picker, so render it standalone. */}
+      {embedded ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3 border-b border-stone-100 pb-3">
+          <ProfileToggle
+            value={loc}
+            options={LOCATIONS}
+            onChange={(v) => onUpdateProfile(student.student_id, v, lvl)}
+          />
+          <ProfileToggle
+            value={lvl}
+            options={LEVELS}
+            onChange={(v) => onUpdateProfile(student.student_id, loc, v)}
+          />
+          {!loc || !lvl ? (
+            <span className="text-[10px] text-amber-600 font-medium">— set profile to enable per-config visibility</span>
+          ) : null}
+          {onOpenStudent && (
             <button
               onClick={() => onOpenStudent(student.student_id)}
-              className="font-semibold text-black hover:text-[#cc785c] hover:underline"
+              className="ml-auto text-xs uppercase tracking-[0.15em] text-[#cc785c] hover:text-[#b86a4f]"
             >
-              {student.display_name || student.username}
+              Open full profile ↗
             </button>
-          ) : (
-            <span className="font-semibold text-black">{student.display_name || student.username}</span>
           )}
-          {student.display_name && (
-            <span className="font-mono text-[10px] text-stone-400">{student.username}</span>
-          )}
-          {/* Inline profile picker */}
-          <div className="flex items-center gap-1.5">
-            <ProfileToggle
-              value={loc}
-              options={LOCATIONS}
-              onChange={(v) => onUpdateProfile(student.student_id, v, lvl)}
-            />
-            <ProfileToggle
-              value={lvl}
-              options={LEVELS}
-              onChange={(v) => onUpdateProfile(student.student_id, loc, v)}
-            />
-            {!loc || !lvl ? (
-              <span className="text-[10px] text-amber-600 font-medium">— set profile to enable per-config visibility</span>
-            ) : null}
-          </div>
         </div>
-        {role === "admin" && (
-          <span className="text-xs text-stone-500">{student.counsellor_name || "Unassigned"}</span>
-        )}
-      </div>
+      ) : (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {onOpenStudent ? (
+              <button
+                onClick={() => onOpenStudent(student.student_id)}
+                className="font-semibold text-black hover:text-[#cc785c] hover:underline"
+              >
+                {student.display_name || student.username}
+              </button>
+            ) : (
+              <span className="font-semibold text-black">{student.display_name || student.username}</span>
+            )}
+            {student.display_name && (
+              <span className="font-mono text-[10px] text-stone-400">{student.username}</span>
+            )}
+            <div className="flex items-center gap-1.5">
+              <ProfileToggle
+                value={loc}
+                options={LOCATIONS}
+                onChange={(v) => onUpdateProfile(student.student_id, v, lvl)}
+              />
+              <ProfileToggle
+                value={lvl}
+                options={LEVELS}
+                onChange={(v) => onUpdateProfile(student.student_id, loc, v)}
+              />
+              {!loc || !lvl ? (
+                <span className="text-[10px] text-amber-600 font-medium">— set profile to enable per-config visibility</span>
+              ) : null}
+            </div>
+          </div>
+          {role === "admin" && (
+            <span className="text-xs text-stone-500">{student.counsellor_name || "Unassigned"}</span>
+          )}
+        </div>
+      )}
 
       {/* Doc chips */}
       <div className="space-y-3">
@@ -2734,45 +2808,85 @@ function DocConfigGrid({ configs, onUpdateConfig }) {
 }
 
 function StudentDocumentsChecklist({ role, onOpenStudent }) {
-  const [rows,         setRows]         = useState([]);
-  const [configs,      setConfigs]      = useState({});
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [popup,        setPopup]        = useState(null);
-  const [reqDocPopup,  setReqDocPopup]  = useState(null); // { doc, studentId }
+  // Lightweight roster fetch — just student_id, names, counsellor, and
+  // doc profile. The expensive per-student chip data (every uploaded
+  // file + every required-doc row) is fetched lazily when the user
+  // expands a card. Earlier this view fetched the whole grid for every
+  // student up front; the new approach keeps the initial paint cheap
+  // and only pays for what the staff actually opens.
+  const [roster,        setRoster]      = useState(null);  // null = loading
+  const [configs,       setConfigs]     = useState({});
+  const [error,         setError]       = useState(null);
+  const [popup,         setPopup]       = useState(null);
+  const [reqDocPopup,   setReqDocPopup] = useState(null);  // { doc, studentId }
+  const [expanded,      setExpanded]    = useState(() => new Set());
+  // Per-student detail cache: { [studentId]: { state, data, error } }
+  //   state: "idle" | "loading" | "loaded" | "error"
+  const [detail,        setDetail]      = useState({});
 
-  const refresh = useCallback(async () => {
-    try {
-      const students = await api.listStudentsDocumentsSummary();
-      setRows(students);
-      // If the popup is currently open, re-fetch its row so the in-popup
-      // state (draft, approved, etc.) reflects whatever just changed.
-      setReqDocPopup((prev) => {
-        if (!prev) return null;
-        const stu = students.find((s) => s.student_id === prev.studentId);
-        if (!stu) return null;
-        const fresh = (stu.req_docs || []).find((rd) => String(rd.id) === String(prev.doc.id));
-        return fresh ? { doc: fresh, studentId: prev.studentId } : prev;
-      });
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
-
+  // Initial fetch — light. The full per-student summary is requested on
+  // expand via fetchStudent below.
   useEffect(() => {
     Promise.all([
-      api.listStudentsDocumentsSummary(),
+      api.listStudents(),
       api.getDocConfigs(),
     ]).then(([students, cfgRows]) => {
-      setRows(students);
+      // Keep just the fields the row header needs; drop the heavy
+      // `data` blob so we don't carry the full intake JSON for every
+      // student around in memory.
+      const light = (students || []).map((s) => ({
+        student_id:      s.student_id,
+        username:        s.username,
+        display_name:    s.display_name,
+        counsellor_name: s.counsellor_name || null,
+        intake_complete: !!s.intake_complete,
+      }));
+      setRoster(light);
       const map = {};
       for (const row of cfgRows) {
         map[configKey(row.location, row.level)] = new Set(row.visible_keys);
       }
       setConfigs(map);
-    }).catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    }).catch((e) => setError(e.message));
   }, []);
+
+  const fetchStudent = useCallback(async (studentId) => {
+    setDetail((prev) => ({ ...prev, [studentId]: { state: "loading", data: null, error: null } }));
+    try {
+      const row = await api.getStudentDocumentsSummary(studentId);
+      setDetail((prev) => ({ ...prev, [studentId]: { state: "loaded", data: row, error: null } }));
+      // If the popup is open on this student, refresh its row reference too.
+      setReqDocPopup((prev) => {
+        if (!prev || prev.studentId !== studentId) return prev;
+        const fresh = (row?.req_docs || []).find((rd) => String(rd.id) === String(prev.doc.id));
+        return fresh ? { doc: fresh, studentId } : prev;
+      });
+      return row;
+    } catch (e) {
+      setDetail((prev) => ({ ...prev, [studentId]: { state: "error", data: null, error: e.message || "Couldn't load" } }));
+      throw e;
+    }
+  }, []);
+
+  const toggleExpand = useCallback((studentId) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+        return next;
+      }
+      next.add(studentId);
+      // Fetch on first expand (only if we haven't already loaded it).
+      setDetail((cur) => {
+        if (!cur[studentId] || cur[studentId].state === "error") {
+          // Schedule the fetch async — don't block this state update.
+          Promise.resolve().then(() => fetchStudent(studentId).catch(() => {}));
+        }
+        return cur;
+      });
+      return next;
+    });
+  }, [fetchStudent]);
 
   const handleShowReqDoc = useCallback((doc, studentId) => {
     setReqDocPopup({ doc, studentId });
@@ -2781,12 +2895,12 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
   const handleAddReqDoc = useCallback(async (kind, studentId) => {
     try {
       await api.createRequiredDocForStudent(studentId, { kind });
-      await refresh();
+      await fetchStudent(studentId);
     } catch (e) {
       // eslint-disable-next-line no-alert
       window.alert(e.message || "Couldn't add row.");
     }
-  }, [refresh]);
+  }, [fetchStudent]);
 
   const handleUpdateConfig = useCallback(async (location, level, newSet) => {
     const key = configKey(location, level);
@@ -2810,9 +2924,16 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
   }, []);
 
   const handleUpdateProfile = useCallback(async (studentId, location, level) => {
-    setRows(prev => prev.map(r =>
+    // Optimistic update on both the lightweight roster row (so the
+    // collapsed header reflects it) and the cached detail row.
+    setRoster((prev) => (prev || []).map((r) =>
       r.student_id === studentId ? { ...r, doc_location: location || null, doc_level: level || null } : r
     ));
+    setDetail((prev) => {
+      const cur = prev[studentId];
+      if (!cur || !cur.data) return prev;
+      return { ...prev, [studentId]: { ...cur, data: { ...cur.data, doc_location: location || null, doc_level: level || null } } };
+    });
     try {
       await api.updateStudentDocProfile(studentId, location, level);
     } catch {
@@ -2820,7 +2941,7 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
     }
   }, []);
 
-  if (loading) {
+  if (roster === null && !error) {
     return (
       <div className="flex items-center gap-2 py-10 text-sm text-stone-600">
         <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -2840,27 +2961,81 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
     <div>
       <DocConfigGrid configs={configs} onUpdateConfig={handleUpdateConfig} />
       <p className="mb-4 text-sm text-stone-800">
-        Green chips = uploaded. Red chips = missing. Click any chip for details.
-        Use the toggles on each card to assign a student to a profile.
+        Click any student to load their document chip grid. Green chips = uploaded, red chips = missing.
+        Use the toggles on each card to assign a profile.
       </p>
-      {rows.length === 0 ? (
+      {(roster || []).length === 0 ? (
         <p className="text-sm text-stone-600">No students yet.</p>
       ) : (
-        <div className="space-y-4">
-          {rows.map((r) => (
-            <StudentDocCard
-              key={r.student_id}
-              student={r}
-              role={role}
-              configs={configs}
-              onShowPopup={setPopup}
-              onShowReqDoc={handleShowReqDoc}
-              onAddReqDoc={handleAddReqDoc}
-              onRemoveFromConfig={handleRemoveFromConfig}
-              onUpdateProfile={handleUpdateProfile}
-              onOpenStudent={onOpenStudent}
-            />
-          ))}
+        <div className="space-y-2">
+          {roster.map((r) => {
+            const isOpen = expanded.has(r.student_id);
+            const d = detail[r.student_id];
+            return (
+              <div key={r.student_id} className="rounded-xl border border-stone-200 bg-white">
+                {/* Collapsed header — always visible. Click to expand and
+                    trigger the lazy per-student fetch. */}
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(r.student_id)}
+                  className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition hover:bg-stone-50"
+                >
+                  <span className="flex items-center gap-3">
+                    <ChevronRight className={`h-4 w-4 text-stone-500 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                    <span className="font-semibold text-black">{r.display_name || r.username}</span>
+                    {r.display_name && (
+                      <span className="font-mono text-[10px] text-stone-400">{r.username}</span>
+                    )}
+                  </span>
+                  <span className="flex items-center gap-3 text-xs text-stone-600">
+                    {role === "admin" && (
+                      <span>{r.counsellor_name || "Unassigned"}</span>
+                    )}
+                    {d?.state === "loading" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  </span>
+                </button>
+
+                {/* Expanded body — chip grid for this one student. */}
+                {isOpen && (
+                  <div className="border-t border-stone-100 px-5 py-4">
+                    {!d || d.state === "loading" ? (
+                      <div className="flex items-center gap-2 py-6 text-sm text-stone-600">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading documents for this student…
+                      </div>
+                    ) : d.state === "error" ? (
+                      <div className="flex items-center justify-between gap-3 text-sm text-red-700">
+                        <span className="inline-flex items-center gap-2">
+                          <AlertCircle className="h-3.5 w-3.5" /> {d.error}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => fetchStudent(r.student_id).catch(() => {})}
+                          className="border border-stone-300 bg-white px-2 py-0.5 text-xs uppercase tracking-[0.15em] text-black hover:border-stone-700"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : d.data ? (
+                      <StudentDocCard
+                        student={d.data}
+                        role={role}
+                        configs={configs}
+                        onShowPopup={setPopup}
+                        onShowReqDoc={handleShowReqDoc}
+                        onAddReqDoc={handleAddReqDoc}
+                        onRemoveFromConfig={handleRemoveFromConfig}
+                        onUpdateProfile={handleUpdateProfile}
+                        onOpenStudent={onOpenStudent}
+                        embedded
+                      />
+                    ) : (
+                      <p className="text-sm text-stone-600">No data available for this student.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       {popup && (
@@ -2878,7 +3053,7 @@ function StudentDocumentsChecklist({ role, onOpenStudent }) {
           studentId={reqDocPopup.studentId}
           role={role}
           onClose={() => setReqDocPopup(null)}
-          onRefresh={refresh}
+          onRefresh={() => fetchStudent(reqDocPopup.studentId).catch(() => {})}
         />
       )}
     </div>

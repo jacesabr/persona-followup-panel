@@ -15,7 +15,7 @@
 // been sent to the student or has an uploaded final.
 
 import { useRef, useState } from "react";
-import { X, Loader2, Upload, CheckCircle2, Trash2 } from "lucide-react";
+import { X, Loader2, Upload, CheckCircle2, Trash2, Clock } from "lucide-react";
 import { api } from "./api.js";
 
 const KIND_TITLE = {
@@ -25,6 +25,58 @@ const KIND_TITLE = {
   extracurricular: "Extracurricular letter",
   sop: "Statement of Purpose",
 };
+
+// Word document MIME types — the staff-preferred upload format (counsellor
+// drafts, hands the .docx to the student, student prints + signs +
+// re-uploads). PDF / JPG / PNG stay allowed by the server for the
+// student-side signed copy and any legacy uploads.
+const WORD_ACCEPT = ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+function fmtTs(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch { return iso; }
+}
+
+// LifecyclePanel — read-only audit trail surfaced inside the popup.
+// Rolls every timestamp the row carries into a single chronological list
+// with the actor + outcome, so the staff knows at a glance who did what
+// and what the row is waiting on.
+function LifecyclePanel({ doc }) {
+  const steps = [
+    { ts: doc.created_at,           label: "Row created",                  done: !!doc.created_at },
+    { ts: doc.updated_at && doc.final_file_id ? doc.updated_at : null, label: "Draft uploaded", done: !!doc.final_file_id },
+    { ts: doc.requested_at,         label: "Sent to student",              done: !!doc.requested_at },
+    { ts: doc.signed_at || (doc.signed_file_id ? doc.updated_at : null), label: "Signed copy received", done: !!doc.signed_file_id },
+    { ts: doc.approved_by_admin_at, label: "Approved by admin",            done: !!doc.approved_by_admin_at },
+  ];
+  return (
+    <div className="rounded border border-stone-200 bg-stone-50 px-4 py-3">
+      <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-stone-700">Document lifecycle</p>
+      <ul className="space-y-1.5">
+        {steps.map((s, i) => (
+          <li key={i} className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="flex items-center gap-2">
+              {s.done
+                ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                : <Clock className="h-3.5 w-3.5 shrink-0 text-stone-400" />}
+              <span className={s.done ? "text-black" : "text-stone-500"}>{s.label}</span>
+            </span>
+            <span className="text-xs tabular-nums text-stone-700">
+              {fmtTs(s.ts) || (s.done ? "—" : "pending")}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {doc.deadline_at && !doc.signed_file_id && (
+        <p className="mt-2 border-t border-stone-200 pt-2 text-xs text-stone-700">
+          Student deadline for signed copy: <span className="font-semibold text-black">{fmtTs(doc.deadline_at)}</span>
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function RecommendedDocPopup({ doc, studentId, role, onClose, onRefresh }) {
   const slotLabel = doc.kind === "sop"
@@ -171,7 +223,7 @@ export default function RecommendedDocPopup({ doc, studentId, role, onClose, onR
               <Upload className="mx-auto mb-3 h-8 w-8 text-stone-400" />
               <p className="mb-1 text-base font-semibold text-black">No file uploaded yet</p>
               <p className="mb-5 text-sm text-stone-800">
-                Upload the signed PDF or a clear photo (JPG / PNG) of the {title.toLowerCase()}.
+                Upload a Word document of the {title.toLowerCase()} — rather than a signed PDF or image. The student gets it printed on letterhead and signed, then uploads the stamped copy from their dashboard.
               </p>
               <button
                 type="button"
@@ -180,15 +232,20 @@ export default function RecommendedDocPopup({ doc, studentId, role, onClose, onR
                 className="inline-flex items-center gap-2 rounded border-2 border-[#cc785c] bg-[#cc785c] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Upload file
+                Upload Word document
               </button>
             </div>
           )}
 
+          {/* Lifecycle metadata — gives the counsellor / admin a one-glance
+              audit trail (created → uploaded → sent → signed → approved)
+              so they don't have to chase timestamps across tabs. */}
+          <LifecyclePanel doc={doc} />
+
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf,image/jpeg,image/png"
+            accept={WORD_ACCEPT}
             onChange={handleUpload}
             className="hidden"
           />

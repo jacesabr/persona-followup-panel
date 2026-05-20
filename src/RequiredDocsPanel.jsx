@@ -1,105 +1,75 @@
-// RequiredDocsPanel — staff workspace for LOR / Internship / SOP drafts.
-// Tab: "Required Documents" (admin + counsellor)
-// Layout: accordion list — one collapsible row per document across all students.
+// RequiredDocsPanel — staff workspace for LOR / Internship / NGO /
+// Extracurricular / SOP rows. Upload-only flow now: the counsellor / admin
+// uploads the Word draft, the student gets it signed on letterhead, then
+// uploads the signed copy from their dashboard. This panel mirrors the
+// compact chip layout used in StudentsAdmin → RecommendedDocsStep so the
+// staff sees the same lifecycle everywhere.
+//
+// One section per student (collapsible header + per-kind sub-sections),
+// each row shows: slot label · signed-status (red until the student has
+// uploaded the stamped copy, opens the lifecycle popup) · admin-approve
+// toggle · WhatsApp button · the student's email · Send. WhatsApp + Send
+// are placeholders today — they will wire to the messaging stack once that
+// lands.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2, AlertCircle, CheckCircle2, Clock,
-  Send, Save, Check, ChevronDown, ExternalLink, ClipboardList,
+  Send, ExternalLink, ClipboardList, MessageCircle, Mail, Phone, FileText,
 } from "lucide-react";
 import { api } from "./api.js";
-import { computeRequiredDocState } from "../lib/requiredDocStatus.js";
+import RecommendedDocPopup from "./RecommendedDocPopup.jsx";
 
-// ─── helpers ───────────────────────────────────────────────────────────────
+// Doc kinds + section labels — the order here is the order rendered on
+// every student panel. Matches StudentsAdmin's RecommendedDocsStep so a
+// counsellor switching between the two surfaces sees the same shape.
+const KINDS = [
+  { kind: "lor",             label: "Letters of Recommendation", short: "LOR" },
+  { kind: "internship",      label: "Internship certificates",   short: "Internship" },
+  { kind: "ngo",             label: "NGO letters",               short: "NGO" },
+  { kind: "extracurricular", label: "Extracurricular letters",   short: "Extracurricular" },
+  { kind: "sop",             label: "Statement of Purpose",      short: "SOP" },
+];
+
+function slotLabel(doc) {
+  if (doc.kind === "sop") return "SOP";
+  const k = KINDS.find(k => k.kind === doc.kind);
+  return `${k?.short || doc.kind} ${doc.seq}`;
+}
 
 function humanDate(iso) {
-  if (!iso) return "—";
+  if (!iso) return null;
   return new Date(iso).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
   });
 }
 
-function businessDaysLeft(deadlineIso) {
-  if (!deadlineIso) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const end   = new Date(deadlineIso); end.setHours(0, 0, 0, 0);
-  let count = 0, dir = end >= today ? 1 : -1, cur = new Date(today);
-  while (cur.getTime() !== end.getTime()) {
-    cur.setDate(cur.getDate() + dir);
-    const dow = cur.getDay();
-    if (dow !== 0 && dow !== 6) count += dir;
+// Pull email + phone out of the student's intake JSON. Either field can be
+// missing; the WhatsApp / Send buttons gate themselves on these existing.
+function studentContact(student) {
+  const data = student?.data?.answers || student?.data || {};
+  return {
+    email: data.email || null,
+    phone: data.phone || null,
+  };
+}
+
+// Status pill copy + tone. Driven entirely by the upload state — the
+// staff workflow is "draft uploaded by counsellor → student gets it signed
+// → student uploads the signed copy". A row with no file at all is bright
+// red because nothing has happened yet; a row with a draft but no signed
+// copy is amber (chasing the student); a row with both is green.
+function signedStatus(doc) {
+  if (doc.signed_file_id) {
+    return { label: "Signed received", tone: "bg-emerald-50 text-emerald-800 border-emerald-400" };
   }
-  return count;
-}
-
-// Counsellor-facing label + tone for each canonical state. Students
-// see different labels for the same states (see STATUS_PILL in
-// StudentDashboard.jsx) — that's intentional, both surfaces compute
-// state from `computeRequiredDocState` so the underlying truth stays
-// in sync.
-const COUNSELLOR_LABELS = {
-  awaiting_draft:    { label: "Awaiting draft",          cls: "bg-stone-100 text-black border-stone-300" },
-  draft_in_progress: { label: "Draft in progress",       cls: "bg-stone-100 text-black border-stone-300" },
-  drafted:           { label: "Ready to send",           cls: "bg-amber-50 text-amber-800 border-amber-300" },
-  drafted_sop:       { label: "Awaiting admin approval", cls: "bg-amber-50 text-amber-800 border-amber-300" },
-  received:          { label: "Complete",                cls: "bg-emerald-50 text-emerald-800 border-emerald-300" },
-  approved:          { label: "Approved",                cls: "bg-emerald-50 text-emerald-800 border-emerald-300" },
-};
-
-// Returns { label, cls } for the badge shown in both the row header and card.
-// `requested` is the only state with a dynamic label (deadline countdown),
-// so it's computed inline rather than living in the table above.
-function docStatus(doc) {
-  const state = computeRequiredDocState(doc);
-  if (state === "requested") {
-    const left   = businessDaysLeft(doc.deadline_at);
-    const urgent = left !== null && left <= 1;
-    const label  = left === null   ? `Sent — due ${humanDate(doc.deadline_at)}`
-                 : left < 0        ? `Overdue ${Math.abs(left)}d`
-                 : left === 0      ? "Due today"
-                 :                   `Day ${5 - left} of 5`;
-    return { label, cls: urgent ? "bg-red-50 text-red-800 border-red-300" : "bg-blue-50 text-blue-800 border-blue-300" };
+  if (doc.final_file_id && doc.requested_at) {
+    return { label: "Waiting on signed copy", tone: "bg-amber-50 text-amber-800 border-amber-400" };
   }
-  return COUNSELLOR_LABELS[state] || { label: state, cls: "bg-stone-100 text-black border-stone-300" };
-}
-
-function docHeading(doc) {
-  if (doc.kind === "lor")            return `Letter of Recommendation ${doc.seq}`;
-  if (doc.kind === "internship")     return `Internship Document ${doc.seq}`;
-  if (doc.kind === "ngo")            return `NGO Document ${doc.seq}`;
-  if (doc.kind === "extracurricular") return `Extracurricular Document ${doc.seq}`;
-  return "Statement of Purpose";
-}
-
-function overallStatus(docs) {
-  if (!docs?.length) return "pending";
-  if (docs.every(d => (d.kind !== "sop" && d.final_file_id) || (d.kind === "sop" && d.approved_by_admin_at))) return "complete";
-  if (docs.some(d => d.requested_at)) return "sent";
-  if (docs.some(d => d.staff_draft))  return "drafting";
-  return "pending";
-}
-
-const OVERALL_DOT = {
-  complete: "bg-emerald-500", sent: "bg-blue-400", drafting: "bg-amber-400", pending: "bg-stone-300",
-};
-const OVERALL_LABEL = {
-  complete: "Complete", sent: "Awaiting upload", drafting: "In progress", pending: "Not started",
-};
-
-// ─── auto-growing textarea ─────────────────────────────────────────────────
-
-function AutoTextarea({ value, onChange, placeholder, minRows = 4, className = "" }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
-  return (
-    <textarea ref={ref} value={value || ""} onChange={onChange} placeholder={placeholder}
-      rows={minRows} style={{ resize: "none", overflow: "hidden" }} className={className} />
-  );
+  if (doc.final_file_id) {
+    return { label: "Draft ready — not sent", tone: "bg-amber-50 text-amber-800 border-amber-400" };
+  }
+  return { label: "Not signed", tone: "bg-red-50 text-red-800 border-red-400" };
 }
 
 // ─── main panel ────────────────────────────────────────────────────────────
@@ -107,27 +77,23 @@ function AutoTextarea({ value, onChange, placeholder, minRows = 4, className = "
 export default function RequiredDocsPanel({ role, counsellors = [], onViewStudent, onViewTasks }) {
   const [students,   setStudents]   = useState(null);
   const [err,        setErr]        = useState(null);
-  const [docsMap,    setDocsMap]    = useState({});   // { studentId: doc[] }
-  const [drafts,     setDrafts]     = useState({});   // { docId: string }
-  const [expanded,   setExpanded]   = useState(new Set()); // set of docId
-  const [busy,       setBusy]       = useState({});   // { docId: bool }
-  const [bulkBusy,   setBulkBusy]   = useState({});   // { studentId: bool }
+  const [docsMap,    setDocsMap]    = useState({});       // { studentId: doc[] }
+  const [bulkBusy,   setBulkBusy]   = useState({});       // { studentId: bool }
   const [actionErr,  setActionErr]  = useState(null);
-
-  // ── load ──────────────────────────────────────────────────────────────────
+  const [popup,      setPopup]      = useState(null);     // { studentId, doc }
 
   const mergeStudentDocs = useCallback((studentId, docs) => {
-    setDocsMap(p  => ({ ...p, [studentId]: docs }));
-    setDrafts(p => {
-      const next = { ...p };
-      for (const d of docs) if (next[d.id] === undefined) next[d.id] = d.staff_draft || "";
-      return next;
-    });
+    setDocsMap(p => ({ ...p, [studentId]: docs }));
   }, []);
 
   const refreshStudent = useCallback(async (studentId) => {
     const docs = await api.listRequiredDocsForStudent(studentId);
     mergeStudentDocs(studentId, docs);
+    setPopup(prev => {
+      if (!prev || prev.studentId !== studentId) return prev;
+      const fresh = docs.find(d => String(d.id) === String(prev.doc.id));
+      return fresh ? { studentId, doc: fresh } : null;
+    });
   }, [mergeStudentDocs]);
 
   useEffect(() => {
@@ -152,42 +118,10 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
     return () => { cancelled = true; };
   }, [mergeStudentDocs]);
 
-  // ── actions ───────────────────────────────────────────────────────────────
-
-  const saveDraft = async (studentId, docId) => {
-    setBusy(p => ({ ...p, [docId]: true }));
-    setActionErr(null);
-    try {
-      await api.updateRequiredDoc(docId, { staff_draft: drafts[docId] || "" });
-      await refreshStudent(studentId);
-    } catch (e) { setActionErr(e.message); }
-    finally     { setBusy(p => ({ ...p, [docId]: false })); }
-  };
-
-  const toggleDone = async (studentId, doc) => {
-    setBusy(p => ({ ...p, [doc.id]: true }));
-    setActionErr(null);
-    try {
-      await api.markRequiredDocDone(doc.id, !!doc.marked_done_at);
-      await refreshStudent(studentId);
-    } catch (e) { setActionErr(e.message); }
-    finally     { setBusy(p => ({ ...p, [doc.id]: false })); }
-  };
-
-  const toggleApprove = async (studentId, doc) => {
-    setBusy(p => ({ ...p, [doc.id]: true }));
-    setActionErr(null);
-    try {
-      await api.approveSop(doc.id, !!doc.approved_by_admin_at);
-      await refreshStudent(studentId);
-    } catch (e) { setActionErr(e.message); }
-    finally     { setBusy(p => ({ ...p, [doc.id]: false })); }
-  };
-
   const sendBulk = async (studentId, studentName) => {
     if (!confirm(
-      `Send all marked-done LOR & Internship requests to ${studentName}?\n\n` +
-      `They will have 5 business days to collect signatures and upload stamped copies.`
+      `Send all uploaded LOR / Internship / NGO drafts to ${studentName}?\n\n` +
+      `They will have 5 business days to collect signatures and upload the signed copies.`
     )) return;
     setBulkBusy(p => ({ ...p, [studentId]: true }));
     setActionErr(null);
@@ -197,11 +131,6 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
     } catch (e) { setActionErr(e.message); }
     finally     { setBulkBusy(p => ({ ...p, [studentId]: false })); }
   };
-
-  const toggleExpand = (docId) =>
-    setExpanded(prev => { const n = new Set(prev); n.has(docId) ? n.delete(docId) : n.add(docId); return n; });
-
-  // ── render ────────────────────────────────────────────────────────────────
 
   if (err) return (
     <p className="flex items-center gap-2 text-sm text-red-700">
@@ -216,11 +145,16 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
   );
 
   if (students.length === 0) return (
-    <p className="text-sm  text-black">No students have completed intake yet.</p>
+    <p className="text-sm text-black">No students have completed intake yet.</p>
   );
 
   return (
     <div className="space-y-5">
+      <p className="text-sm text-stone-800">
+        Upload a Word document of each LOR / Internship / NGO / Extracurricular letter / SOP — rather than a signed PDF or image.
+        The student gets it printed on letterhead and signed, then uploads the stamped copy from their dashboard.
+      </p>
+
       {actionErr && (
         <p className="flex items-center gap-2 text-sm text-red-700">
           <AlertCircle className="h-4 w-4" /> {actionErr}
@@ -231,14 +165,10 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
         const sid  = student.student_id;
         const name = student.display_name || student.username;
         const docs = docsMap[sid];
+        const contact = studentContact(student);
 
-        const lors    = docs?.filter(d => d.kind === "lor")             ?? [];
-        const interns = docs?.filter(d => d.kind === "internship")      ?? [];
-        const ngos    = docs?.filter(d => d.kind === "ngo")             ?? [];
-        const extras  = docs?.filter(d => d.kind === "extracurricular") ?? [];
-        const allLIDone    = [...lors, ...interns, ...ngos, ...extras].every(d => d.marked_done_at);
-        const anyLIPending = [...lors, ...interns, ...ngos, ...extras].some(d => d.marked_done_at && !d.requested_at);
-        const status  = docs ? overallStatus(docs) : "pending";
+        const allReady     = (docs || []).filter(d => d.kind !== "sop").every(d => !!d.final_file_id);
+        const anyUnsent    = (docs || []).some(d => d.kind !== "sop" && d.final_file_id && !d.requested_at);
 
         return (
           <div key={sid} className="border border-stone-300 bg-white">
@@ -247,14 +177,9 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
             <div className="border-b border-stone-300 bg-[#fdf8f4] px-5 py-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
 
-                {/* Left: name + status + counsellor */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${OVERALL_DOT[status]}`} />
                     <span className="text-xl font-bold text-black">{name}</span>
-                    <span className="rounded border border-[#cc785c]/40 bg-[#cc785c]/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-[0.15em] text-[#cc785c]">
-                      {OVERALL_LABEL[status]}
-                    </span>
                     {!docs && <Loader2 className="h-4 w-4 animate-spin text-black" />}
                   </div>
 
@@ -264,28 +189,41 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                     counsellors={counsellors}
                     role={role}
                     onAssigned={() => refreshStudent(sid).then(() =>
-                      // Re-fetch students list so the name updates in parent
                       api.listStudents().then(list => {
                         const ready = list.filter(s => s.intake_complete);
                         setStudents(ready);
                       }).catch(() => {})
                     )}
                   />
+
+                  {(contact.email || contact.phone) && (
+                    <p className="text-sm text-black">
+                      {contact.email && (
+                        <span className="inline-flex items-center gap-1.5 mr-4">
+                          <Mail className="h-3.5 w-3.5" /> {contact.email}
+                        </span>
+                      )}
+                      {contact.phone && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Phone className="h-3.5 w-3.5" /> {contact.phone}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
 
-                {/* Right: stacked action buttons + send */}
+                {/* Right: stacked action buttons */}
                 <div className="flex flex-col items-end gap-2">
-                  {(lors.length > 0 || interns.length > 0 || ngos.length > 0 || extras.length > 0) && (
-                    <button
-                      type="button"
-                      onClick={() => sendBulk(sid, name)}
-                      disabled={!allLIDone || !anyLIPending || !!bulkBusy[sid]}
-                      className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      {bulkBusy[sid] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      {bulkBusy[sid] ? "Sending…" : "Send requests"}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => sendBulk(sid, name)}
+                    disabled={!docs || !allReady || !anyUnsent || !!bulkBusy[sid]}
+                    title={!allReady ? "Upload a draft for every LOR / Internship / NGO row first." : !anyUnsent ? "Every uploaded draft has already been sent." : ""}
+                    className="inline-flex items-center gap-2 border border-[#cc785c] bg-[#cc785c] px-4 py-2 text-sm font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {bulkBusy[sid] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {bulkBusy[sid] ? "Sending…" : "Send all to student"}
+                  </button>
 
                   {onViewStudent && (
                     <button
@@ -293,7 +231,7 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                       onClick={() => onViewStudent(sid)}
                       className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
-                      <ExternalLink className="h-4 w-4" /> View this student's profile
+                      <ExternalLink className="h-4 w-4" /> View student profile
                     </button>
                   )}
                   {onViewTasks && (
@@ -302,95 +240,230 @@ export default function RequiredDocsPanel({ role, counsellors = [], onViewStuden
                       onClick={() => onViewTasks(sid, name)}
                       className="inline-flex items-center gap-2 border border-stone-400 bg-white px-4 py-2 text-sm font-semibold text-black transition hover:border-[#cc785c] hover:text-[#cc785c]"
                     >
-                      <ClipboardList className="h-4 w-4" /> View tasks related to this student
+                      <ClipboardList className="h-4 w-4" /> View tasks for this student
                     </button>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* ── Column headers ─────────────────────────── */}
-            {docs && docs.length > 0 && (
-              <div
-                className="grid items-center border-b border-stone-200 bg-stone-100 px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-black"
-                style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
-              >
-                <span>Document</span>
-                <span>Date Submitted</span>
-                <span>Status</span>
-                <span />
-              </div>
-            )}
-
-            {/* ── Document rows ──────────────────────────── */}
+            {/* ── Per-kind sections ─────────────────────── */}
             {!docs ? (
-              <div className="flex items-center gap-2 px-5 py-4 text-xs text-black">
+              <div className="flex items-center gap-2 px-5 py-4 text-sm text-black">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading documents…
               </div>
             ) : docs.length === 0 ? (
-              <p className="px-5 py-4 text-xs  text-black">No required documents.</p>
+              <p className="px-5 py-4 text-sm text-black">No required documents yet for this student.</p>
             ) : (
-              docs.map((doc, idx) => {
-                const isOpen = expanded.has(doc.id);
-                const { label, cls } = docStatus(doc);
-                const heading = docHeading(doc);
-                const isLast  = idx === docs.length - 1;
-
-                return (
-                  <div key={doc.id} className={!isLast ? "border-b border-stone-200" : ""}>
-
-                    {/* Row header — always visible */}
-                    <button
-                      type="button"
-                      onClick={() => toggleExpand(doc.id)}
-                      className="grid w-full items-center px-5 py-4 text-left transition hover:bg-stone-50"
-                      style={{ gridTemplateColumns: "1fr 160px 200px 24px" }}
-                    >
-                      {/* Doc type */}
-                      <span className="text-base font-semibold text-black">
-                        {heading}
-                      </span>
-
-                      {/* Date submitted */}
-                      <span className="text-base font-medium text-black">
-                        {humanDate(doc.created_at)}
-                      </span>
-
-                      {/* Status badge */}
-                      <span className={`inline-flex items-center gap-1.5 border px-2.5 py-1 text-sm font-semibold ${cls}`}>
-                        {(doc.final_file_id || doc.approved_by_admin_at) && <CheckCircle2 className="h-3.5 w-3.5" />}
-                        {doc.requested_at && !doc.final_file_id          && <Clock         className="h-3.5 w-3.5" />}
-                        {label}
-                      </span>
-
-                      {/* Chevron */}
-                      <ChevronDown className={`h-4 w-4 shrink-0 text-black transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-                    </button>
-
-                    {/* Expanded detail */}
-                    {isOpen && (
-                      <div className="border-t border-stone-100 px-5 pb-5 pt-4">
-                        <DocCardBody
-                          doc={doc}
-                          draft={drafts[doc.id] ?? ""}
-                          onDraftChange={v => setDrafts(p => ({ ...p, [doc.id]: v }))}
-                          onSave={() => saveDraft(sid, doc.id)}
-                          onToggleDone={() => toggleDone(sid, doc)}
-                          onToggleApprove={() => toggleApprove(sid, doc)}
-                          canApprove={role === "admin"}
-                          busy={!!busy[doc.id]}
-                          role={role}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+              <div className="space-y-6 px-5 py-5">
+                {KINDS.map(group => {
+                  const rows = docs.filter(d => d.kind === group.kind).sort((a, b) => a.seq - b.seq);
+                  if (rows.length === 0) return null;
+                  return (
+                    <DocKindSection
+                      key={group.kind}
+                      label={group.label}
+                      rows={rows}
+                      contact={contact}
+                      role={role}
+                      onOpenDoc={(doc) => setPopup({ studentId: sid, doc })}
+                    />
+                  );
+                })}
+              </div>
             )}
           </div>
         );
       })}
+
+      {popup && (
+        <RecommendedDocPopup
+          doc={popup.doc}
+          studentId={popup.studentId}
+          role={role}
+          onClose={() => setPopup(null)}
+          onRefresh={() => refreshStudent(popup.studentId)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── per-kind section ──────────────────────────────────────────────────────
+
+function DocKindSection({ label, rows, contact, role, onOpenDoc }) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-black">{label}</h3>
+        <WhatsappButton phone={contact.phone} compact label={`WhatsApp ${label.toLowerCase()}`} />
+      </div>
+      <div className="border border-stone-200 bg-white">
+        {rows.map((row, i) => (
+          <DocRow
+            key={row.id}
+            doc={row}
+            contact={contact}
+            role={role}
+            onOpen={() => onOpenDoc(row)}
+            isLast={i === rows.length - 1}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── one row ───────────────────────────────────────────────────────────────
+// LOR1 · [Signed-status pill, red until uploaded] · [Approve] · [WhatsApp] · [email] · [Send]
+
+function DocRow({ doc, contact, role, onOpen, isLast }) {
+  const status   = signedStatus(doc);
+  const approved = !!doc.approved_by_admin_at;
+  const canApprove = role === "admin" && !!doc.final_file_id;
+
+  return (
+    <div className={`grid items-center gap-3 px-4 py-3 ${!isLast ? "border-b border-stone-100" : ""}`}
+         style={{ gridTemplateColumns: "8rem minmax(0, 1fr) auto auto auto auto" }}>
+
+      {/* Slot label */}
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 shrink-0 text-stone-600" />
+        <span className="text-base font-semibold text-black">{slotLabel(doc)}</span>
+      </div>
+
+      {/* Signed-status pill — clickable, opens lifecycle popup */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`inline-flex items-center justify-start gap-2 border-2 px-3 py-2 text-sm font-bold uppercase tracking-[0.12em] transition hover:brightness-95 ${status.tone}`}
+        title="Open lifecycle: draft, signatures, signed copy, timestamps"
+      >
+        {doc.signed_file_id
+          ? <CheckCircle2 className="h-4 w-4" />
+          : doc.final_file_id
+            ? <Clock className="h-4 w-4" />
+            : <AlertCircle className="h-4 w-4" />}
+        <span className="truncate">{status.label}</span>
+      </button>
+
+      {/* Approved-by-admin toggle */}
+      <ApproveToggle doc={doc} canApprove={canApprove} approved={approved} onChanged={onOpen} />
+
+      {/* WhatsApp — no-op for now (waiting on messaging stack) */}
+      <WhatsappButton phone={contact.phone} />
+
+      {/* Email (student's intake email) */}
+      <span className="inline-flex items-center gap-1.5 border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-sm text-black">
+        <Mail className="h-3.5 w-3.5 text-stone-600" />
+        <span className="truncate max-w-[14rem]">{contact.email || "—"}</span>
+      </span>
+
+      {/* Send (no-op for now; gated on file + at least one channel) */}
+      <SendButton doc={doc} contact={contact} />
+    </div>
+  );
+}
+
+// Approve toggle — admin-only; greyed for counsellor or when there is no
+// uploaded draft yet. Read-only chip otherwise.
+function ApproveToggle({ doc, canApprove, approved, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const toggle = async () => {
+    if (!canApprove) return;
+    setBusy(true); setErr(null);
+    try {
+      await api.approveRequiredDoc(doc.id, approved);
+      onChanged?.();
+    } catch (e) {
+      setErr(e.message || "Couldn't update approval");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const base = "inline-flex items-center gap-1.5 border-2 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.1em] transition";
+  if (!canApprove) {
+    return (
+      <span className={`${base} ${approved ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-300 bg-stone-100 text-stone-600"}`}>
+        {approved ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+        {approved ? "Approved" : "Not approved"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      title={err || (approved ? "Click to un-approve" : "Mark approved by admin")}
+      className={`${base} ${approved ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800" : "border-stone-400 bg-white text-black hover:border-stone-700"} disabled:opacity-50`}
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : approved ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+      {approved ? "Approved" : "Approve"}
+    </button>
+  );
+}
+
+// WhatsApp button — no-op for now (the messaging integration isn't wired
+// yet). Disabled if we don't have a phone number; otherwise a button that
+// the staff can mentally point at while the backend lands.
+function WhatsappButton({ phone, compact = false, label = "WhatsApp" }) {
+  const onClick = () => {
+    // Intentional placeholder. WhatsApp send is on the backlog — wiring
+    // would post to a messaging route that templates the doc download
+    // + a chase note. Keeping it inert until that endpoint exists.
+  };
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!phone}
+        title={phone ? label : "No phone number on file"}
+        className="inline-flex items-center gap-1.5 border border-emerald-600 bg-white px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!phone}
+      title={phone ? `WhatsApp ${phone}` : "No phone number on file"}
+      className="inline-flex items-center gap-1.5 border-2 border-emerald-600 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+    </button>
+  );
+}
+
+// Send button — would dispatch the uploaded draft to the student's email
+// and WhatsApp. Inert today; gated on having a file + at least one
+// channel + an uploaded draft.
+function SendButton({ doc, contact }) {
+  const hasDraft = !!doc.final_file_id;
+  const hasChannel = !!(contact.email || contact.phone);
+  const disabled = !hasDraft || !hasChannel;
+  const title = !hasDraft
+    ? "Upload the Word draft first"
+    : !hasChannel
+      ? "No email or phone on file"
+      : `Send draft to ${[contact.email, contact.phone].filter(Boolean).join(" · ")}`;
+  return (
+    <button
+      type="button"
+      onClick={() => { /* placeholder until messaging endpoint exists */ }}
+      disabled={disabled}
+      title={title}
+      className="inline-flex items-center gap-1.5 border-2 border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-white transition hover:bg-[#b86a4f] disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <Send className="h-3.5 w-3.5" /> Send
+    </button>
   );
 }
 
@@ -458,140 +531,6 @@ function CounsellorAssign({ student, counsellors, role, onAssigned }) {
         </button>
       )}
       {assignErr && <span className="text-xs text-red-700">{assignErr}</span>}
-    </div>
-  );
-}
-
-// ─── doc card body (no outer border / heading — those live in the row) ─────
-
-function DocCardBody({ doc, draft, onDraftChange, onSave, onToggleDone, onToggleApprove, canApprove, busy }) {
-  const isSop  = doc.kind === "sop";
-  const dirty  = (draft || "") !== (doc.staff_draft || "");
-  const words  = draft ? draft.trim().split(/\s+/).filter(Boolean).length : 0;
-  const heading = docHeading(doc);
-
-  return (
-    <div className="space-y-5">
-
-      {/* Student brief — LOR */}
-      {doc.kind === "lor" && (
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
-            Context from student
-          </p>
-          <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
-            <span className="text-black">Recommender</span>
-            <span className="text-black">{doc.recipient_name || "—"}</span>
-            <span className="text-black">Position / Subject</span>
-            <span className="text-black">{doc.recipient_role || "—"}</span>
-            <span className="text-black">Student's reason</span>
-            <span className="text-black">{doc.reason_brief   || "—"}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Student brief — Internship / NGO / Extracurricular */}
-      {(doc.kind === "internship" || doc.kind === "ngo" || doc.kind === "extracurricular") && (
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
-            Context from student
-          </p>
-          <div className="grid grid-cols-[160px_1fr] gap-x-4 gap-y-2 border border-stone-200 bg-stone-50 px-5 py-4 text-sm">
-            <span className="text-black">
-              {doc.kind === "internship" ? "Company" : doc.kind === "ngo" ? "Organisation" : "Activity / Organisation"}
-            </span>
-            <span className="text-black">{doc.company_name    || "—"}</span>
-            <span className="text-black">Website</span>
-            <span className="text-black">{doc.company_website || "—"}</span>
-            <span className="text-black">What they did</span>
-            <span className="text-black">{doc.activity_brief  || "—"}</span>
-          </div>
-        </div>
-      )}
-
-      {/* SOP note */}
-      {isSop && (
-        <p className="border-l-4 border-stone-300 pl-4 text-sm  text-black">
-          Use the student's academic record, activities, internships, and personal summary from their intake to draft a complete Statement of Purpose. Admin approval is required before this is shown to the student.
-        </p>
-      )}
-
-      {/* Draft area */}
-      <div>
-        <div className="mb-2 flex items-baseline justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-black">
-            {isSop ? "SOP draft" : "Document draft"}
-          </p>
-          {words > 0 && <span className="text-[10px] text-black">{words} words</span>}
-        </div>
-        <AutoTextarea
-          value={draft}
-          onChange={e => onDraftChange(e.target.value)}
-          minRows={5}
-          placeholder={
-            isSop
-              ? "Write the full Statement of Purpose here. Admin must approve before it is shown to the student."
-              : `Write the full ${heading} here. The student will have this printed on official letterhead and signed.`
-          }
-          className="w-full border border-stone-300 bg-[#faf9f5] px-4 py-3 font-serif text-sm leading-relaxed text-black outline-none focus:border-stone-700"
-        />
-        {dirty && <p className="mt-1 text-[11px]  text-amber-700">Unsaved changes</p>}
-      </div>
-
-      {/* Action row */}
-      <div className="flex flex-wrap items-center gap-3 border-t border-stone-100 pt-4">
-        <button
-          type="button" onClick={onSave} disabled={!dirty || busy}
-          className="inline-flex items-center gap-2 border border-stone-700 bg-white px-4 py-2 text-xs uppercase tracking-[0.15em] text-black transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Save draft
-        </button>
-
-        {!isSop && (
-          <button
-            type="button" onClick={onToggleDone}
-            disabled={busy || !!doc.requested_at}
-            title={doc.requested_at ? "Already sent — cannot undo" : ""}
-            className={`inline-flex items-center gap-2 border px-4 py-2 text-xs uppercase tracking-[0.15em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
-              doc.marked_done_at
-                ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-400 bg-white text-black hover:border-stone-700"
-            }`}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            {doc.marked_done_at ? "Done — click to undo" : "Mark done"}
-          </button>
-        )}
-
-        {isSop && canApprove && (
-          <button
-            type="button" onClick={onToggleApprove}
-            disabled={busy || !doc.staff_draft}
-            title={!doc.staff_draft ? "Save a draft first" : ""}
-            className={`inline-flex items-center gap-2 border px-4 py-2 text-xs uppercase tracking-[0.15em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
-              doc.approved_by_admin_at
-                ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                : "border-stone-400 bg-white text-black hover:border-stone-700"
-            }`}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            {doc.approved_by_admin_at ? "Approved — click to un-approve" : "Approve SOP"}
-          </button>
-        )}
-
-        {isSop && !canApprove && (
-          <span className="text-xs  text-black">
-            Admin must approve this SOP before it appears on the student's profile.
-          </span>
-        )}
-
-        {doc.final_file_id && (
-          <span className="ml-auto flex items-center gap-1 text-xs text-emerald-700">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Final document uploaded by student
-          </span>
-        )}
-      </div>
     </div>
   );
 }

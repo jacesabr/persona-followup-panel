@@ -50,8 +50,16 @@ function uploadOne(req, res, next) {
     next();
   });
 }
+// Word (.doc / .docx) is the preferred format for staff-uploaded drafts
+// (counsellor edits, prints on letterhead, hands to student). PDF + JPG
+// + PNG stay allowed as a fallback for student-uploaded signed copies
+// (phone photo of the stamped letter) and for legacy staff uploads.
 function allowedMime(m) {
-  return m === "application/pdf" || m === "image/jpeg" || m === "image/png";
+  return m === "application/pdf"
+      || m === "image/jpeg"
+      || m === "image/png"
+      || m === "application/msword"
+      || m === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 }
 
 // Common upload pipeline shared by staff + student endpoints. Saves
@@ -62,7 +70,7 @@ function allowedMime(m) {
 // recommended-doc row. Returns the new file id + url.
 async function ingestRecDocFile({ studentId, docRow, multerFile }) {
   if (!allowedMime(multerFile.mimetype)) {
-    throw Object.assign(new Error("only PDF / JPG / PNG allowed"), { http: 400 });
+    throw Object.assign(new Error("only Word / PDF / JPG / PNG allowed"), { http: 400 });
   }
   const fieldId = `recdoc_${docRow.kind}_${docRow.seq}`;
   const store = await getStorage();

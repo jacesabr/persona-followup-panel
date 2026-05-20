@@ -1030,6 +1030,16 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
       params.push(req.user.counsellorId);
       scopeClause = `AND s.counsellor_id = $${params.length}`;
     }
+    // Optional ?student_id=X — restricts the query to a single student so
+    // the client can lazy-load the (expensive) per-student chip grid on
+    // demand instead of fetching every student on every refresh. Same
+    // counsellor scoping still applies.
+    const onlyStudentId = req.query.student_id ? String(req.query.student_id) : null;
+    let onlyClause = "";
+    if (onlyStudentId) {
+      params.push(onlyStudentId);
+      onlyClause = `AND s.student_id = $${params.length}`;
+    }
     const fileSubqueries = NON_FIN_FIELDS.map((fid) => {
       params.push(fid);
       return `(SELECT json_build_object('id', id, 'original_name', original_name, 'size', size, 'mime_type', mime_type, 'ai_description', ai_description, 'ai_extracted', ai_extracted, 'created_at', created_at)
@@ -1092,6 +1102,7 @@ router.get("/documents-summary", requireStaff, async (req, res, next) => {
       WHERE (s.is_archived = FALSE OR s.is_archived IS NULL)
         AND s.username IS NOT NULL
         ${scopeClause}
+        ${onlyClause}
       ORDER BY s.created_at DESC
     `, params);
     res.json(rows.map((r) => {

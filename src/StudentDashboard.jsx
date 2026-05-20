@@ -262,9 +262,10 @@ export default function StudentDashboard({
 
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length > 0 && (
           <section className={section ? "" : "mt-10"}>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommended documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required signed documents</h2>
             <p className="mt-1 text-sm text-stone-800">
-              Letters of recommendation, internship certificates, NGO documents, extracurricular letters, and your statement of purpose. You'll see status updates here as your counsellor drafts each one.
+              Your counsellor drafts each Letter of Recommendation, Internship certificate, NGO letter, Extracurricular letter, and your Statement of Purpose, and sends you the Word draft.
+              Print it on official school letterhead, get it signed and stamped, then upload the signed copy here (photo or PDF is fine).
             </p>
             <RequiredDocsBlock
               docs={requiredDocs}
@@ -274,30 +275,23 @@ export default function StudentDashboard({
           </section>
         )}
 
-        {/* Show the LOR suggestions block even when the student has no
-            other required-docs yet, so a freshly auto-filled student
-            sees the proposed recommenders immediately. */}
         {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && (
           <section className={section ? "" : "mt-10"}>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Letters of recommendation</h2>
-            <p className="mt-1 text-sm text-stone-800">
-              Add the people you'd like to ask for a recommendation. Your counsellor takes it from there.
-            </p>
-            <RequiredDocsBlock
-              docs={[]}
-              studentId={adminStudentId}
-              onAfterChange={load}
-              showAddCardWhenEmpty
-            />
-          </section>
-        )}
-
-        {(!section || section === "required-docs") && requiredDocs && requiredDocs.length === 0 && section === "required-docs" && (
-          <section>
-            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Recommended documents</h2>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Required signed documents</h2>
             <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
               Nothing's been requested yet — your counsellor will populate this list once they review your intake.
             </p>
+          </section>
+        )}
+
+        {section === "doc-status" && (
+          <section>
+            <h2 className="text-xs uppercase tracking-[0.2em] text-black">Document status</h2>
+            <p className="mt-1 text-sm text-stone-800">
+              Where each of your Letters of Recommendation, Internship certificates, NGO letters, Extracurricular letters, and your Statement of Purpose stand right now.
+              This view is read-only — head to the "Required signed documents" tab to upload signed copies.
+            </p>
+            <DocStatusBlock docs={requiredDocs} />
           </section>
         )}
 
@@ -396,6 +390,92 @@ function UrgentItemsStrip({ items }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+// ============================================================
+// DocStatusBlock — read-only lifecycle view that mirrors the upload list
+// but with NO upload affordance. One row per required-doc slot, grouped
+// by kind. The student uses this to scan "where does each LOR / SOP
+// stand" without bumping into upload buttons. Maps the underlying state
+// to three plain-English labels:
+//   - Uninitiated → counsellor hasn't drafted the Word doc yet
+//   - In progress → draft uploaded by the counsellor; signing pending
+//   - Signed     → student has uploaded the signed copy (or admin approved the SOP)
+// Keeps the kind ordering identical to RequiredDocsPanel for consistency.
+// ============================================================
+const STATUS_KIND_ORDER = [
+  { kind: "lor",             label: "Letters of Recommendation" },
+  { kind: "internship",      label: "Internship certificates" },
+  { kind: "ngo",             label: "NGO letters" },
+  { kind: "extracurricular", label: "Extracurricular letters" },
+  { kind: "sop",             label: "Statement of Purpose" },
+];
+
+function statusForDoc(doc) {
+  // SOP is admin-approved, not student-signed — collapse it into the
+  // three buckets so the student sees uniform language.
+  if (doc.kind === "sop") {
+    if (doc.approved_by_admin_at) return { label: "Signed",       tone: "bg-emerald-50 text-emerald-800 border-emerald-400" };
+    if (doc.staff_draft || doc.final_file_id) return { label: "In progress",  tone: "bg-amber-50 text-amber-800 border-amber-400" };
+    return { label: "Uninitiated", tone: "bg-stone-100 text-stone-700 border-stone-300" };
+  }
+  if (doc.final_file_id && doc.requested_at) {
+    return { label: "Signed", tone: "bg-emerald-50 text-emerald-800 border-emerald-400" };
+  }
+  if (doc.final_file_id || doc.staff_draft || doc.marked_done_at || doc.requested_at) {
+    return { label: "In progress", tone: "bg-amber-50 text-amber-800 border-amber-400" };
+  }
+  return { label: "Uninitiated", tone: "bg-stone-100 text-stone-700 border-stone-300" };
+}
+
+function docRowLabel(doc) {
+  if (doc.kind === "sop") return "Statement of Purpose";
+  if (doc.kind === "lor") return `LOR ${doc.seq}${doc.recipient_name ? ` — ${doc.recipient_name}` : ""}`;
+  const noun = doc.kind === "internship" ? "Internship" : doc.kind === "ngo" ? "NGO" : "Extracurricular";
+  return `${noun} ${doc.seq}${doc.company_name ? ` — ${doc.company_name}` : ""}`;
+}
+
+export function DocStatusBlock({ docs }) {
+  if (!docs || docs.length === 0) {
+    return (
+      <p className="mt-4 border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800">
+        Nothing's been requested yet — your counsellor will populate this list once they review your intake.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-5">
+      {STATUS_KIND_ORDER.map((group) => {
+        const rows = docs
+          .filter((d) => d.kind === group.kind)
+          .sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        if (rows.length === 0) return null;
+        return (
+          <section key={group.kind}>
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+              {group.label}
+            </h3>
+            <div className="border border-stone-200 bg-white">
+              {rows.map((d, i) => {
+                const st = statusForDoc(d);
+                return (
+                  <div
+                    key={d.id}
+                    className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${i < rows.length - 1 ? "border-b border-stone-100" : ""}`}
+                  >
+                    <span className="text-sm text-black">{docRowLabel(d)}</span>
+                    <span className={`inline-flex items-center border-2 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] ${st.tone}`}>
+                      {st.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }
 

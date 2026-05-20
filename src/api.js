@@ -198,6 +198,12 @@ export const api = {
     request("GET", `/api/students${includeArchived ? "?include_archived=true" : ""}`),
   listStudentsFinancialSummary: () => request("GET", "/api/students/financial-summary"),
   listStudentsDocumentsSummary: () => request("GET", "/api/students/documents-summary"),
+  // Single-student variant — same row shape as the bulk endpoint but
+  // scoped to one student so the staff documents tab can lazy-fetch a
+  // card on expand instead of pulling every student's chip grid upfront.
+  getStudentDocumentsSummary: (studentId) =>
+    request("GET", `/api/students/documents-summary?student_id=${encodeURIComponent(studentId)}`)
+      .then((rows) => Array.isArray(rows) ? rows[0] || null : null),
   getDocConfigs: () => request("GET", "/api/students/doc-configs"),
   updateDocConfig: (location, level, visibleKeys) =>
     request("PUT", `/api/students/doc-configs/${location}/${level}`, { visible_keys: visibleKeys }),
