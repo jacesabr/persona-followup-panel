@@ -2485,6 +2485,9 @@ function DocChip({ col, docs, onShowPopup, onRemove }) {
 // kind so the counsellor can add LOR4 / Internship3 / NGO2 / SOP2 etc.
 // Default state on every student is LOR 1/2/3 + Internship 1/2 + NGO 1
 // + SOP 1 (server-side seed); chips render whatever rows the API returns.
+// Chip state since the upload-only refactor: approved (green ✓) /
+// uploaded (white) / empty (dashed grey). No more amber draft state —
+// drafting was retired with the AI generator.
 function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKind }) {
   const visible = (reqdocs || []).filter(rd => visibleKinds.has(rd.kind));
   const kindOrder = ["lor", "internship", "ngo", "extracurricular", "sop"];
@@ -2500,44 +2503,38 @@ function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKin
     : kind === "extracurricular" ? "Extracurricular"
     : "SOP";
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {kindOrder.filter(k => visibleKinds.has(k)).map((kind) => {
         const rows = (groupedByKind.get(kind) || []).slice().sort((a, b) => a.seq - b.seq);
         return (
-          <div key={kind} className="flex flex-wrap items-center gap-1.5">
+          <div key={kind} className="flex flex-wrap items-center gap-1">
             {rows.map((rd) => {
               const approved = !!rd.approved_by_admin_at;
+              const hasFile  = !!rd.final_file;
               const slotLabel = rd.kind === "sop" ? "SOP" : `${kindLabel(rd.kind)} ${rd.seq}`;
               return (
                 <button
                   key={`${rd.kind}-${rd.seq}-${rd.id}`}
-                  className={`inline-flex items-center gap-1 rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${
                     approved
-                      ? "border-emerald-400/50 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                      : rd.staff_draft
-                        ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                        : "border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+                      ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      : hasFile
+                        ? "border-stone-300 bg-white text-stone-800 hover:bg-stone-50"
+                        : "border-dashed border-stone-300 bg-stone-50 text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
                   }`}
                   onClick={() => onShowReqDoc(rd)}
-                  title={
-                    approved ? "Approved" :
-                    rd.staff_draft ? "Draft ready — click to review" :
-                    "No draft yet — click to set up and generate"
-                  }
+                  title={approved ? "Approved" : hasFile ? "Uploaded — click to view" : "No file uploaded — click to upload"}
                 >
-                  {approved ? "✓" : rd.staff_draft ? "✎" : "○"} {slotLabel}
-                  {rd.label ? <span className="opacity-60">· {rd.label}</span> : null}
+                  {approved ? "✓" : hasFile ? "·" : "○"} {slotLabel}
                 </button>
               );
             })}
             <button
               type="button"
               onClick={() => onAddKind(kind)}
-              className="inline-flex items-center gap-1 rounded border border-dashed border-stone-400 bg-white px-2 py-1.5 text-xs font-semibold text-stone-600 transition-colors hover:border-[#cc785c] hover:text-[#cc785c]"
+              className="inline-flex items-center rounded border border-dashed border-stone-300 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-stone-500 transition-colors hover:border-[#cc785c] hover:text-[#cc785c]"
               title={`Add another ${kindLabel(kind)}`}
-            >
-              + {kindLabel(kind)}
-            </button>
+            >+</button>
           </div>
         );
       })}

@@ -400,39 +400,19 @@ function UrgentItemsStrip({ items }) {
 }
 
 // ============================================================
-// RequiredDocsBlock — splits the doc list into AI-suggested LOR rows
-// (student_accepted_at IS NULL, kind='lor') and the regular accepted
-// flow. Suggestions render as cards with check / X actions; accepted
-// rows render as the existing RequiredDocRow. The "+ add another"
-// button always trails the LOR section so the student can manually
-// add a recommender at any time.
-function RequiredDocsBlock({ docs, studentId, onAfterChange, showAddCardWhenEmpty = false }) {
-  const suggestions = (docs || []).filter(
-    (d) => d.kind === "lor" && !d.student_accepted_at
-  );
-  const accepted = (docs || []).filter(
-    (d) => !(d.kind === "lor" && !d.student_accepted_at)
-  );
-  const hasAnyLor = (docs || []).some((d) => d.kind === "lor");
-  const showAddCard = suggestions.length > 0 || hasAnyLor || showAddCardWhenEmpty;
+// RequiredDocsBlock — renders one row per LOR / Internship / NGO /
+// Extracurricular / SOP slot the counsellor has set up for the student.
+// Each row is just upload status + an upload widget. Previously this
+// component had separate paths for AI-suggested LORs (LorSuggestionCard)
+// and a manual "+ Add" path (AddLorCard); both retired when the flow
+// went upload-only — the counsellor manages slots from the admin side,
+// the student just uploads here.
+function RequiredDocsBlock({ docs, studentId, onAfterChange }) {
+  const rows = docs || [];
+  if (rows.length === 0) return null;
   return (
-    <div className="mt-4 space-y-3">
-      {suggestions.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-900">
-            Suggested recommenders
-          </p>
-          {suggestions.map((d) => (
-            <LorSuggestionCard
-              key={d.id}
-              doc={d}
-              onAfterChange={onAfterChange}
-            />
-          ))}
-        </div>
-      )}
-      {showAddCard && <AddLorCard onAfterChange={onAfterChange} />}
-      {accepted.map((d) => (
+    <div className="mt-4 space-y-2">
+      {rows.map((d) => (
         <RequiredDocRow
           key={d.id}
           doc={d}
@@ -444,188 +424,16 @@ function RequiredDocsBlock({ docs, studentId, onAfterChange, showAddCardWhenEmpt
   );
 }
 
-// LorSuggestionCard — one AI-suggested recommender. Filled with
-// recipient_name + recipient_role + reason_brief from the dispatch
-// payload. Student clicks the check to accept (the row enters the
-// regular drafting lifecycle) or X to delete (the row is removed).
-function LorSuggestionCard({ doc, onAfterChange }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const accept = async () => {
-    setBusy(true); setErr(null);
-    try {
-      await api.acceptLorSuggestion(doc.id);
-      onAfterChange?.();
-    } catch (e) {
-      setErr(e.message || "Couldn't accept this suggestion.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const remove = async () => {
-    setBusy(true); setErr(null);
-    try {
-      await api.deleteLorSuggestion(doc.id);
-      onAfterChange?.();
-    } catch (e) {
-      setErr(e.message || "Couldn't remove this suggestion.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="border-2 border-orange-300 bg-orange-50/50 px-4 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-base font-bold text-black">{doc.recipient_name || "(name pending)"}</span>
-        {doc.recipient_role && (
-          <span className="text-sm text-stone-800">{doc.recipient_role}</span>
-        )}
-      </div>
-      {doc.reason_brief && (
-        <p className="mt-1 text-sm text-stone-800">
-          <span className="text-stone-700">Why. </span>{doc.reason_brief}
-        </p>
-      )}
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={accept}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-800 disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-          Accept
-        </button>
-        <button
-          type="button"
-          onClick={remove}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-red-700 hover:text-red-700 disabled:opacity-50"
-        >
-          <AlertCircle className="h-3 w-3" />
-          Remove
-        </button>
-        {err && <span className="text-xs text-red-700">{err}</span>}
-      </div>
-    </div>
-  );
-}
 
-// AddLorCard — empty-shape card with a + button that expands an inline
-// form. Student types recipient details, hits Save, the row is created
-// as already-accepted (student_accepted_at = NOW()) and joins the
-// regular lifecycle. Mirrors the visual language of LorSuggestionCard
-// but in stone (neutral) tones since it's for manual entry, not AI
-// proposals.
-function AddLorCard({ onAfterChange }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const reset = () => { setName(""); setRole(""); setReason(""); setErr(null); };
-  const cancel = () => { reset(); setOpen(false); };
-  const save = async () => {
-    setBusy(true); setErr(null);
-    try {
-      await api.createLorSelf({
-        recipient_name: name.trim(),
-        recipient_role: role.trim(),
-        reason_brief: reason.trim(),
-      });
-      reset();
-      setOpen(false);
-      onAfterChange?.();
-    } catch (e) {
-      setErr(e.message || "Couldn't add this recommender.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center gap-2 border-2 border-dashed border-stone-300 bg-white px-4 py-4 text-sm font-semibold text-stone-700 transition hover:border-stone-700 hover:text-black"
-      >
-        <span className="text-lg leading-none">+</span> Add another recommender
-      </button>
-    );
-  }
-  return (
-    <div className="border-2 border-stone-300 bg-white px-4 py-3">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-black">
-        Add a recommender
-      </p>
-      <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Mr Rajiv Mehta"
-            className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
-          />
-        </label>
-        <label className="block">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Role / relation</span>
-          <input
-            type="text"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder="e.g. Class XII Maths teacher"
-            className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
-          />
-        </label>
-      </div>
-      <label className="mt-3 block">
-        <span className="text-[10px] uppercase tracking-[0.15em] text-stone-700">Why this person (≤ 20 words)</span>
-        <input
-          type="text"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. taught me Maths for 2 years; saw me build the classroom timetable tool"
-          className="mt-1 w-full border-b border-stone-400 bg-transparent py-1 text-sm outline-none focus:border-stone-700"
-        />
-      </label>
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy || (!name.trim() && !role.trim() && !reason.trim())}
-          className="inline-flex items-center gap-1.5 border border-[#cc785c] bg-[#cc785c] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:bg-[#b86a4f] disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={cancel}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 border border-stone-400 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-stone-800 transition hover:border-stone-700"
-        >
-          Cancel
-        </button>
-        {err && <span className="text-xs text-red-700">{err}</span>}
-      </div>
-    </div>
-  );
-}
-
-// RequiredDocRow — one row per LOR / Internship / SOP item.
+// RequiredDocRow — one row per LOR / Internship / NGO / Extracurricular
+// / SOP slot. Single-line by default: slot label + filename or empty
+// state + an Upload button. Click expands an inline file preview when
+// a file is uploaded. Upload is always allowed; once a file is on the
+// row the button becomes "Replace".
 //
-// Status state machine:
-//   LOR / Internship:
-//     awaiting_draft → drafted → requested (deadline ticking) → received
-//   SOP:
-//     awaiting_draft → drafted (pending admin) → approved
-//
-// "Day N of 5" pills are computed from requested_at + deadline_at.
-// Day 5 — URGENT once we hit the deadline day. Reminders themselves
-// (email / WhatsApp) aren't wired up — just the visual.
+// The deadline countdown ("Day N of 5") still fires for rows the
+// counsellor has flagged with requested_at — purely a visual nudge,
+// reminders aren't wired.
 // ============================================================
 function RequiredDocRow({ doc, onAfterUpload, studentId }) {
   const [busy, setBusy] = useState(false);
@@ -637,28 +445,11 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
                     doc.kind === "ngo" ? `NGO ${doc.seq}` :
                     doc.kind === "extracurricular" ? `Extracurricular ${doc.seq}` :
                     "Statement of Purpose";
+  const hasFile = !!doc.final_file_id;
 
-  const summary = doc.kind === "lor"
-    ? `${doc.recipient_name || "—"} · ${doc.recipient_role || "—"}`
-    : doc.kind === "internship"
-    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
-    : doc.kind === "ngo"
-    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
-    : doc.kind === "extracurricular"
-    ? `${doc.company_name || "—"}${doc.company_website ? ` · ${doc.company_website}` : ""}`
-    : "Drafted by your counsellor; approved by admin.";
-
-  const status = computeRequiredDocState(doc);
-  const pill = STATUS_PILL[status] || { label: status, tone: "bg-stone-100 text-black border-stone-300" };
-
-  // Deadline countdown for requested-but-not-uploaded rows.
-  let dayBadge = null;
-  if (status === "requested" && doc.deadline_at) {
-    dayBadge = computeDayBadge(doc.requested_at, doc.deadline_at);
-  }
-
-  const canUpload = status === "requested";
-  const showStaffDraft = !!doc.staff_draft && (status === "requested" || status === "received" || status === "approved" || status === "drafted_sop");
+  const dayBadge = (!hasFile && doc.requested_at && doc.deadline_at)
+    ? computeDayBadge(doc.requested_at, doc.deadline_at)
+    : null;
 
   const onUpload = async (e) => {
     const file = e.target?.files?.[0];
@@ -666,11 +457,7 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
     setErr(null);
     setBusy(true);
     try {
-      const { fileId } = await uploadFile(file, {
-        fieldId: `required_doc_${doc.id}`,
-        accept: "image/jpeg,image/png,application/pdf",
-      });
-      await api.attachRequiredDocFinal(doc.id, fileId);
+      await api.uploadMyRequiredDocFile(doc.id, file);
       onAfterUpload?.();
     } catch (e2) {
       setErr(e2.message || "Upload failed.");
@@ -681,69 +468,48 @@ function RequiredDocRow({ doc, onAfterUpload, studentId }) {
   };
 
   return (
-    <div className="border border-stone-900/15 bg-white px-4 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-black">{kindLabel}</span>
-        <span className="text-sm text-black">{summary}</span>
-        <span className={`ml-auto inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] ${pill.tone}`}>
-          {pill.label}
-        </span>
+    <div className={`border bg-white px-4 py-2.5 ${doc.approved_by_admin_at ? "border-emerald-300" : "border-stone-900/15"}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-black">{kindLabel}</span>
+        {hasFile ? (
+          <span className="inline-flex items-center gap-1 text-sm text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span className="text-black">{doc.final_file_name || "Uploaded"}</span>
+          </span>
+        ) : (
+          <span className="text-sm text-stone-600">Not uploaded yet</span>
+        )}
         {dayBadge && (
           <span className={`inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.15em] ${dayBadge.tone}`}>
             <Clock className="h-3 w-3" /> {dayBadge.label}
           </span>
         )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,application/pdf"
+          onChange={onUpload}
+          disabled={busy}
+          className="hidden"
+          id={`upload_${doc.id}`}
+        />
+        <label
+          htmlFor={`upload_${doc.id}`}
+          className={`ml-auto inline-flex cursor-pointer items-center gap-1 border border-stone-900/30 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-black hover:border-stone-900 ${busy ? "opacity-50 pointer-events-none" : ""}`}
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+          {hasFile ? "Replace" : "Upload"}
+        </label>
       </div>
-      {showStaffDraft && (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.15em] text-black hover:text-black">
-            View counsellor draft
-          </summary>
-          <pre className="mt-2 whitespace-pre-wrap border border-stone-900/10 bg-[#faf9f5] p-3 font-serif text-sm text-black">
-{doc.staff_draft}
-          </pre>
-        </details>
-      )}
-      {doc.kind !== "sop" && doc.final_file_name && (
-        <div className="mt-2">
-          <p className="inline-flex items-center gap-1 text-xs text-emerald-700">
-            <CheckCircle2 className="h-3 w-3" />
-            Uploaded: <span className="text-black">{doc.final_file_name}</span>
-          </p>
-          {doc.final_file_id && (
-            <MiniFilePreview
-              fileId={doc.final_file_id}
-              fileName={doc.final_file_name}
-              studentId={studentId}
-            />
-          )}
-        </div>
-      )}
-      {canUpload && !doc.final_file_id && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,application/pdf"
-            onChange={onUpload}
-            disabled={busy}
-            className="hidden"
-            id={`upload_${doc.id}`}
-          />
-          <label
-            htmlFor={`upload_${doc.id}`}
-            className={`inline-flex cursor-pointer items-center gap-1 border border-stone-900/30 bg-white px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-black hover:border-stone-900 ${busy ? "opacity-50 pointer-events-none" : ""}`}
-          >
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-            Upload stamped final
-          </label>
-          <span className="text-[11px]  text-black">
-            Brightly lit photo or PDF, on a flat surface — this goes to your universities.
-          </span>
-        </div>
+      {hasFile && doc.final_file_id && (
+        <MiniFilePreview
+          fileId={doc.final_file_id}
+          fileName={doc.final_file_name}
+          studentId={studentId}
+        />
       )}
       {err && (
-        <p className="mt-2 inline-flex items-center gap-1 text-xs text-red-700">
+        <p className="mt-1 inline-flex items-center gap-1 text-xs text-red-700">
           <AlertCircle className="h-3 w-3" /> {err}
         </p>
       )}
