@@ -2522,14 +2522,18 @@ function DocChip({ col, docs, onShowPopup, onRemove }) {
   );
 }
 
-// Recommended-docs chip grid. Routes chip clicks to the
-// RecommendedDocPopup (NOT the FilePopup) and exposes "+" buttons per
-// kind so the counsellor can add LOR4 / Internship3 / NGO2 / SOP2 etc.
-// Default state on every student is LOR 1/2/3 + Internship 1/2 + NGO 1
-// + SOP 1 (server-side seed); chips render whatever rows the API returns.
-// Chip state since the upload-only refactor: approved (green ✓) /
-// uploaded (white) / empty (dashed grey). No more amber draft state —
-// drafting was retired with the AI generator.
+// Recommended-docs chip grid. Each kind (LOR, Internship, NGO,
+// Extracurricular, SOP) is always represented in the row — even when
+// the student has zero slots of that kind — so the counsellor can see
+// at a glance what's still missing instead of an unlabeled "+".
+//
+// Chip states:
+//   green ✓  = signed copy uploaded for that slot
+//   red   ✗  = slot exists but no signed copy yet
+//   red   +  = placeholder for a kind with no slots (click adds one)
+// Click any chip → opens the RecommendedDocPopup so staff can add /
+// upload / approve. The trailing dashed "+ another" button after a
+// kind's existing slots still adds a second / third row.
 function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKind }) {
   const visible = (reqdocs || []).filter(rd => visibleKinds.has(rd.kind));
   const kindOrder = ["lor", "internship", "ngo", "extracurricular", "sop"];
@@ -2548,26 +2552,44 @@ function ReqDocsGroup({ reqdocs, visibleKinds, studentId, onShowReqDoc, onAddKin
     <div className="flex flex-wrap gap-1">
       {kindOrder.filter(k => visibleKinds.has(k)).map((kind) => {
         const rows = (groupedByKind.get(kind) || []).slice().sort((a, b) => a.seq - b.seq);
+        // Empty-kind placeholder: one red labeled chip that, on click,
+        // creates a row of this kind. Replaces the prior unlabeled "+".
+        if (rows.length === 0) {
+          return (
+            <button
+              key={`${kind}-placeholder`}
+              type="button"
+              onClick={() => onAddKind(kind)}
+              className="inline-flex items-center gap-1 rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-100"
+              title={`No ${kindLabel(kind)} uploaded yet — click to add a slot`}
+            >
+              + {kindLabel(kind)}
+            </button>
+          );
+        }
         return (
           <div key={kind} className="flex flex-wrap items-center gap-1">
             {rows.map((rd) => {
               const approved = !!rd.approved_by_admin_at;
               const hasFile  = !!rd.final_file;
               const slotLabel = rd.kind === "sop" ? "SOP" : `${kindLabel(rd.kind)} ${rd.seq}`;
+              // Approved → green ✓ ; uploaded → green ✓ ; missing → red ✗.
+              // The previous "draft uploaded but not signed yet" white-chip
+              // state has been collapsed into red because the user wants a
+              // single signal — "is the signed copy in?" — and a neutral
+              // white chip read as "done" at a glance.
+              const tone = approved || hasFile
+                ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100";
+              const icon = approved ? "✓" : hasFile ? "✓" : "✗";
               return (
                 <button
                   key={`${rd.kind}-${rd.seq}-${rd.id}`}
-                  className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                    approved
-                      ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                      : hasFile
-                        ? "border-stone-300 bg-white text-stone-800 hover:bg-stone-50"
-                        : "border-dashed border-stone-300 bg-stone-50 text-stone-500 hover:border-[#cc785c] hover:text-[#cc785c]"
-                  }`}
+                  className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${tone}`}
                   onClick={() => onShowReqDoc(rd)}
-                  title={approved ? "Approved" : hasFile ? "Uploaded — click to view" : "No file uploaded — click to upload"}
+                  title={approved ? "Approved by admin" : hasFile ? "Signed copy uploaded — click to view" : "No signed copy yet — click to upload"}
                 >
-                  {approved ? "✓" : hasFile ? "·" : "○"} {slotLabel}
+                  {icon} {slotLabel}
                 </button>
               );
             })}
